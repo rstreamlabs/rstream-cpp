@@ -1,0 +1,61 @@
+ARG BASE=alpine:3.19
+
+FROM $BASE AS build
+
+ARG BUILD_TYPE="Release"
+
+ARG BUILD_LIBS_TYPE="static"
+
+RUN mkdir -p /rstream/build
+
+WORKDIR /rstream/build
+
+RUN apk update && apk --update add \
+    bash \
+    cmake \
+    g++ \
+    gcc \
+    git \
+    gzip \
+    jq \
+    linux-headers \
+    make \
+    ninja \
+    perl \
+    pkgconfig \
+    py3-pip \
+    python3 \
+    python3-dev \
+    tar
+
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade conan
+
+RUN --mount=type=cache,target=/root/.conan2 \
+    conan profile detect -f
+
+RUN --mount=type=cache,target=/root/.conan2 \
+    --mount=type=bind,src=.,target=/rstream/src \
+    conan config install /rstream/src/conan/config
+
+RUN --mount=type=cache,target=/root/.conan2 \
+    conan remote list | grep -q "rstream" || conan remote add rstream https://nexus.rstream.io/repository/conan
+
+RUN --mount=type=cache,target=/root/.conan2 \
+    --mount=type=secret,id=password \
+    conan remote login rstream admin -p $(cat /run/secrets/password)
+
+RUN --mount=type=cache,target=/root/.conan2 \
+    --mount=type=bind,src=.,target=/rstream/src \
+    export PACKAGE_NAME=$(conan inspect /rstream/src --format=json | jq -r .name); export TEST_BUILD_FOLDER=/rstream/build/test_package; conan create /rstream/src --build=missing -s:a os.sdk="linux.musl" -s build_type=${BUILD_TYPE} -o ${PACKAGE_NAME}/*:shared=$([ "${BUILD_LIBS_TYPE}" = "shared" ] && echo "True" || echo "False") -o ${PACKAGE_NAME}/*:static_libstdcxx=$([ "${BUILD_LIBS_TYPE}" = "shared" ] && echo "False" || echo "True")
+
+RUN --mount=type=cache,target=/root/.conan2 \
+    --mount=type=bind,src=.,target=/rstream/src \
+    export PACKAGE_NAME=$(conan inspect /rstream/src --format=json | jq -r .name); export PACKAGE_VERSION=$(conan inspect /rstream/src --format=json | jq -r .version); export PACKAGE_REF=${PACKAGE_NAME}/${PACKAGE_VERSION}@; conan install --requires ${PACKAGE_REF} -s:a os.sdk="linux.musl" -s build_type=${BUILD_TYPE} -o ${PACKAGE_NAME}/*:shared=$([ "${BUILD_LIBS_TYPE}" = "shared" ] && echo "True" || echo "False") -o ${PACKAGE_NAME}/*:static_libstdcxx=$([ "${BUILD_LIBS_TYPE}" = "shared" ] && echo "False" || echo "True") --deployer /rstream/src/deploy.py -of $(pwd)/out
+
+FROM scratch AS final
+
+ARG TARGETPLATFORM
+
+ARG BUILD_LIBS_TYPE="static"
+
+COPY --from=build /rstream/build/out/ /${TARGETPLATFORM}/musl/${BUILD_LIBS_TYPE}/

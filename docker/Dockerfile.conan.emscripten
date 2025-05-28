@@ -1,0 +1,44 @@
+FROM ubuntu:24.04 AS build
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && apt-get -y install --no-install-recommends build-essential git cmake ninja-build tar gzip pkg-config jq
+
+RUN apt-get update && apt-get -y install --no-install-recommends python3-dev python3-numpy python3-pip && PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade conan
+
+RUN conan profile detect
+
+RUN conan remote add rstream https://nexus.rstream.io/repository/conan
+
+RUN --mount=type=secret,id=password conan remote login rstream admin -p $(cat /run/secrets/password)
+
+RUN echo "[settings]\n\
+    os=Emscripten\n\
+    arch=wasm\n\
+    compiler=clang\n\
+    compiler.version=17\n\
+    compiler.libcxx=libc++\n\
+    build_type=Release\n\
+    [options]\n\
+    [tool_requires]\n\
+    emsdk/3.1.50\n\
+    [runenv]\n"\
+    > /root/.conan2/profiles/wasm
+
+COPY conanfile.py COPYING version.txt /rstream/src/
+
+RUN mkdir -p /rstream/build
+
+WORKDIR /rstream/build
+
+RUN export CONAN_SKIP_VERSION_CHECKS=1; export VERSION=tmp; export PACKAGE_NAME=$(conan inspect /rstream/src --format=json | jq -r .name); conan install /rstream/src -u --build=missing -pr:b default -pr:h wasm
+
+COPY . /rstream/src/
+
+RUN conan create /rstream/src -pr:b default -pr:h wasm
+
+RUN export PACKAGE_NAME=$(conan inspect /rstream/src --format=json | jq -r .name); export PACKAGE_VERSION=$(conan inspect /rstream/src --format=json | jq -r .version); export PACKAGE_REF=${PACKAGE_NAME}/${PACKAGE_VERSION}@; conan install --requires ${PACKAGE_REF} -pr:b default -pr:h wasm --deployer /rstream/src/deploy.py -of $(pwd)/out
+
+FROM scratch AS final
+
+COPY --from=build /rstream/build/out/ /emscripten/

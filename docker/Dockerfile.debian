@@ -1,0 +1,49 @@
+ARG BASE=ubuntu:24.04
+
+FROM $BASE AS build
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && apt-get -y install --no-install-recommends devscripts
+
+COPY debian/control /rstream/src/debian/control
+
+WORKDIR /rstream/src
+
+RUN apt -y build-dep .
+
+COPY . /rstream/src
+
+RUN debuild -b -uc -us
+
+FROM $BASE AS test_package
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN mkdir -p /rstream
+
+COPY --from=build /rstream/*.deb /rstream/
+
+RUN apt-get update && apt-get -y install --no-install-recommends cmake build-essential /rstream/librstream*.deb
+
+RUN mkdir -p /rstream/tests
+
+COPY test_package /rstream/test_package
+
+WORKDIR /rstream/test_package
+
+RUN cmake -B build && cmake --build build -- -j$(getconf _NPROCESSORS_ONLN) && cmake --build build --target install
+
+RUN test_package
+
+FROM $BASE AS final
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN mkdir -p /rstream
+
+COPY --from=build /rstream/*.deb /rstream/
+
+RUN apt-get update && apt-get -y install --no-install-recommends /rstream/*.deb
+
+RUN rm -rf /rstream/

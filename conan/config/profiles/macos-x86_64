@@ -1,0 +1,17 @@
+include(default)
+
+{% set compiler_target_cpu = "x86-64" %}
+
+[settings]
+os=Macos
+os.version=11.0
+arch=x86_64
+compiler.cppstd=20
+compiler.libcxx=libc++
+compiler.target = {{ compiler_target_cpu }}
+build_type=Release
+[options]
+[tool_requires]
+[runenv]
+CC=/usr/bin/clang -arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+CXX=/usr/bin/clang++ -arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic

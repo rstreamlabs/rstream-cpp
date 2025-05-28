@@ -1,0 +1,69 @@
+# See LICENSE file in the project root for license information.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+
+include(FindPkgConfig)
+
+if(EMSCRIPTEN)
+  find_dependency(Boost)
+else()
+  find_dependency(Boost COMPONENTS filesystem system date_time regex url random OPTIONAL_COMPONENTS coroutine thread)
+endif()
+find_dependency(CompatProtobuf QUIET)
+if(@WITH_MAXMINDDB@)
+  find_dependency(maxminddb QUIET)
+  if(NOT maxminddb_FOUND)
+    pkg_check_modules(libmaxminddb IMPORTED_TARGET libmaxminddb)
+    if(TARGET PkgConfig::libmaxminddb)
+      add_library(maxminddb::maxminddb INTERFACE IMPORTED GLOBAL)
+      set_property(TARGET maxminddb::maxminddb PROPERTY INTERFACE_LINK_LIBRARIES PkgConfig::libmaxminddb)
+    endif()
+  endif()
+endif()
+if(@WITH_NCURSES@)
+  find_dependency(Curses)
+  if(CURSES_FOUND AND NOT TARGET Curses::Curses)
+    add_library(Curses::Curses INTERFACE IMPORTED GLOBAL)
+    set_property(TARGET Curses::Curses PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${CURSES_INCLUDE_DIRS})
+    set_property(TARGET Curses::Curses PROPERTY INTERFACE_LINK_LIBRARIES ${CURSES_LIBRARIES})
+  endif()
+endif()
+find_dependency(nlohmann_json)
+if(@SSL_PROVIDER@ STREQUAL "openssl")
+  if(APPLE)
+    if(NOT OpenSSL_DIR)
+      find_program(HOMEBREW brew)
+      if(HOMEBREW STREQUAL "HOMEBREW-NOTFOUND")
+        message(WARNING "homebrew not found : not using homebrew's OpenSSL version")
+        if(NOT OPENSSL_ROOT_DIR)
+          message(WARNING "use -DOPENSSL_ROOT_DIR for non-Apple OpenSSL")
+        endif()
+      else()
+        execute_process(COMMAND brew --prefix openssl@3
+          OUTPUT_VARIABLE OPENSSL_ROOT_DIR
+          OUTPUT_STRIP_TRAILING_WHITESPACE)
+      endif()
+    endif()
+  endif()
+  find_package(OpenSSL REQUIRED)
+elseif(@SSL_PROVIDER@ STREQUAL "libressl")
+  find_package(LibreSSL REQUIRED)
+endif()
+find_dependency(spdlog)
+find_dependency(Threads)
+
+# TODO : Replace boost::asio::deadline_timer with boost::asio::system_timer
+# add_compile_definitions(BOOST_ASIO_NO_DEPRECATED)
+
+if(MSVC)
+  add_compile_definitions(BOOST_ALL_NO_LIB)
+endif()
+
+check_required_components(rstream)
+
+include("${CMAKE_CURRENT_LIST_DIR}/@CMAKE_PACKAGE_TARGETS@.cmake")
+message(STATUS "Found @PROJECT_NAME@ (@PROJECT_VERSION@)")

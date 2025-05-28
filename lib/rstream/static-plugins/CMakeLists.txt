@@ -1,0 +1,81 @@
+# See LICENSE file in the project root for license information.
+
+# library name
+
+set(LIBRARY_COMPONENT "static-plugins")
+set(LIBRARY_NAME "${PROJECT_NAME}-lib-${LIBRARY_COMPONENT}")
+
+# library sources
+
+file(GLOB_RECURSE SOURCES *.cpp)
+file(GLOB_RECURSE HEADERS *.hpp)
+
+# library definition
+
+add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS})
+add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
+
+set_target_properties(
+  ${LIBRARY_NAME}
+  PROPERTIES
+  VERSION ${PROJECT_VERSION}
+  OUTPUT_NAME ${PROJECT_NAME}-${LIBRARY_COMPONENT}
+  EXPORT_NAME ${LIBRARY_COMPONENT}
+  SOVERSION ${SOVERSION}
+  INTERFACE_${PROJECT_NAME}_MAJOR_VERSION ${SOVERSION}
+  APPEND PROPERTY COMPATIBLE_INTERFACE_STRING ${PROJECT_NAME}_MAJOR_VERSION)
+
+if(INSTALL_RPATH_KEYWORD)
+  set_target_properties(${LIBRARY_NAME} PROPERTIES ${INSTALL_RPATH_KEYWORD} ${RPATH_LIBRARY})
+endif()
+
+target_include_directories(
+  ${LIBRARY_NAME}
+  PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/lib/>
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/>
+  $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/>)
+
+target_link_libraries(
+  ${LIBRARY_NAME}
+  PUBLIC
+  ${PROJECT_NAME}::core)
+
+if(BUILD_SHARED_LIBS)
+  include(CheckCompilerFlag)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    check_compiler_flag(CXX "-Wl,-undefined,dynamic_lookup" COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
+    if(COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
+      target_link_options(${LIBRARY_NAME} PRIVATE -Wl,-undefined,dynamic_lookup)
+    else()
+      message(WARNING "Compiler does not support -Wl,-undefined,dynamic_lookup")
+    endif()
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    check_compiler_flag(CXX "-Wl,-allow-shlib-undefined" COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
+    if(COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
+      target_link_options(${LIBRARY_NAME} PRIVATE -Wl,-allow-shlib-undefined)
+    else()
+      message(WARNING "Compiler does not support -Wl,-allow-shlib-undefined")
+    endif()
+  endif()
+endif()
+
+# install the library
+
+install(TARGETS ${LIBRARY_NAME}
+  EXPORT ${CMAKE_PACKAGE_TARGETS}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# install headers
+
+install_headers("${HEADERS}" "${CMAKE_INSTALL_INCLUDEDIR}")
+
+# Xcode source group
+
+if(${CMAKE_GENERATOR} STREQUAL Xcode)
+  get_target_property(TARGET_SOURCES ${LIBRARY_NAME} SOURCES)
+  source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${TARGET_SOURCES})
+endif()

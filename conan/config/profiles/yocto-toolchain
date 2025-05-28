@@ -1,0 +1,18 @@
+include(default)
+
+{% set toolchain = "yocto-toolchain" %}
+{% set toolchain_version = "5.0.2" %}
+{% set compiler = "gcc" %}
+{% set compiler_version = "13" %}
+
+[tool_requires]
+{{ toolchain }}/{{ toolchain_version }}
+[settings]
+compiler={{ compiler }}
+compiler.cppstd=20
+compiler.version={{ compiler_version }}
+compiler.libcxx=libstdc++11
+build_type=Release
+[conf]
+tools.build.cross_building:cross_build=True
+tools.build.cross_building:can_run=False

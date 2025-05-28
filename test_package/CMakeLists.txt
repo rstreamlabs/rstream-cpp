@@ -1,0 +1,9 @@
+# See LICENSE file in the project root for license information.
+
+cmake_minimum_required(VERSION 3.16)
+project(test_package LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+find_package(rstream REQUIRED CONFIG)
+add_executable(${PROJECT_NAME} main.cpp)
+target_link_libraries(${PROJECT_NAME} PUBLIC rstream::rstream)
+install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})

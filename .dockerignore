@@ -1,0 +1,9 @@
+.github
+.vscode
+*.sh
+build*
+docker
+keys
+out
+script
+xcode

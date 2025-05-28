@@ -1,0 +1,46 @@
+// See LICENSE file in the project root for license information.
+
+#pragma once
+
+#define RSTREAM_BUILD_DATE              "@RSTREAM_BUILD_DATE@"
+#define RSTREAM_CMAKE_BUILD_TOOL        "@CMAKE_BUILD_TOOL@"
+#define RSTREAM_CMAKE_GENERATOR         "@CMAKE_GENERATOR@"
+#define RSTREAM_CMAKE_VERSION           "@CMAKE_VERSION@"
+#define RSTREAM_COPYING                 "@RSTREAM_COPYING@"
+#define RSTREAM_CXX_COMPILER_ID         "@CMAKE_CXX_COMPILER_ID@"
+#define RSTREAM_CXX_COMPILER_VERSION    "@CMAKE_CXX_COMPILER_VERSION@"
+#define RSTREAM_HOST_SYSTEM             "@CMAKE_HOST_SYSTEM@"
+#define RSTREAM_HOST_SYSTEM_PROCESSOR   "@CMAKE_HOST_SYSTEM_PROCESSOR@"
+#define RSTREAM_INSTALL_LIBDIR          "@CMAKE_INSTALL_LIBDIR@"
+#define RSTREAM_INSTALL_PLUGINDIR       "@CMAKE_INSTALL_PLUGINDIR@"
+#define RSTREAM_TARGET_SYSTEM           "@CMAKE_SYSTEM@"
+#define RSTREAM_TARGET_SYSTEM_PROCESSOR "@CMAKE_SYSTEM_PROCESSOR@"
+#define RSTREAM_VERSION                 "@PROJECT_VERSION@"
+#define RSTREAM_VERSION_MAJOR           "@PROJECT_VERSION_MAJOR@"
+#define RSTREAM_VERSION_MINOR           "@PROJECT_VERSION_MINOR@"
+#define RSTREAM_VERSION_PATCH           "@PROJECT_VERSION_PATCH@"
+
+// clang-format off
+#define RSTREAM_GIT_FOUND @Git_FOUND@
+#if RSTREAM_GIT_FOUND
+#define RSTREAM_GIT_BRANCH              "@RSTREAM_GIT_BRANCH@"
+#define RSTREAM_GIT_COMMIT              "@RSTREAM_GIT_COMMIT@"
+#define RSTREAM_GIT_UNSTAGED_CHANGES    @RSTREAM_GIT_UNSTAGED_CHANGES@
+#endif
+// clang-format on
+
+#if defined(__GNUC__) && defined(G_HAVE_GNUC_VISIBILITY)
+#define RSTREAM_GNUC_INTERNAL __attribute__((visibility("hidden")))
+#else
+#define RSTREAM_GNUC_INTERNAL
+#endif
+
+#if defined(__GNUC__) && defined(__cplusplus)
+#define RSTREAM_STRFUNC ((const char*)(__PRETTY_FUNCTION__))
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#define RSTREAM_STRFUNC ((const char*)(__func__))
+#elif defined(__GNUC__) || (defined(_MSC_VER) && (_MSC_VER > 1300))
+#define RSTREAM_STRFUNC ((const char*)(__FUNCTION__))
+#else
+#define RSTREAM_STRFUNC ((const char*)("???"))
+#endif

@@ -1,0 +1,18 @@
+# See LICENSE file in the project root for license information.
+
+set(SOURCES error.cpp error.hpp main.cpp)
+if (WITH_NCURSES)
+  list(APPEND SOURCES ncurses.cpp ncurses.hpp)
+endif()
+add_executable(${PROJECT_NAME}-tunnel ${SOURCES})
+if (WITH_NCURSES)
+  target_compile_definitions(${PROJECT_NAME}-tunnel PRIVATE -DRSTREAM_WITH_NCURSES)
+endif()
+target_link_libraries(${PROJECT_NAME}-tunnel docopt::docopt_s_maybe ${SSL_LIBRARIES} Boost::filesystem ${PROJECT_NAME}::tunnel ${PROJECT_NAME}::${PROJECT_NAME})
+if (WITH_NCURSES)
+  target_link_libraries(${PROJECT_NAME}-tunnel Curses::Curses)
+endif()
+if(INSTALL_RPATH_KEYWORD)
+  set_target_properties(${PROJECT_NAME}-tunnel PROPERTIES ${INSTALL_RPATH_KEYWORD} ${RPATH_EXECUTABLE})
+endif()
+install(TARGETS ${PROJECT_NAME}-tunnel DESTINATION ${CMAKE_INSTALL_BINDIR})

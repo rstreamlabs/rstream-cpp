@@ -1,0 +1,16 @@
+# See LICENSE file in the project root for license information.
+
+add_library(${PROJECT_NAME}-example-core-plugin-1 ${PLUGIN_LIBRARY_TYPE} plugin_1.cpp interface.hpp)
+target_link_libraries(${PROJECT_NAME}-example-core-plugin-1 ${PROJECT_NAME}::core)
+add_library(${PROJECT_NAME}-example-core-plugin-2 ${PLUGIN_LIBRARY_TYPE} plugin_2.cpp interface.hpp)
+target_link_libraries(${PROJECT_NAME}-example-core-plugin-2 ${PROJECT_NAME}::core)
+add_executable(${PROJECT_NAME}-example-core-plugin main.cpp interface.hpp)
+if(ENABLE_STATIC_PLUGINS)
+  target_link_libraries(${PROJECT_NAME}-example-core-plugin ${PROJECT_NAME}-example-core-plugin-1 ${PROJECT_NAME}-example-core-plugin-2)
+else()
+  set_target_properties(${PROJECT_NAME}-example-core-plugin-1 PROPERTIES OUTPUT_NAME ${PROJECT_NAME}-plugin-example-core-plugin-1 PREFIX "")
+  set_target_properties(${PROJECT_NAME}-example-core-plugin-2 PROPERTIES OUTPUT_NAME ${PROJECT_NAME}-plugin-example-core-plugin-2 PREFIX "")
+  add_dependencies(${PROJECT_NAME}-example-core-plugin ${PROJECT_NAME}-example-core-plugin-1 ${PROJECT_NAME}-example-core-plugin-2)
+  target_compile_definitions(${PROJECT_NAME}-example-core-plugin PRIVATE -DCMAKE_CURRENT_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+target_link_libraries(${PROJECT_NAME}-example-core-plugin ${PROJECT_NAME}::core)

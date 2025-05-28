@@ -1,0 +1,17 @@
+services:
+  conan2-builder:
+    image: conan2-builder
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      secrets:
+        - password
+    volumes:
+      - conan2-cache:/root/.conan2
+      - ccache-cache:/root/.ccache
+volumes:
+  conan2-cache:
+  ccache-cache:
+secrets:
+  password:
+    file: ${HOME}/.credentials/conan

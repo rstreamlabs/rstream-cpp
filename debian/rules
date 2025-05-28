@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+# export JAVA_HOME=/usr/lib/jvm/default-java
+
+export CXXFLAGS=-D_GLIBCXX_USE_CXX11_ABI=1
+
+CMAKE_FLAGS = \
+	-DBUILD_BINDING_JAVA=OFF \
+	-DBUILD_BINDING_PYTHON=OFF \
+	-DBUILD_SHARED_LIBS=ON \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DENABLE_STATIC_PLUGINS=OFF
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CMAKE_FLAGS)
+
+%:
+	dh $@ --buildsystem=cmake+ninja

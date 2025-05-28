@@ -1,0 +1,17 @@
+include(default)
+
+{% set compiler_target_cpu = "apple-a12" %}
+
+[settings]
+os=Macos
+os.version=11.0
+arch=armv8
+compiler.cppstd=20
+compiler.libcxx=libc++
+compiler.target={{ compiler_target_cpu }}
+build_type=Release
+[options]
+[tool_requires]
+[runenv]
+CC=/usr/bin/clang -mcpu={{ compiler_target_cpu }}
+CXX=/usr/bin/clang++ -mcpu={{ compiler_target_cpu }}

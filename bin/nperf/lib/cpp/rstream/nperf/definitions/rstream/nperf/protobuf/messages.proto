@@ -1,0 +1,43 @@
+// See LICENSE file in the project root for license information.
+
+syntax = "proto3";
+
+package rstream.nperf.protobuf;
+
+enum Option {
+  OPTION_PING = 0;
+  OPTION_DOWNLOAD = 1;
+  OPTION_UPLOAD = 2;
+}
+
+message Config {
+  Option option = 1;
+}
+
+message Open {
+  Config config = 1;
+}
+
+message Ack { }
+
+message Error {
+  int32 code = 1;
+}
+
+message Ping { 
+  string data = 1;
+}
+
+message Pong { 
+  string data = 1;
+}
+
+message Message {
+  oneof payload {
+    Open open = 1;
+    Ack ack = 2;
+    Error error = 3;
+    Ping ping = 4;
+    Ping pong = 5;
+  }
+}

@@ -1,0 +1,31 @@
+// See LICENSE file in the project root for license information.
+
+#include <iostream>
+
+#include <rstream/config.hpp>
+#include <rstream/core/plugin.hpp>
+
+#include "interface.hpp"
+
+class element_1;
+
+static const auto g_plugin_description = rstream::core::plugin::make_plugin_descriptor({// plugin info
+                                                                                        .m_name         = "sample plugin #1",
+                                                                                        .m_description  = "sample plugin #1",
+                                                                                        .m_version      = RSTREAM_VERSION,
+                                                                                        .m_license      = RSTREAM_COPYING,
+                                                                                        .m_release_date = boost::gregorian::from_string(RSTREAM_BUILD_DATE)},
+                                                                                       {// elements
+                                                                                        rstream::core::plugin::make_element<element_1>()});
+
+#ifndef RSTREAM_ENABLE_STATIC_PLUGINS
+RSTREAM_PLUGIN_EXPORT(g_plugin_description);
+#else
+RSTREAM_PLUGIN_STATIC_DEFINE(sample_plugin_1, g_plugin_description);
+#endif
+
+class RSTREAM_GNUC_INTERNAL element_1 : public interface, public rstream::core::plugin::element {
+ public:
+  static rstream::core::plugin::element::info get_element_info() { return {.m_name = "sample element #1", .m_description = "sample element #1"}; }
+  unsigned int run() override { return 1; }
+};

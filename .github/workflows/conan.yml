@@ -1,0 +1,56 @@
+name: build, package and deploy
+on:
+  workflow_call:
+    inputs:
+      build:
+        required: true
+        type: string
+    secrets:
+      CONAN_PASSWORD:
+        required: true
+env:
+  RSTREAM_URL: "${{ github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io' }}"
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        build:
+          - ${{ fromJSON(inputs.build) }}
+    runs-on: ["self-hosted", "Linux"]
+    steps:
+      - name: Install dependencies
+        shell: bash
+        run: |
+          sudo apt update && sudo apt-get install -y \
+            build-essential \
+            ccache \
+            cmake \
+            file \
+            git \
+            gzip \
+            jq \
+            ninja-build \
+            pipx \
+            pkg-config \
+            tar \
+            xz-utils
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          cache: "pip"
+      - name: install conan
+        shell: bash
+        run: |
+          pipx install conan
+          echo "/root/.local/bin/" >> $GITHUB_PATH
+      - name: configure conan
+        shell: bash
+        run: |
+          conan profile detect -f
+          conan config install conan/config
+          [[ ! "$(conan remote list)" =~ "rstream" ]] && conan remote add -f rstream https://nexus.rstream.io/repository/conan; conan remote login rstream admin -p ${{ secrets.CONAN_PASSWORD }}
+      - name: build
+        shell: bash
+        run: |
+          conan create -u --build=missing --user conan --channel ${{ matrix.build.conan.channel }} -pr:b ${{ matrix.build.conan.profiles.build }} -pr:h ${{ matrix.build.conan.profiles.host }} .

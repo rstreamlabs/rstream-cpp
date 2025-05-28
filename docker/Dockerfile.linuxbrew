@@ -1,0 +1,45 @@
+ARG BASE=ubuntu:24.04
+
+FROM --platform=linux/amd64 $BASE AS build
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && apt-get -y install --no-install-recommends build-essential curl file git ruby-full locales sudo
+
+RUN localedef -i en_US -f UTF-8 en_US.UTF-8
+
+RUN useradd -m -s /bin/bash linuxbrew
+
+RUN echo 'linuxbrew ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+RUN touch /.dockerenv
+
+RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
+
+ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
+
+ENV LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib/:${PATH}"
+
+ENV HOMEBREW_NO_ANALYTICS=1
+
+ENV HOMEBREW_NO_AUTO_UPDATE=1
+
+COPY homebrew.txt /rstream/src/
+
+RUN cat /rstream/src/homebrew.txt | xargs brew install
+
+ENV JAVA_HOME="/home/linuxbrew/.linuxbrew/opt/openjdk/libexec/"
+
+COPY requirements.txt /rstream/src/
+
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade -r /rstream/src/requirements.txt
+
+RUN mkdir -p /rstream/build
+
+WORKDIR /rstream/build
+
+COPY . /rstream/src/
+
+RUN cmake -G Ninja -DCMAKE_FIND_ROOT_PATH=/home/linuxbrew/.linuxbrew/ /rstream/src/ && cmake --build . && cmake --install .
+
+WORKDIR /

@@ -1,0 +1,71 @@
+
+# rstream C++ SDK License Agreement
+
+**Version 1.0**
+
+----------
+
+## 1. License Grant
+
+rstream grants you a non-exclusive, non-transferable, perpetual license to access and use the rstream C++ SDK ("Software") solely for the purpose of developing applications that interact with rstream services, in accordance with these terms.
+
+## 2. Restrictions
+
+You agree not to:
+
+-   **Reverse Engineering**: Decompile, disassemble, or otherwise attempt to derive the source code of the Software.
+-   **Derivative Works**: Modify, adapt, translate, or create derivative works based on the Software.
+-   **Redistribution**: Sell, lease, license, sublicense, distribute, or otherwise transfer the Software or any copies thereof to any third party.
+-   **Competitive Use**: Use the Software to develop a competing product or service or copy any features, functions, or graphics of the Software.
+-   **Removal of Notices**: Remove or alter any proprietary notices or labels on the Software.
+
+## 3. User Responsibility
+
+You are responsible for ensuring that your use of the Software is in compliance with all applicable local, national, and international laws and regulations. This includes, but is not limited to, laws relating to copyright, data protection, and online conduct. You agree not to engage in any illegal or immoral activities using the Software.
+
+## 4. Acceptable Usage
+
+Your use of the Software is subject to the following acceptable usage policy. You agree not to misuse the Software. You must not:
+
+-   **Illegal Activities**: Use the Software for any unlawful, illegal, fraudulent, or harmful purpose or activity.
+-   **Malicious Code**: Upload, send, or transmit viruses or any other type of malicious code that is intended to disrupt the functionality or operation of the Software or any related services.
+-   **Intellectual Property Infringement**: Infringe upon the rights of others, including but not limited to copyright, trademark, privacy, or any other intellectual property or privacy rights.
+-   **Interference**: Interfere with or disrupt the integrity or performance of the Software or third-party data contained therein.
+
+## 5. Ownership
+
+All rights, title, and interest in and to the Software, including all intellectual property rights, are and shall remain the exclusive property of rstream.
+
+## 6. Feedback
+
+You may provide feedback, suggestions, or reports of issues ("Feedback") to rstream. You agree that all Feedback is given voluntarily, and rstream may use such Feedback without obligation or compensation to you.
+
+## 7. Warranty Disclaimer
+
+The Software is provided on an "AS IS" and "AS AVAILABLE" basis. rstream expressly disclaims all warranties of any kind, whether express, implied, or statutory, including but not limited to warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+## 8. Limitation of Liability
+
+In no event shall rstream, or its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages, including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from your access to or use of or inability to access or use the Software.
+
+## 9. Governing Law and Jurisdiction
+
+These terms and your use of the Software are governed by and construed in accordance with the laws of France and applicable European Union regulations and directives. Any legal action or proceeding relating to your access to, or use of, the Software shall be instituted only in the courts of France.
+
+## 10. Termination
+
+This Agreement is effective until terminated. rstream may terminate this Agreement immediately if you breach any provision of this Agreement. Upon termination, you must cease all use of the Software and destroy all copies in your possession.
+
+## 11. Modifications to Terms
+
+rstream reserves the right, at our sole discretion, to modify or replace these terms at any time. Continued use of the Software following the posting of any changes to the terms constitutes acceptance of those changes.
+
+## 12. Contact Information
+
+If you have any questions about these terms, please contact us at:
+
+-   **Email**: support@rstream.io
+
+----------
+
+**By using the rstream C++ SDK, you acknowledge that you have read, understood, and agree to be bound by the terms of this License Agreement.**

@@ -1,0 +1,47 @@
+# See LICENSE file in the project root for license information.
+
+# this macro is used to install header files
+
+macro(install_headers_prefix src dst prefix)
+  foreach(file ${src})
+    get_filename_component(file ${file} ABSOLUTE)
+    get_filename_component(file_dir ${file} DIRECTORY)
+    string(REPLACE "${prefix}" "" file_dir "${file_dir}")
+    file(TO_CMAKE_PATH "${dst}/${file_dir}" dst_dir)
+    install(FILES ${file} DESTINATION ${dst_dir} COMPONENT Devel)
+  endforeach()
+endmacro()
+
+macro(install_headers src dst)
+  install_headers_prefix("${src}" "${dst}" "${PROJECT_SOURCE_DIR}/lib/")
+endmacro()
+
+# adapted from https://gitlab.kitware.com/cmake/cmake/blob/v3.14.0/Modules/CMakeDependentOption.cmake
+
+macro(cmake_dependent_option_strict option doc default depends force)
+  if(${option}_ISSET MATCHES "^${option}_ISSET$")
+    set(${option}_AVAILABLE 1)
+    foreach(d ${depends})
+      string(REGEX REPLACE " +" ";" CMAKE_DEPENDENT_OPTION_DEP "${d}")
+      if(${CMAKE_DEPENDENT_OPTION_DEP})
+      else()
+        set(${option}_AVAILABLE 0)
+        set(${option}_MISSING_DEPS "${${option}_MISSING_DEPS} '${d}'")
+      endif()
+    endforeach()
+    if(${option}_AVAILABLE)
+      option(${option} "${doc}" "${default}")
+      set(${option} "${${option}}" CACHE BOOL "${doc}" FORCE)
+    elseif(${option})
+      message(FATAL_ERROR "Unable to set '${option}' due to missing dependencies: ${${option}_MISSING_DEPS}")
+    else()
+      if(${option} MATCHES "^${option}$")
+      else()
+        set(${option} "${${option}}" CACHE INTERNAL "${doc}")
+      endif()
+      set(${option} ${force})
+    endif()
+  else()
+    set(${option} "${${option}_ISSET}")
+  endif()
+endmacro()

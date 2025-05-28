@@ -1,0 +1,22 @@
+name: Build Testing
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        build:
+          - {
+              conan:
+                {
+                  channel: "testing",
+                  profiles: { build: "default", host: "default" },
+                },
+            }
+    uses: ./.github/workflows/conan.yml
+    secrets: inherit
+    with:
+      build: ${{ toJson(matrix.build) }}

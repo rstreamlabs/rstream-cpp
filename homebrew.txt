@@ -1,0 +1,16 @@
+boost
+boost-python3
+ccache
+cmake
+googletest
+jq
+libmaxminddb
+ncurses
+ninja
+nlohmann-json
+openjdk
+openssl@3
+protobuf
+python-setuptools
+python3
+spdlog

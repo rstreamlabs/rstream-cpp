@@ -1,0 +1,33 @@
+include(default)
+
+{% set compiler_target_cpu = "x86-64-v4" %}
+
+[settings]
+arch=x86_64
+build_type=Release
+compiler=gcc
+compiler.cppstd=20
+compiler.libcxx=libstdc++11
+compiler.threads=win32
+compiler.version=13
+compiler.target={{ compiler_target_cpu }}
+os=Windows
+[options]
+[buildenv]
+CC=x86_64-w64-mingw32-gcc -march={{ compiler_target_cpu }} -mtune=generic
+CXX=x86_64-w64-mingw32-g++ -march={{ compiler_target_cpu }} -mtune=generic
+CPP=x86_64-w64-mingw32-cpp
+AR=x86_64-w64-mingw32-ar
+AS=x86_64-w64-mingw32-as
+GDB=x86_64-w64-mingw32-gdb
+LD=x86_64-w64-mingw32-ld
+NM=x86_64-w64-mingw32-nm
+OBJCOPY=x86_64-w64-mingw32-objcopy
+OBJDUMP=x86_64-w64-mingw32-objdump
+RANLIB=x86_64-w64-mingw32-ranlib
+SIZE=x86_64-w64-mingw32-size
+STRINGS=x86_64-w64-mingw32-strings
+STRIP=x86_64-w64-mingw32-strip
+GCOV=x86_64-w64-mingw32-gcov
+RC=x86_64-w64-mingw32-windres
+DLLTOOL=x86_64-w64-mingw32-dlltool
