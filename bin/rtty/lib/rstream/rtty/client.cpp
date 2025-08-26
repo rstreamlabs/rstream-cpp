@@ -526,7 +526,7 @@ void client::impl::do_close(const std::error_code& error_code)
   else {
     code = error::code::unknown_undefined_error;
   }
-  message.mutable_error()->set_code((int)code);
+  message.mutable_error()->set_msg(error_code.message());
   arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   do_send_message(message);
 }
@@ -851,7 +851,7 @@ void client::impl::on_read_incoming_message(const rstream::rtty::protobuf::Messa
       on_open();
     }
     else if (message_type == payload_type::kError) {
-      error_code = error::make_error_code(message.error().code());
+      error_code = error::make_error_code(error::code::server_error);
     }
     else if (message_type == payload_type::kClose) {
       on_cmd_complete(message.close().return_code());
