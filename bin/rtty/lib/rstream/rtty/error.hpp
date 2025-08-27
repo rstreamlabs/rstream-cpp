@@ -19,16 +19,15 @@ class category : public std::error_category {
 
 enum class code {
   success = 0,
-  unknown_undefined_error,
+  client_error,
   invalid_state,
   not_a_tty,
-  unexpected_message,
-  protocol_error,
-  server_error,
   operation_aborted,
   operation_timeout,
-  no_valid_endpoint,
-  operation_not_permitted
+  protocol_error,
+  server_error,
+  unexpected_message,
+  unknown_undefined_error,
 };
 
 extern inline const category& rstream_rtty_error_category()

@@ -481,7 +481,7 @@ void server::impl::on_do_resolve_host(const std::error_code& error_code, const r
   auto cause = error_code;
   if (!cause) {
     if (results.empty()) {
-      cause = error::code::no_valid_endpoint;
+      cause = error::code::server_error;
     }
     else {
       boost::system::error_code tmp;
@@ -1294,7 +1294,7 @@ void server::impl::session::do_send_error(const std::error_code& error_code)
   else {
     code = error::code::unknown_undefined_error;
   }
-  message.mutable_error()->set_code((int)code);
+  message.mutable_error()->set_msg(error_code.message());
   if (error_code && !m_error_code) {
     m_error_code = error_code;
   }
@@ -1462,7 +1462,7 @@ void server::impl::session::on_read_incoming_message(const rstream::rtty::protob
       on_open(protocol_config);
     }
     else if (message_type == payload_type::kError) {
-      cancel_internal(error::make_error_code(message.error().code()));
+      cancel_internal(error::code::client_error);
     }
     else if (message_type == payload_type::kData) {
       do_process_data(message.data());
