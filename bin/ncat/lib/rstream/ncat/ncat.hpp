@@ -12,6 +12,8 @@ struct settings {
 
 struct settings_client {
   settings m_common;
+  std::uint32_t m_read_socket_buffer_size_bytes;
+  std::uint32_t m_read_std_in_buffer_size_bytes;
 };
 
 struct settings_server {
