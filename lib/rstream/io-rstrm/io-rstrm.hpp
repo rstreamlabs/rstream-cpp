@@ -70,6 +70,7 @@ struct tunnel_properties {
   boost::optional<std::string> m_name;
   boost::optional<std::chrono::system_clock::time_point> m_creation_date;
   // tunnel options
+  // boost::optional<std::string> m_type;
   boost::optional<bool> m_publish;
   boost::optional<std::string> m_protocol;
   labels m_labels;

@@ -66,10 +66,14 @@ def generate_package(package, conan_dependencies, output_folder):
         if dependency.ref.name == "ncurses":
             terminfo = dependency.runenv_info.vars(dependency, scope="run").get("TERMINFO", None)
             break
-    if terminfo:
+    if terminfo and os.path.exists(terminfo):
         datadir = os.path.join(deploy_dir, "share")
         os.makedirs(datadir, exist_ok = True)
-        shutil.copy(terminfo, datadir)
+        if os.path.isdir(terminfo):
+            dst = os.path.join(datadir, os.path.basename(os.path.normpath(terminfo)))
+            shutil.copytree(terminfo, dst, dirs_exist_ok = True)
+        else:
+            shutil.copy(terminfo, datadir)
     if package[1] == ".zip":
         with zipfile.ZipFile(package_name, "w", zipfile.ZIP_DEFLATED) as zipf:
             for root, _, files in os.walk(deploy_dir):

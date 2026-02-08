@@ -1,3 +1,3 @@
 # rstream-cpp
 
-Powerful Tunnels for Modern Applications.
+C++ SDK for rstream - serverless networking

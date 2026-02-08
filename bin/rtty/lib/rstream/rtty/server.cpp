@@ -2,6 +2,8 @@
 
 #include "server.hpp"
 
+#define BOOST_PROCESS_VERSION 1
+
 #include <map>
 #include <set>
 #include <sstream>

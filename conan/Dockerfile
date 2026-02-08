@@ -43,7 +43,7 @@ RUN conan config install /tmp/conan-config
 
 RUN rm -rf /tmp/conan-config
 
-RUN conan remote add rstream https://nexus.rstream.io/repository/conan
+RUN conan remote list | grep -q "rstream" || conan remote add rstream https://nexus.rstream.io/repository/conan
 
 RUN --mount=type=secret,id=password conan remote login rstream admin -p $(cat /run/secrets/password)
 

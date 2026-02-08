@@ -109,6 +109,11 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     val.set_value(*src.m_name);
     dst.mutable_name()->CopyFrom(val);
   }
+  // if (src.m_type) {
+  //   google::protobuf::StringValue val;
+  //   val.set_value(*src.m_type);
+  //   dst.mutable_type()->CopyFrom(val);
+  // }
   if (src.m_publish) {
     google::protobuf::BoolValue val;
     val.set_value(*src.m_publish);
@@ -206,6 +211,9 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   if (src.has_name()) {
     dst.m_name = src.name().value();
   }
+  // if (src.has_type()) {
+  //   dst.m_type = src.type().value();
+  // }
   if (src.has_publish()) {
     dst.m_publish = src.publish().value();
   }

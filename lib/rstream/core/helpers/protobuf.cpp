@@ -12,7 +12,11 @@ namespace helpers {
 std::string to_json_string(const google::protobuf::Message& message)
 {
   std::string str;
+  #if GOOGLE_PROTOBUF_VERSION < 3030000
   google::protobuf::util::JsonOptions options;
+#else
+  google::protobuf::util::JsonPrintOptions options;
+#endif
   options.add_whitespace = true;
 #if GOOGLE_PROTOBUF_VERSION < 3026000
   options.always_print_primitive_fields = true;
