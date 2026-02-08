@@ -2,6 +2,8 @@
 
 #pragma once
 
+#define BOOST_PROCESS_VERSION 1
+
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -16,7 +18,11 @@
 #include <boost/process/io.hpp>
 #endif
 
+#if __has_include(<boost/process/v1/extend.hpp>)
+#include <boost/process/v1/extend.hpp>
+#else
 #include <boost/process/extend.hpp>
+#endif
 
 #include <rstream/rtty/rtty.hpp>
 #include <rstream/rtty/stream.hpp>

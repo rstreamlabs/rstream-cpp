@@ -607,6 +607,7 @@ void client::impl::async_create_tunnel_internal(const tunnel_properties& propert
     rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, nullptr);
   }
   else {
+    // TODO : assert tunnel type is bytestream
     const auto request_id       = generate_request_id();
     const auto create_tunnel_op = std::allocate_shared<create_tunnel_op_type>(core::allocator::wrapper<impl>(m_allocator), properties, std::move(handler));
     do_create_tunnel(m_create_tunnel_ops.insert(std::make_pair(request_id, create_tunnel_op)).first);
@@ -1169,6 +1170,7 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
 #endif
             error_code = error::code::protocol_error;
           }
+          // TODO : assert tunnel type is bytestream
         }
       }
       if (!error_code) {

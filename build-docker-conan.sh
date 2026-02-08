@@ -17,9 +17,9 @@ type="local"
 
 script_dir=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
 
-declare -a toolchains=("glibc" "musl")
+declare -a toolchains=("glibc" "musl" "emscripten" "android" "mingw")
 
-declare -a targets=("linux/amd64" "linux/arm64/v8" "linux/arm/v7" "linux/arm/v6")
+declare -a targets=("linux/amd64" "linux/arm64/v8")
 
 if [ ! -z $1 ]; then toolchains=(${1}); fi
 if [ ! -z $2 ]; then targets=(${2}); fi
@@ -42,6 +42,13 @@ function output {
     echo "type=${type}"
   fi
 }
+
+# we require conan 2.0.0 or later
+conan_version=$(conan --version | cut -d ' ' -f3)
+if [ "$(printf '%s\n' "2.0.0" "${conan_version}" | sort -V | head -n1)" != "2.0.0" ]; then
+  echo "Conan 2.0.0 or later is required"
+  exit 1
+fi
 
 for toolchain in ${toolchains[@]}; do
   docker buildx build ${script_dir} --progress plain --secret id=password,src=$HOME/.credentials/conan -o $(output $(package_version)) --platform "$(

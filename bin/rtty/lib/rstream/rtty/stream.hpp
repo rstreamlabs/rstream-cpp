@@ -2,6 +2,8 @@
 
 #pragma once
 
+#define BOOST_PROCESS_VERSION 1
+
 #include <functional>
 #include <memory>
 
@@ -21,7 +23,11 @@
 #include <boost/process/async_pipe.hpp>
 #endif
 
+#if __has_include(<boost/process/v1/extend.hpp>)
+#include <boost/process/v1/extend.hpp>
+#else
 #include <boost/process/extend.hpp>
+#endif
 
 #include <rstream/core/completion_handler.hpp>
 

@@ -16,7 +16,7 @@ class ConanPackage(ConanFile):
     name = "rstream"
     license = "proprietary"
     url = "https://github.com/rstreamlabs/rstream-cpp"
-    description = "Powerful Tunnels for Modern Applications."
+    description = "C++ SDK for rstream - serverless networking"
     settings = "os", "compiler", "build_type", "arch"
     options = {
         "deploy_python_dependencies" : [True, False],
@@ -31,7 +31,7 @@ class ConanPackage(ConanFile):
         "with_python": [True, False],
     }
     default_options = {
-        "protobuf_version": "3.21.12",
+        "protobuf_version": "[>=3.21.12]",
         "shared": False,
         "ssl_provider": "openssl",
         "static_libstdcxx": False,
@@ -123,7 +123,7 @@ class ConanPackage(ConanFile):
             self.build_requires("protobuf/" + self.options.protobuf_version.value)
 
     def requirements(self):
-        self.requires("boost/[>=1.83.0]@conan/stable", transitive_headers=True, transitive_libs=True)
+        self.requires("boost/[>=1.83.0]", transitive_headers=True, transitive_libs=True)
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "openssl":
@@ -135,7 +135,7 @@ class ConanPackage(ConanFile):
         if self.options.with_maxminddb:
             self.requires("libmaxminddb/[>=1.9.1]", transitive_headers=True, transitive_libs=True)
         if self.options.with_ncurses:
-            self.requires("ncurses/[>=6.5]@conan/stable", transitive_headers=True, transitive_libs=True)
+            self.requires("ncurses/[>=6.5]", transitive_headers=True, transitive_libs=True)
         
     def generate(self):
         cmake_toolchain = conan.tools.cmake.CMakeToolchain(self, generator="Ninja")

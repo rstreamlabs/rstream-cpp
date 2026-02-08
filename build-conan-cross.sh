@@ -19,6 +19,10 @@ default_oss=("macos" "linux" "windows")
 default_use_docker="on"
 default_windows_archs=("x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4")
 default_windows_build_shared=("on" "off")
+default_use_patched_conan_deps="on"
+default_patched_conan_channel="conan/stable"
+default_patched_boost_version="1.85.0"
+default_patched_ncurses_version="6.5"
 
 # Allow overrides from environment variables
 build_type="${BUILD_TYPE:-${default_build_type}}"
@@ -35,6 +39,10 @@ oss=("${OSS[@]:-${default_oss[@]}}")
 use_docker="${USE_DOCKER:-${default_use_docker}}"
 windows_archs=("${WINDOWS_ARCHS[@]:-${default_windows_archs[@]}}")
 windows_build_shared=("${WINDOWS_BUILD_SHARED[@]:-${default_windows_build_shared[@]}}")
+use_patched_conan_deps="${USE_PATCHED_CONAN_DEPS:-${default_use_patched_conan_deps}}"
+patched_conan_channel="${PATCHED_CONAN_CHANNEL:-${default_patched_conan_channel}}"
+patched_boost_version="${PATCHED_BOOST_VERSION:-${default_patched_boost_version}}"
+patched_ncurses_version="${PATCHED_NCURSES_VERSION:-${default_patched_ncurses_version}}"
 
 blacklist=()
 
@@ -59,6 +67,16 @@ extra_conan_options["linux-ppc64le-glibc"]="--options boost/*:without_charconv=T
 extra_conan_options["linux-ppc64le-musl"]="--options boost/*:without_charconv=True"
 extra_conan_options["linux-riscv64-glibc"]="--options openssl/*:no_asm=True"
 extra_conan_options["linux-riscv64-musl"]="--options openssl/*:no_asm=True"
+
+function patched_require_overrides {
+  if [ "${use_patched_conan_deps}" = "on" ]; then
+    local overrides=("--require-override" "boost/${patched_boost_version}@${patched_conan_channel}")
+    if [ "${OS}" != "windows" ] && [ -n "${patched_ncurses_version}" ]; then
+      overrides+=("--require-override" "ncurses/${patched_ncurses_version}@${patched_conan_channel}")
+    fi
+    echo "${overrides[@]}"
+  fi
+}
 
 function shared {
   [ "${BUILD_SHARED}" = "on" ] && echo "True" || echo "False"
@@ -127,7 +145,7 @@ function windows_conan_extra_options {
 }
 
 function conan_options {
-  echo "$(${OS}_conan_extra_options) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type}"
+  echo "$(${OS}_conan_extra_options) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type} $(patched_require_overrides)"
 }
 
 function linux_conan_options {
@@ -457,6 +475,10 @@ function show_help {
   echo "  WINDOWS_ARCHS           : Set the machine architecture to build for (windows)."
   echo "  WINDOWS_BUILD_SHARED    : Build shared or static libraries (windows)."
   echo "  OSS                     : Set the operating systems to build for."
+  echo "  USE_PATCHED_CONAN_DEPS  : Use patched boost/ncurses overrides (default: ${default_use_patched_conan_deps})."
+  echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
+  echo "  PATCHED_BOOST_VERSION   : Boost version for the override (default: ${default_patched_boost_version})."
+  echo "  PATCHED_NCURSES_VERSION : Ncurses version for the override (default: ${default_patched_ncurses_version})."
   echo ""
   echo "Example:"
   echo ""

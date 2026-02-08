@@ -35,9 +35,9 @@
 #endif
 
 static const char USAGE[] = R"(
-rstream-tunnel - (https://rstream.io/) - scalable tunneling from localhost to the global network
+rstream-tunnel - (https://rstream.io/) - serverless networking
 
-this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
+this program is part of rstream (https://rstream.io/download) and was created using rstream C++ SDK
 
 description:
   rstream-tunnel is a command-line tool that allows you to create a secure tunnel from your local machine to the global network.

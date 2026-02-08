@@ -200,6 +200,7 @@ settings_acceptor::settings_acceptor()
 
 void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& properties, boost::system::error_code& error_code)
 {
+  // PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, type) // TODO
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, publish)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, protocol)
   PARSE_PARAMS_VIEW_STRING_MAP(url.params(), properties, "rstrm.", error_code, labels, '=')
@@ -426,7 +427,7 @@ boost::system::result<client_details> get_client_details(const boost::optional<s
     protocol_version = protobuf_file_descriptor->options().GetExtension(protobuf::protocol_version);
   }
   return (client_details){
-      .m_agent            = std::string("rstream C++ SDK"),
+      .m_agent            = std::string("stream-cpp-sdk"),
       .m_os               = system_info.m_sysname + " (" + system_info.m_release + ")",
       .m_arch             = system_info.m_machine,
       .m_version          = std::string(RSTREAM_VERSION),
