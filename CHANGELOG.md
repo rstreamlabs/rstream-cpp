@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.3.0...1.3.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* fix client details / labels ([a8a37d3](https://github.com/rstreamlabs/rstream-cpp/commit/a8a37d3cf57f645367c02abca89324fe0be422e3))
+
 ## [1.3.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.2.0...1.3.0) (2026-02-11)
 
 
