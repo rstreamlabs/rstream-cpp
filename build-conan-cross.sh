@@ -79,9 +79,11 @@ function patched_conan_conf {
   echo "${opts[@]}"
 }
 
-function channel_conan_conf {
+function resolve_channel {
   if [ -n "${CHANNEL}" ]; then
-    echo "-c user.rstream:channel=${CHANNEL}"
+    echo "${CHANNEL}"
+  else
+    echo "$([ "${RSTREAM_URL}" = "https://rstream.io" ] && echo "stable" || echo "dev")"
   fi
 }
 
@@ -180,7 +182,7 @@ function windows_package_outdir {
 }
 
 function cmd_build {
-  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(channel_conan_conf) $(patched_conan_conf) ${SRC_PATH}"
+  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
 }
 
 function linux_cmd_build {
@@ -196,7 +198,7 @@ function windows_cmd_build {
 }
 
 function cmd_export {
-  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(channel_conan_conf) $(patched_conan_conf)"
+  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf)"
 }
 
 function linux_cmd_export {
@@ -337,7 +339,7 @@ function run_upload {
   archive="${outdir}/packages/${export_package_name}${extension}"
   name="${export_package_name}"
   version=$(${OS}_get_version)
-  channel=$([ "${RSTREAM_URL}" = "https://rstream.io" ] && echo "stable" || echo "dev")
+  channel=$(resolve_channel)
   shared=$([ "${BUILD_SHARED}" = "on" ] && echo "true" || echo "false")
   if [ "${OS}" = "linux" ]; then
     filename="${export_package_name}-${version}-${OS}-${ARCH}-${LIBC}-$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")${extension}"
@@ -484,8 +486,8 @@ function show_help {
   echo "  OSS                     : Set the operating systems to build for."
   echo "  USE_PATCHED_CONAN_DEPS  : Use patched boost/ncurses overrides (default: ${default_use_patched_conan_deps})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
-  echo "  PATCHED_BOOST_VERSION   : Boost version for the override (default: ${default_patched_boost_version})."
-  echo "  PATCHED_NCURSES_VERSION : Ncurses version for the override (default: ${default_patched_ncurses_version})."
+  echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."
+  echo "  PATCHED_NCURSES_VERSION : Override Ncurses version (default: ${default_patched_ncurses_version})."
   echo ""
   echo "Example:"
   echo ""
