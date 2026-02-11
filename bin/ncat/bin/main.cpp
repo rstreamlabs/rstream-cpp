@@ -91,7 +91,9 @@ int run(int argc, char** argv)
         .m_non_interactive = args.at("--no-interactive").asBool(),
     };
     rstream::ncat::settings_client settings = {
-        .m_common = {},
+        .m_common                        = {},
+        .m_read_socket_buffer_size_bytes = buffer_size,
+        .m_read_std_in_buffer_size_bytes = buffer_size,
     };
     auto client = std::make_shared<rstream::ncat::client>(io_context.get_executor(), config, settings);
     ptr         = client;

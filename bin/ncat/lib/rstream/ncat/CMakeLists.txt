@@ -39,6 +39,7 @@ target_link_libraries(
   PUBLIC
   Threads::Threads
   Boost::boost
+  Boost::filesystem
   ${PROJECT_NAME}::core
   ${PROJECT_NAME}::io)
 
