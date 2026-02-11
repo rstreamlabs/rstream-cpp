@@ -43,6 +43,11 @@ void convert(protobuf::ClientDetails& dst, const client_details& src)
     str.set_value(src.m_agent.get());
     dst.mutable_agent()->CopyFrom(str);
   }
+  if (src.m_channel) {
+    google::protobuf::StringValue str;
+    str.set_value(src.m_channel.get());
+    dst.mutable_channel()->CopyFrom(str);
+  }
   if (src.m_os) {
     google::protobuf::StringValue str;
     str.set_value(src.m_os.get());
@@ -74,6 +79,9 @@ void convert(client_details& dst, const protobuf::ClientDetails& src)
 {
   if (src.has_agent()) {
     dst.m_agent = src.agent().value();
+  }
+  if (src.has_channel()) {
+    dst.m_channel = src.channel().value();
   }
   if (src.has_os()) {
     dst.m_os = src.os().value();

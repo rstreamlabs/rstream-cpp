@@ -760,6 +760,15 @@ boost::system::result<client_details> get_client_details(const boost::optional<s
   if (protobuf_file_descriptor->options().HasExtension(protobuf::protocol_version)) {
     protocol_version = protobuf_file_descriptor->options().GetExtension(protobuf::protocol_version);
   }
+  boost::optional<std::string> channel;
+#ifdef RSTREAM_BUILD_CHANNEL
+  {
+    std::string value = std::string(RSTREAM_BUILD_CHANNEL);
+    if (!value.empty()) {
+      channel = value;
+    }
+  }
+#endif
   boost::optional<std::string> os_value;
   if (!compiletime_identity.m_os.empty()) {
     os_value = compiletime_identity.m_os;
@@ -770,6 +779,7 @@ boost::system::result<client_details> get_client_details(const boost::optional<s
   }
   return (client_details){
       .m_agent            = std::string("rstream-utils"),
+      .m_channel          = channel,
       .m_os               = os_value,
       .m_arch             = arch,
       .m_version          = std::string(RSTREAM_VERSION),

@@ -589,7 +589,6 @@ std::string build_webtty_uri()
   static const std::string base_uri = "rstrm://?rstrm.publish=true&rstrm.protocol=http&rstrm.token_auth=true";
   std::string uri                   = base_uri;
   auto details                      = get_os_details();
-  auto compiletime_identity         = rstream::core::get_compiletime_identity();
   auto runtime_identity             = rstream::core::get_runtime_identity();
   auto append_label                 = [&uri](const std::string& key, const std::string& value) {
     if (value.empty()) {
@@ -600,7 +599,7 @@ std::string build_webtty_uri()
     uri.append(pct_encode(label));
   };
   append_label("application-protocol", "rstream.webtty");
-  append_label("rstream.webtty.os_family", compiletime_identity.m_os);
+  append_label("rstream.webtty.os_family", runtime_identity.m_os);
   append_label("rstream.webtty.arch", runtime_identity.m_arch);
   append_label("rstream.webtty.os_id", details.id);
   append_label("rstream.webtty.os_version_id", details.version_id);
