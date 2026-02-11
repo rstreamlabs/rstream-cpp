@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.2.0...1.3.0) (2026-02-11)
+
+
+### Features
+
+* add webtty labels for service discovery ([818f133](https://github.com/rstreamlabs/rstream-cpp/commit/818f13330657f51cb4f229f51d29923e56238d1b))
+
 ## [1.2.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.1.0...1.2.0) (2026-02-11)
 
 
