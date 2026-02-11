@@ -754,16 +754,24 @@ boost::system::result<boost::optional<std::string>> get_rstream_token(const conf
 
 boost::system::result<client_details> get_client_details(const boost::optional<std::string> token)
 {
-  auto system_info              = core::get_system_info();
+  auto identity                 = core::get_os_identity();
   auto protobuf_file_descriptor = protobuf::ClientDetails::descriptor()->file();
   boost::optional<std::string> protocol_version;
   if (protobuf_file_descriptor->options().HasExtension(protobuf::protocol_version)) {
     protocol_version = protobuf_file_descriptor->options().GetExtension(protobuf::protocol_version);
   }
+  boost::optional<std::string> os_value;
+  if (!identity.m_os.empty()) {
+    os_value = identity.m_os;
+  }
+  boost::optional<std::string> arch;
+  if (!identity.m_arch.empty()) {
+    arch = identity.m_arch;
+  }
   return (client_details){
-      .m_agent            = std::string("rstream-cpp"),
-      .m_os               = system_info.m_sysname + " (" + system_info.m_release + ")",
-      .m_arch             = system_info.m_machine,
+      .m_agent            = std::string("rstream-utils"),
+      .m_os               = os_value,
+      .m_arch             = arch,
       .m_version          = std::string(RSTREAM_VERSION),
       .m_token            = token ? boost::optional<std::string>(token.value()) : boost::none,
       .m_protocol_version = protocol_version,

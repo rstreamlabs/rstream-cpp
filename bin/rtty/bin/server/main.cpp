@@ -39,8 +39,6 @@ valid protocols: websocket, plain
 
 const auto version = std::string("rstream-rtty-server ") + RSTREAM_VERSION;
 
-static const std::string g_rstrm_uri = "rstrm://?rstrm.publish=true&rstrm.protocol=http&rstrm.token_auth=true&rstrm.labels=application-protocol%3Drstream.rtty";
-
 int run(int argc, char** argv)
 {
   auto args = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
@@ -66,7 +64,7 @@ int run(int argc, char** argv)
       if (protocol_type != rstream::rtty::protocol::type::websocket) {
         throw std::runtime_error("protocol must be set to websocket when using the web option");
       }
-      uri = g_rstrm_uri;
+      uri = rstream::rtty::build_webtty_uri();
     }
     else {
       uri = args.at("--uri").asString();

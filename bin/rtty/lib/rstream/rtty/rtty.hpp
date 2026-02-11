@@ -90,6 +90,9 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
 
 }  // namespace protocol
 
+// Build rstream URI for webtty tunnels with the default labels.
+std::string build_webtty_uri();
+
 struct settings {
   std::uint32_t m_mtu;
   struct {

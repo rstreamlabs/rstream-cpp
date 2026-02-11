@@ -18,10 +18,21 @@ struct system_info {
   std::string m_machine;
 };
 
+struct os_identity {
+  std::string m_os;
+  std::string m_arch;
+};
+
 std::ostream& operator<<(std::ostream& ostream, const system_info& system_info);
 nlohmann::json& operator<<(nlohmann::json& json, const system_info& system_info);
 
 system_info get_system_info();
+
+os_identity get_os_identity();
+
+std::string get_os();
+
+std::string get_arch();
 
 }  // namespace core
 }  // namespace rstream
