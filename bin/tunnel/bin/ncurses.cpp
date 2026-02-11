@@ -298,14 +298,15 @@ void ncurses::impl::render_header(WINDOW* win)
 
 void ncurses::impl::render_status(WINDOW* win, const rstream::tunnel::status_proxy& status)
 {
-  print_truncated(win, ("version      : " + status.m_version.value_or("-")).c_str());
-  print_truncated(win, ("update       : " + status.m_update.value_or("-")).c_str());
-  print_truncated(win, ("status       : " + status.m_status.value_or("-")).c_str());
-  print_truncated(win, ("plan         : " + status.m_plan.value_or("-")).c_str());
-  print_truncated(win, ("region       : " + status.m_region.value_or("-")).c_str());
-  print_truncated(win, ("tunnel ID    : " + status.m_tunnel_id.value_or("-")).c_str());
-  print_truncated(win, ("forwarding   : " + status.m_forwarding.value_or("-")).c_str());
-  print_truncated(win, ("forwarded    : " + status.m_forwarded.value_or("-")).c_str());
+  print_truncated(win, ("version     : " + std::string(RSTREAM_VERSION)).c_str());
+  print_truncated(win, ("update      : " + status.m_update.value_or("-")).c_str());
+  print_truncated(win, ("status      : " + status.m_status.value_or("-")).c_str());
+  print_truncated(win, ("plan        : " + status.m_plan.value_or("-")).c_str());
+  print_truncated(win, ("provider    : " + status.m_provider.value_or("-")).c_str());
+  print_truncated(win, ("region      : " + status.m_region.value_or("-")).c_str());
+  print_truncated(win, ("tunnel ID   : " + status.m_tunnel_id.value_or("-")).c_str());
+  print_truncated(win, ("forwarding  : " + status.m_forwarding.value_or("-")).c_str());
+  print_truncated(win, ("forwarded   : " + status.m_forwarded.value_or("-")).c_str());
 }
 
 void ncurses::impl::render_connections(WINDOW* win, int scroll_pos, int selected, const std::vector<std::string>& connections)

@@ -7,6 +7,7 @@
 #include <unistd.h>
 #endif
 
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -75,7 +76,7 @@ publishing options:
   --host=ARG                            host name for publishing
 
 tls options:
-  --tls-mode=ARG                        specify the TLS mode (terminated, passthrough) [default: terminated]
+  --tls-mode=ARG                        specify the TLS mode (terminated, passthrough)
   --tls-alpn=ARG                        specify the ALPN protocols (comma separated list)
 
 publishing (terminated tunnels) options:
@@ -89,11 +90,8 @@ http tunnel options:
   --http-version=ARG                    specify the HTTP version (http/1.1, h2c)
   --http-use-tls                        proxy the connection to upstream using TLS
   --token-auth                          enable token based authentication
-  --sso                                 enable SSO authentication
-  --sso-provider=ARG                    specify the SSO provider (google, github) (comma separated list)
-  --email-whitelist=ARG                 specify an email whitelist for SSO authentication (comma separated list)
-  --email-blacklist=ARG                 specify an email blacklist for SSO authentication (comma separated list)
-  --challenge                           enable attack challenge mode (will use a CAPTCHA challenge)
+  --rstream-auth                        require rstream account authentication
+  --challenge-mode                      require an interactive challenge before access
 
 authentication options:
   --no-token                            disable token based authentication
@@ -115,10 +113,12 @@ other options:
   --buffer-size=ARG                     buffer size in bytes expressed as a power of 2 [default: 22]
 
 environment variables:
-  RSTREAM_DEFAULT_CONFIG_PATH           path to the default rstream configuration folder
-  RSTREAM_DEFAULT_AUTHENTICATION_TOKEN  default authentication token
-  RSTREAM_DEFAULT_ENGINE_ADDRESS        default rstream engine address
-  RSTREAM_DEFAULT_ENGINE_PARAMS         default rstream engine parameters
+  RSTREAM_CONFIG                        path to the rstream configuration file
+  RSTREAM_API_URL                       control-plane API URL override
+  RSTREAM_CONTEXT                       default context name
+  RSTREAM_ENGINE                        engine host:port override
+  RSTREAM_ENGINE_ADDRESS                full engine address override
+  RSTREAM_AUTHENTICATION_TOKEN          authentication token override
 
 additional tips:
   - Use the `--verbose` option for troubleshooting and detailed operation logs.
@@ -162,7 +162,14 @@ static void log(const rstream::io_rstrm::endpoint& endpoint);
 
 int run(int argc, char** argv)
 {
-  auto args    = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
+  auto args = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
+  boost::optional<std::string> config_path;
+  {
+    auto it = args.find("--config");
+    if (it != args.end() && it->second.operator bool()) {
+      config_path = it->second.asString();
+    }
+  }
   auto verbose = false;
   {
     auto arg = args.at("--verbose");
@@ -227,12 +234,15 @@ int run(int argc, char** argv)
       engine = it->second.asString();
     }
   }
-  auto local_endpoint = rstream::io_rstrm::make_endpoint(name, engine);
+  auto local_endpoint = rstream::io_rstrm::make_endpoint(name, engine, config_path);
   if (!local_endpoint) {
     throw std::runtime_error("failed to create local endpoint");
   }
   rstream::io_rstrm::settings_acceptor settings_acceptor;
   rstream::io_rstrm::config_client config_client;
+  if (config_path) {
+    config_client.m_config_path = config_path;
+  }
   {
     auto it = args.find("--no-token");
     if (it != args.end() && it->second.asBool()) {
@@ -271,6 +281,7 @@ int run(int argc, char** argv)
     }
   }
   rstream::io_rstrm::tunnel_properties tunnel_properties;
+  tunnel_properties.m_type = "bytestream";
   {
     auto it = args.find("--publish");
     if (it != args.end() && it->second.asBool()) {
@@ -283,19 +294,33 @@ int run(int argc, char** argv)
       tunnel_properties.m_publish = false;
     }
   }
-  tunnel_properties.m_protocol = rstream::io_rstrm::protocol::http;
+  bool publish = true;
+  if (tunnel_properties.m_publish) {
+    publish = tunnel_properties.m_publish.value();
+  }
+  bool flag_http = false;
   {
     auto it = args.find("--http");
     if (it != args.end() && it->second.asBool()) {
-      tunnel_properties.m_protocol = rstream::io_rstrm::protocol::http;
+      flag_http = true;
     }
   }
+  bool flag_tls = false;
   {
     auto it = args.find("--tls");
     if (it != args.end() && it->second.asBool()) {
+      flag_tls = true;
+    }
+  }
+  if (publish) {
+    if (flag_http) {
+      tunnel_properties.m_protocol = rstream::io_rstrm::protocol::http;
+    }
+    if (flag_tls) {
       tunnel_properties.m_protocol = rstream::io_rstrm::protocol::tls;
     }
   }
+  bool is_tls_protocol = tunnel_properties.m_protocol && tunnel_properties.m_protocol.value() == rstream::io_rstrm::protocol::tls;
   {
     auto it = args.find("--label");
     if (it != args.end() && it->second.operator bool()) {
@@ -323,102 +348,90 @@ int run(int argc, char** argv)
       tunnel_properties.m_trusted_ips = split(it->second.asString(), ',');
     }
   }
-  {
-    auto it = args.find("--host");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_host = it->second.asString();
+  if (publish) {
+    {
+      auto it = args.find("--host");
+      if (it != args.end() && it->second.operator bool()) {
+        tunnel_properties.m_host = it->second.asString();
+      }
     }
   }
-  {
-    auto it = args.find("--tls-mode");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_tls_mode = it->second.asString();
+  if (publish && is_tls_protocol) {
+    {
+      auto it = args.find("--tls-mode");
+      if (it != args.end() && it->second.operator bool()) {
+        tunnel_properties.m_tls_mode = it->second.asString();
+      }
     }
-  }
-  {
-    auto it = args.find("--tls-alpn");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_tls_alpns = split(it->second.asString(), ',');
+    {
+      auto it = args.find("--tls-alpn");
+      if (it != args.end() && it->second.operator bool()) {
+        tunnel_properties.m_tls_alpns = split(it->second.asString(), ',');
+      }
     }
-  }
-  {
-    auto it = args.find("--tls-min-version");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_tls_min_version = it->second.asString();
+    {
+      auto it = args.find("--tls-min-version");
+      if (it != args.end() && it->second.operator bool()) {
+        tunnel_properties.m_tls_min_version = it->second.asString();
+      }
     }
-  }
-  {
-    auto it = args.find("--tls-ciphers");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_tls_ciphers = split(it->second.asString(), ',');
+    {
+      auto it = args.find("--tls-ciphers");
+      if (it != args.end() && it->second.operator bool()) {
+        tunnel_properties.m_tls_ciphers = split(it->second.asString(), ',');
+      }
     }
-  }
-  {
-    auto it = args.find("--mtls");
-    if (it != args.end() && it->second.asBool()) {
-      tunnel_properties.m_mtls = true;
+    {
+      auto it = args.find("--mtls");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_mtls = true;
+      }
     }
-  }
-  boost::optional<std::string> mtls_cacert_pem;
-  {
-    auto it = args.find("--mtls-cacert-file");
-    if (it != args.end() && it->second.operator bool()) {
-      mtls_cacert_pem = read_cacert_file(it->second.asString());
+    boost::optional<std::string> mtls_cacert_pem;
+    {
+      auto it = args.find("--mtls-cacert-file");
+      if (it != args.end() && it->second.operator bool()) {
+        mtls_cacert_pem = read_cacert_file(it->second.asString());
+      }
     }
-  }
-  {
-    auto it = args.find("--mtls-capath");
-    if (it != args.end() && it->second.operator bool()) {
-      mtls_cacert_pem = read_capath(it->second.asString());
+    {
+      auto it = args.find("--mtls-capath");
+      if (it != args.end() && it->second.operator bool()) {
+        mtls_cacert_pem = read_capath(it->second.asString());
+      }
     }
+    tunnel_properties.m_mtls_cacert_pem = mtls_cacert_pem;
   }
-  tunnel_properties.m_mtls_cacert_pem = mtls_cacert_pem;
-  {
-    auto it = args.find("--http-version");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_http_version = it->second.asString();
+  if (publish) {
+    {
+      auto it = args.find("--http-version");
+      if (it != args.end() && it->second.operator bool()) {
+        tunnel_properties.m_http_version = it->second.asString();
+      }
     }
-  }
-  {
-    auto it = args.find("--http-use-tls");
-    if (it != args.end() && it->second.asBool()) {
-      tunnel_properties.m_http_use_tls = true;
+    {
+      auto it = args.find("--http-use-tls");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_http_use_tls = true;
+      }
     }
-  }
-  {
-    auto it = args.find("--token-auth");
-    if (it != args.end() && it->second.asBool()) {
-      tunnel_properties.m_token_auth = true;
+    {
+      auto it = args.find("--token-auth");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_token_auth = true;
+      }
     }
-  }
-  {
-    auto it = args.find("--sso");
-    if (it != args.end() && it->second.asBool()) {
-      tunnel_properties.m_sso = true;
+    {
+      auto it = args.find("--rstream-auth");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_rstream_auth = true;
+      }
     }
-  }
-  {
-    auto it = args.find("--sso-provider");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_sso_providers = split(it->second.asString(), ',');
-    }
-  }
-  {
-    auto it = args.find("--email-whitelist");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_email_whitelist = split(it->second.asString(), ',');
-    }
-  }
-  {
-    auto it = args.find("--email-blacklist");
-    if (it != args.end() && it->second.operator bool()) {
-      tunnel_properties.m_email_blacklist = split(it->second.asString(), ',');
-    }
-  }
-  {
-    auto it = args.find("--challenge");
-    if (it != args.end() && it->second.asBool()) {
-      tunnel_properties.m_challenge = true;
+    {
+      auto it = args.find("--challenge-mode");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_challenge_mode = true;
+      }
     }
   }
   settings_acceptor.m_tunnel_properties       = tunnel_properties;
