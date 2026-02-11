@@ -8,6 +8,26 @@
 #include <sys/utsname.h>
 #endif
 
+namespace {
+
+std::string resolve_os()
+{
+#ifdef RSTREAM_BUILD_OS
+  return std::string(RSTREAM_BUILD_OS);
+#endif
+  return rstream::core::get_system_info().m_sysname;
+}
+
+std::string resolve_arch()
+{
+#ifdef RSTREAM_BUILD_ARCH
+  return std::string(RSTREAM_BUILD_ARCH);
+#endif
+  return rstream::core::get_system_info().m_machine;
+}
+
+}  // namespace
+
 namespace rstream {
 namespace core {
 
@@ -68,6 +88,27 @@ system_info get_system_info()
   info.m_machine  = uts.machine;
   return info;
 #endif
+}
+
+os_identity get_os_identity()
+{
+  static const os_identity identity = [] {
+    os_identity value;
+    value.m_os   = resolve_os();
+    value.m_arch = resolve_arch();
+    return value;
+  }();
+  return identity;
+}
+
+std::string get_os()
+{
+  return get_os_identity().m_os;
+}
+
+std::string get_arch()
+{
+  return get_os_identity().m_arch;
 }
 
 }  // namespace core

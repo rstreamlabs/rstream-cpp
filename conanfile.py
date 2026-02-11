@@ -141,6 +141,12 @@ class ConanPackage(ConanFile):
     def generate(self):
         cmake_toolchain = conan.tools.cmake.CMakeToolchain(self, generator="Ninja")
         cmake_toolchain.variables["CMAKE_VERBOSE_MAKEFILE"] = "ON"
+        build_os = self.conf.get("user.rstream:os", default=None)
+        build_arch = self.conf.get("user.rstream:arch", default=None)
+        if build_os:
+            cmake_toolchain.variables["RSTREAM_BUILD_OS"] = build_os
+        if build_arch:
+            cmake_toolchain.variables["RSTREAM_BUILD_ARCH"] = build_arch
         if self.settings.os == "Linux":
             cmake_toolchain.variables["DEAD_CODE_ELIMINATION"] = "ON"
         cmake_toolchain.variables["ENABLE_STATIC_PLUGINS"] = "OFF" if (self.settings.os == "Windows" and self.options.shared) else "ON"

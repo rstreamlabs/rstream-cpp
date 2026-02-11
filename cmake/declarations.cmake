@@ -47,6 +47,14 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   endif()
 endif()
 
+if(DEFINED RSTREAM_BUILD_OS AND NOT RSTREAM_BUILD_OS STREQUAL "")
+  add_compile_definitions(RSTREAM_BUILD_OS=\"${RSTREAM_BUILD_OS}\")
+endif()
+
+if(DEFINED RSTREAM_BUILD_ARCH AND NOT RSTREAM_BUILD_ARCH STREQUAL "")
+  add_compile_definitions(RSTREAM_BUILD_ARCH=\"${RSTREAM_BUILD_ARCH}\")
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ${CMAKE_GENERATOR} STREQUAL Xcode)
   add_compile_definitions(DEBUG_BUILD)
 endif()
