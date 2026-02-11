@@ -28,11 +28,17 @@ nlohmann::json& operator<<(nlohmann::json& json, const system_info& system_info)
 
 system_info get_system_info();
 
-os_identity get_os_identity();
+os_identity get_compiletime_identity();
 
-std::string get_os();
+os_identity get_runtime_identity();
 
-std::string get_arch();
+std::string get_compiletime_os();
+
+std::string get_compiletime_arch();
+
+std::string get_runtime_os();
+
+std::string get_runtime_arch();
 
 }  // namespace core
 }  // namespace rstream
