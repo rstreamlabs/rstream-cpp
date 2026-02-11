@@ -36,6 +36,7 @@ const std::string passthrough = "passthrough";
 
 struct client_details {
   boost::optional<std::string> m_agent;
+  boost::optional<std::string> m_channel;
   boost::optional<std::string> m_os;
   boost::optional<std::string> m_arch;
   boost::optional<std::string> m_version;

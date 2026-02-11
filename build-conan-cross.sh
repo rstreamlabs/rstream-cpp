@@ -79,6 +79,12 @@ function patched_conan_conf {
   echo "${opts[@]}"
 }
 
+function channel_conan_conf {
+  if [ -n "${CHANNEL}" ]; then
+    echo "-c user.rstream:channel=${CHANNEL}"
+  fi
+}
+
 function shared {
   [ "${BUILD_SHARED}" = "on" ] && echo "True" || echo "False"
 }
@@ -174,7 +180,7 @@ function windows_package_outdir {
 }
 
 function cmd_build {
-  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
+  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(channel_conan_conf) $(patched_conan_conf) ${SRC_PATH}"
 }
 
 function linux_cmd_build {
@@ -190,7 +196,7 @@ function windows_cmd_build {
 }
 
 function cmd_export {
-  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(patched_conan_conf)"
+  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(channel_conan_conf) $(patched_conan_conf)"
 }
 
 function linux_cmd_export {

@@ -2,6 +2,9 @@
 
 #include "system.hpp"
 
+#include <algorithm>
+#include <cctype>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -10,12 +13,44 @@
 
 namespace {
 
+std::string to_lower(std::string value)
+{
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return value;
+}
+
+std::string normalize_os(std::string value)
+{
+  value = to_lower(value);
+  if (value == "darwin" || value == "macos" || value == "macosx" || value == "osx") {
+    return "macos";
+  }
+  if (value == "windows" || value == "win32" || value == "win") {
+    return "windows";
+  }
+  if (value == "linux") {
+    return "linux";
+  }
+  if (value == "netbsd") {
+    return "netbsd";
+  }
+  if (value == "openbsd") {
+    return "openbsd";
+  }
+  if (value == "freebsd") {
+    return "freebsd";
+  }
+  return value;
+}
+
 std::string resolve_compiletime_os()
 {
 #ifdef RSTREAM_BUILD_OS
-  return std::string(RSTREAM_BUILD_OS);
+  return normalize_os(std::string(RSTREAM_BUILD_OS));
 #endif
-  return rstream::core::get_system_info().m_sysname;  // Fallback
+  return "";
 }
 
 std::string resolve_compiletime_arch()
@@ -23,12 +58,12 @@ std::string resolve_compiletime_arch()
 #ifdef RSTREAM_BUILD_ARCH
   return std::string(RSTREAM_BUILD_ARCH);
 #endif
-  return rstream::core::get_system_info().m_machine;  // Fallback
+  return "";
 }
 
 std::string resolve_runtime_os()
 {
-  return rstream::core::get_system_info().m_sysname;
+  return normalize_os(rstream::core::get_system_info().m_sysname);
 }
 
 std::string resolve_runtime_arch()
