@@ -20,6 +20,9 @@ class ConanPackage(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     options = {
         "boost_ref": [None, "ANY"],
+        "build_arch": [None, "ANY"],
+        "build_channel": [None, "ANY"],
+        "build_os": [None, "ANY"],
         "deploy_python_dependencies" : [True, False],
         "deploy_python_stdlib" : [True, False],
         "enable_testing": [True, False],
@@ -34,6 +37,9 @@ class ConanPackage(ConanFile):
     }
     default_options = {
         "boost_ref": None,
+        "build_arch": None,
+        "build_channel": None,
+        "build_os": None,
         "ncurses_ref": None,
         "protobuf_ref": "protobuf/[>=3.21.12]",
         "shared": False,
@@ -155,15 +161,15 @@ class ConanPackage(ConanFile):
     def generate(self):
         cmake_toolchain = conan.tools.cmake.CMakeToolchain(self, generator="Ninja")
         cmake_toolchain.variables["CMAKE_VERBOSE_MAKEFILE"] = "ON"
-        build_os = self.conf.get("user.rstream:os", default=None)
-        build_arch = self.conf.get("user.rstream:arch", default=None)
-        build_channel = self.conf.get("user.rstream:channel", default=None)
+        build_channel = str(self.options.get_safe("build_channel") or "").strip()
+        build_os = str(self.options.get_safe("build_os") or "").strip()
+        build_arch = str(self.options.get_safe("build_arch") or "").strip()
+        if build_channel:
+            cmake_toolchain.variables["RSTREAM_BUILD_CHANNEL"] = build_channel
         if build_os:
             cmake_toolchain.variables["RSTREAM_BUILD_OS"] = build_os
         if build_arch:
             cmake_toolchain.variables["RSTREAM_BUILD_ARCH"] = build_arch
-        if build_channel:
-            cmake_toolchain.variables["RSTREAM_BUILD_CHANNEL"] = build_channel
         if self.settings.os == "Linux":
             cmake_toolchain.variables["DEAD_CODE_ELIMINATION"] = "ON"
         cmake_toolchain.variables["ENABLE_STATIC_PLUGINS"] = "OFF" if (self.settings.os == "Windows" and self.options.shared) else "ON"
