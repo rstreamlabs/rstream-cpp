@@ -946,7 +946,7 @@ void client::impl::on_proxy_request(tunnels_type::iterator& tunnel_it, const str
   else {
     stream_type::ptr stream_ptr = nullptr;
     if (m_config.m_async_stream_operation) {
-      stream_ptr = std::allocate_shared<stream_type>(core::allocator::wrapper<impl>(m_allocator), boost::asio::get_associated_executor(m_strand), m_allocator);
+      stream_ptr = std::allocate_shared<stream_type>(core::allocator::wrapper<impl>(m_allocator), m_executor, m_allocator);
     }
     auto stream_it = tunnel_it->second->m_streams.insert(std::make_pair(stream_id, (stream_type::container){.m_ptr = stream_ptr, .m_context = context})).first;
     do_connect_stream(tunnel_it, stream_it);
