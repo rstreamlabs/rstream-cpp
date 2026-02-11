@@ -73,6 +73,7 @@ target_link_libraries(
   Boost::filesystem
   nlohmann_json::nlohmann_json
   Threads::Threads
+  yaml-cpp::yaml-cpp
   ${PROJECT_NAME}::core
   ${PROJECT_NAME}::io
   PRIVATE

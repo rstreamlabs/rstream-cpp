@@ -32,6 +32,8 @@ nlohmann::json& operator<<(nlohmann::json& json, const endpoint& endpoint);
 
 boost::system::result<endpoint> make_endpoint(const boost::optional<std::string>& id_name, const boost::optional<std::string>& server_address);
 
+boost::system::result<endpoint> make_endpoint(const boost::optional<std::string>& id_name, const boost::optional<std::string>& server_address, const boost::optional<std::string>& config_path);
+
 boost::system::result<endpoint> make_endpoint(const boost::urls::url& url);
 
 }  // namespace io_rstrm

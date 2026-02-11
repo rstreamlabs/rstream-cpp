@@ -55,6 +55,7 @@ elseif(@SSL_PROVIDER@ STREQUAL "libressl")
 endif()
 find_dependency(spdlog)
 find_dependency(Threads)
+find_dependency(yaml-cpp)
 
 # TODO : Replace boost::asio::deadline_timer with boost::asio::system_timer
 # add_compile_definitions(BOOST_ASIO_NO_DEPRECATED)

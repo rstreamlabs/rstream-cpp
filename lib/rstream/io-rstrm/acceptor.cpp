@@ -126,6 +126,8 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
 
   boost::optional<endpoint> m_local_endpoint;
 
+  status m_server_status;
+
   status_extd m_status;
 };
 
@@ -380,7 +382,7 @@ void acceptor::impl::on_connect(const boost::system::error_code& error_code)
     if (m_settings.m_auto_reconnect) {
       m_state  = state::idle;
       m_status = status_extd{
-          status{},
+          status{m_server_status},
           std::string("connection failed (" + boost::algorithm::to_lower_copy(error_code.message()) + ")"),
           {},
           {},
@@ -398,7 +400,7 @@ void acceptor::impl::on_connect(const boost::system::error_code& error_code)
     m_logger->trace("client connected successfully");
     m_state  = state::connected;
     m_status = status_extd{
-        status{m_status},
+        status{m_server_status},
         std::string("connected"),
         {},
         {},
@@ -479,7 +481,7 @@ void acceptor::impl::on_create_tunnel(const boost::system::error_code& error_cod
       m_control_callbacks.m_on_tunnel_properties_cb(properties);
     }
     m_status = status_extd{
-        status{m_status},
+        status{m_server_status},
         std::string("online"),
         properties.m_id,
         {},
@@ -528,7 +530,7 @@ void acceptor::impl::on_accept(const boost::system::error_code& error_code)
     if (m_settings.m_auto_recreate_tunnel) {
       m_logger->trace("tunnel ended unexpectedly [error_code: {}]", error_code.message());
       m_status = status_extd{
-          status{m_status},
+          status{m_server_status},
           std::string("connected"),
           {},
           {},
@@ -581,7 +583,7 @@ void acceptor::impl::on_client_disconnection(const boost::system::error_code& er
     m_timer.cancel();
     m_tunnel = nullptr;
     m_status = status_extd{
-        status{},
+        status{m_server_status},
         std::string("disconnected (" + boost::algorithm::to_lower_copy(error_code.message()) + ")"),
         {},
         {},
@@ -601,11 +603,23 @@ void acceptor::impl::on_client_status(const status& status_)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  if (status_.m_update) {
+    m_server_status.m_update = status_.m_update;
+  }
+  if (status_.m_plan) {
+    m_server_status.m_plan = status_.m_plan;
+  }
+  if (status_.m_provider) {
+    m_server_status.m_provider = status_.m_provider;
+  }
+  if (status_.m_region) {
+    m_server_status.m_region = status_.m_region;
+  }
   if (m_state != state::connected) {
     return;
   }
   m_status = status_extd{
-      status{status_},
+      status{m_server_status},
       m_status.m_status,
       m_status.m_tunnel_id,
       m_status.m_forwarding,

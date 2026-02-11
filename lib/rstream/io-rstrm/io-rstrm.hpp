@@ -44,9 +44,9 @@ struct client_details {
 };
 
 struct status {
-  boost::optional<std::string> m_version;
   boost::optional<std::string> m_update;
   boost::optional<std::string> m_plan;
+  boost::optional<std::string> m_provider;
   boost::optional<std::string> m_region;
 };
 
@@ -70,7 +70,7 @@ struct tunnel_properties {
   boost::optional<std::string> m_name;
   boost::optional<std::chrono::system_clock::time_point> m_creation_date;
   // tunnel options
-  // boost::optional<std::string> m_type;
+  boost::optional<std::string> m_type;
   boost::optional<bool> m_publish;
   boost::optional<std::string> m_protocol;
   labels m_labels;
@@ -91,11 +91,8 @@ struct tunnel_properties {
   boost::optional<std::string> m_http_version;
   boost::optional<bool> m_http_use_tls;
   boost::optional<bool> m_token_auth;
-  boost::optional<bool> m_sso;
-  std::vector<std::string> m_sso_providers;
-  std::vector<std::string> m_email_whitelist;
-  std::vector<std::string> m_email_blacklist;
-  boost::optional<bool> m_challenge;
+  boost::optional<bool> m_rstream_auth;
+  boost::optional<bool> m_challenge_mode;
 };
 
 struct config {
@@ -104,6 +101,7 @@ struct config {
   bool m_zero_rtt;
   bool m_no_token;
   boost::optional<std::string> m_token;
+  boost::optional<std::string> m_config_path;
 };
 
 struct config_client : config {
@@ -140,7 +138,11 @@ boost::system::result<boost::filesystem::path> get_rstream_config_path();
 
 boost::system::result<boost::filesystem::path> get_rstream_config_file_path();
 
+boost::system::result<boost::filesystem::path> get_rstream_config_file_path(const boost::optional<std::string>& config_path);
+
 boost::system::result<nlohmann::json> get_rstream_config_file();
+
+boost::system::result<nlohmann::json> get_rstream_config_file(const boost::optional<std::string>& config_path);
 
 boost::system::result<boost::optional<std::string>> get_rstream_token(const config& config, const io::address& server_address);
 
@@ -149,6 +151,8 @@ boost::system::result<client_details> get_client_details(const boost::optional<s
 boost::system::result<client_details> get_client_details(const config& config, const io::address& server_address);
 
 boost::system::result<std::string> get_rstream_engine_address();
+
+boost::system::result<std::string> get_rstream_engine_address(const boost::optional<std::string>& config_path);
 
 boost::system::result<std::string> format_forwarding_address(const tunnel_properties& properties);
 

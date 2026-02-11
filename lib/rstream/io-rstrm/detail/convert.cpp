@@ -109,11 +109,11 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     val.set_value(*src.m_name);
     dst.mutable_name()->CopyFrom(val);
   }
-  // if (src.m_type) {
-  //   google::protobuf::StringValue val;
-  //   val.set_value(*src.m_type);
-  //   dst.mutable_type()->CopyFrom(val);
-  // }
+  if (src.m_type) {
+    google::protobuf::StringValue val;
+    val.set_value(*src.m_type);
+    dst.mutable_type()->CopyFrom(val);
+  }
   if (src.m_publish) {
     google::protobuf::BoolValue val;
     val.set_value(*src.m_publish);
@@ -179,24 +179,15 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     val.set_value(*src.m_token_auth);
     dst.mutable_token_auth()->CopyFrom(val);
   }
-  if (src.m_sso) {
+  if (src.m_rstream_auth) {
     google::protobuf::BoolValue val;
-    val.set_value(*src.m_sso);
-    dst.mutable_sso()->CopyFrom(val);
+    val.set_value(*src.m_rstream_auth);
+    dst.mutable_rstream_auth()->CopyFrom(val);
   }
-  for (const auto& val : src.m_sso_providers) {
-    dst.add_sso_providers(val);
-  }
-  for (const auto& val : src.m_email_whitelist) {
-    dst.add_email_whitelist(val);
-  }
-  for (const auto& val : src.m_email_blacklist) {
-    dst.add_email_blacklist(val);
-  }
-  if (src.m_challenge) {
+  if (src.m_challenge_mode) {
     google::protobuf::BoolValue val;
-    val.set_value(*src.m_challenge);
-    dst.mutable_challenge()->CopyFrom(val);
+    val.set_value(*src.m_challenge_mode);
+    dst.mutable_challenge_mode()->CopyFrom(val);
   }
 }
 
@@ -211,9 +202,9 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   if (src.has_name()) {
     dst.m_name = src.name().value();
   }
-  // if (src.has_type()) {
-  //   dst.m_type = src.type().value();
-  // }
+  if (src.has_type()) {
+    dst.m_type = src.type().value();
+  }
   if (src.has_publish()) {
     dst.m_publish = src.publish().value();
   }
@@ -251,14 +242,11 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   if (src.has_token_auth()) {
     dst.m_token_auth = src.token_auth().value();
   }
-  if (src.has_sso()) {
-    dst.m_sso = src.sso().value();
+  if (src.has_rstream_auth()) {
+    dst.m_rstream_auth = src.rstream_auth().value();
   }
-  dst.m_sso_providers.assign(src.sso_providers().begin(), src.sso_providers().end());
-  dst.m_email_whitelist.assign(src.email_whitelist().begin(), src.email_whitelist().end());
-  dst.m_email_blacklist.assign(src.email_blacklist().begin(), src.email_blacklist().end());
-  if (src.has_challenge()) {
-    dst.m_challenge = src.challenge().value();
+  if (src.has_challenge_mode()) {
+    dst.m_challenge_mode = src.challenge_mode().value();
   }
 }
 

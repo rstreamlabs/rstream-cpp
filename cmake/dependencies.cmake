@@ -74,6 +74,7 @@ if(NOT DEFINED BUILD_BINDING_PYTHON OR BUILD_BINDING_PYTHON)
 endif()
 find_package(spdlog REQUIRED)
 find_package(Threads REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # extra libraries
 

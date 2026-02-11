@@ -14,3 +14,4 @@ protobuf
 python-setuptools
 python3
 spdlog
+yaml-cpp

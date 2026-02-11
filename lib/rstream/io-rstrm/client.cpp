@@ -477,7 +477,7 @@ void client::impl::async_connect(const io::address& address, async_connect_compl
 
 void client::impl::async_connect(async_connect_completion_handler&& handler)
 {
-  auto server_result = get_rstream_engine_address();
+  auto server_result = get_rstream_engine_address(m_config.m_config_path);
   if (server_result) {
     return async_connect(server_result.value(), std::move(handler));
   }
@@ -607,7 +607,10 @@ void client::impl::async_create_tunnel_internal(const tunnel_properties& propert
     rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, nullptr);
   }
   else {
-    // TODO : assert tunnel type is bytestream
+    if (properties.m_type && properties.m_type.value() != "bytestream") {
+      rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_configuration, nullptr);
+      return;
+    }
     const auto request_id       = generate_request_id();
     const auto create_tunnel_op = std::allocate_shared<create_tunnel_op_type>(core::allocator::wrapper<impl>(m_allocator), properties, std::move(handler));
     do_create_tunnel(m_create_tunnel_ops.insert(std::make_pair(request_id, create_tunnel_op)).first);
@@ -839,8 +842,7 @@ void client::impl::on_open()
   }
   set_state(state::connected);
   rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), boost::system::error_code());
-  m_handler          = nullptr;
-  m_status.m_version = m_client_details.m_version;
+  m_handler = nullptr;
   if (m_control_callbacks.m_on_status_cb) {
     m_control_callbacks.m_on_status_cb(m_status);
   }
@@ -1125,15 +1127,39 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
     auto message_type  = message.payload_case();
     if (message_type == payload_type::kOpenControlChannelRsp) {
       auto payload = message.open_control_channel_rsp();
-      if (payload.has_client_id()) {
-        on_open();
+      if (payload.has_ok()) {
+        const auto& ok = payload.ok();
+        if (!ok.client_id().empty()) {
+          if (ok.has_server_details()) {
+            const auto& details = ok.server_details();
+            if (details.has_plan()) {
+              m_status.m_plan = details.plan().value();
+            }
+            if (details.has_provider()) {
+              m_status.m_provider = details.provider().value();
+            }
+            if (details.has_region()) {
+              m_status.m_region = details.region().value();
+            }
+            if (details.has_update()) {
+              m_status.m_update = details.update().value();
+            }
+          }
+          on_open();
+        }
+        else {
+#ifdef DEBUG_BUILD
+          m_logger->trace("received open response with no client ID\n{}", core::helpers::to_json_string(payload));
+#endif
+          error_code = error::code::protocol_error;
+        }
       }
       else if (payload.has_error()) {
         error_code = error::make_error_code(payload.error().code());
       }
       else {
 #ifdef DEBUG_BUILD
-        m_logger->trace("received open response with no client ID or error\n{}", core::helpers::to_json_string(payload));
+        m_logger->trace("received open response with no ok or error\n{}", core::helpers::to_json_string(payload));
 #endif
         error_code = error::code::protocol_error;
       }
@@ -1160,6 +1186,9 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
 #endif
               error_code = error::code::protocol_error;
             }
+            if (!error_code && !error && tunnel_properties.m_type && tunnel_properties.m_type.get() != "bytestream") {
+              error = error::make_error_code(error::code::invalid_configuration);
+            }
           }
           else if (payload.has_error()) {
             error = error::make_error_code(payload.error().code());
@@ -1170,7 +1199,6 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
 #endif
             error_code = error::code::protocol_error;
           }
-          // TODO : assert tunnel type is bytestream
         }
       }
       if (!error_code) {

@@ -126,6 +126,7 @@ class ConanPackage(ConanFile):
         self.requires("boost/[>=1.83.0]", transitive_headers=True, transitive_libs=True)
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
+        self.requires("yaml-cpp/[>=0.8.0]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "openssl":
             self.requires("openssl/[>=3.1.2]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "libressl":

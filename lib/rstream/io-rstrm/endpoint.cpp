@@ -32,24 +32,25 @@ nlohmann::json& operator<<(nlohmann::json& json, const endpoint& endpoint)
 
 boost::system::result<endpoint> make_endpoint(const boost::optional<std::string>& id_name, const boost::optional<std::string>& server_address)
 {
+  return make_endpoint(id_name, server_address, boost::none);
+}
+
+boost::system::result<endpoint> make_endpoint(const boost::optional<std::string>& id_name, const boost::optional<std::string>& server_address, const boost::optional<std::string>& config_path)
+{
   if (server_address) {
     return (endpoint){
         .m_id_name        = id_name,
         .m_server_address = io::make_address(server_address.get()),
     };
   }
-  else {
-    auto server_result = get_rstream_engine_address();
-    if (server_result) {
-      return (endpoint){
-          .m_id_name        = id_name,
-          .m_server_address = io::make_address(server_result.value()),
-      };
-    }
-    else {
-      return server_result.error();
-    }
+  auto server_result = get_rstream_engine_address(config_path);
+  if (server_result) {
+    return (endpoint){
+        .m_id_name        = id_name,
+        .m_server_address = io::make_address(server_result.value()),
+    };
   }
+  return server_result.error();
 }
 
 boost::system::result<endpoint> make_endpoint(const boost::urls::url& url)
