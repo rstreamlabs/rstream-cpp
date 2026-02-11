@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.1.0...1.2.0) (2026-02-11)
+
+
+### Features
+
+* add ncat utility ([9ba697a](https://github.com/rstreamlabs/rstream-cpp/commit/9ba697ab0961dc7372f0ffd96c896a88dfe687ba))
+* rstrm protocol 1.3, netcat, new config model ([4df2cc1](https://github.com/rstreamlabs/rstream-cpp/commit/4df2cc1f6724ed4331aeaa645b80383dd3808e0a))
+
 ## [1.1.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.0.0...1.1.0) (2025-08-27)
 
 
