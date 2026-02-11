@@ -10,19 +10,29 @@
 
 namespace {
 
-std::string resolve_os()
+std::string resolve_compiletime_os()
 {
 #ifdef RSTREAM_BUILD_OS
   return std::string(RSTREAM_BUILD_OS);
 #endif
-  return rstream::core::get_system_info().m_sysname;
+  return rstream::core::get_system_info().m_sysname;  // Fallback
 }
 
-std::string resolve_arch()
+std::string resolve_compiletime_arch()
 {
 #ifdef RSTREAM_BUILD_ARCH
   return std::string(RSTREAM_BUILD_ARCH);
 #endif
+  return rstream::core::get_system_info().m_machine;  // Fallback
+}
+
+std::string resolve_runtime_os()
+{
+  return rstream::core::get_system_info().m_sysname;
+}
+
+std::string resolve_runtime_arch()
+{
   return rstream::core::get_system_info().m_machine;
 }
 
@@ -90,25 +100,46 @@ system_info get_system_info()
 #endif
 }
 
-os_identity get_os_identity()
+os_identity get_compiletime_identity()
 {
   static const os_identity identity = [] {
     os_identity value;
-    value.m_os   = resolve_os();
-    value.m_arch = resolve_arch();
+    value.m_os   = resolve_compiletime_os();
+    value.m_arch = resolve_compiletime_arch();
     return value;
   }();
   return identity;
 }
 
-std::string get_os()
+os_identity get_runtime_identity()
 {
-  return get_os_identity().m_os;
+  static const os_identity identity = [] {
+    os_identity value;
+    value.m_os   = resolve_runtime_os();
+    value.m_arch = resolve_runtime_arch();
+    return value;
+  }();
+  return identity;
 }
 
-std::string get_arch()
+std::string get_compiletime_os()
 {
-  return get_os_identity().m_arch;
+  return get_compiletime_identity().m_os;
+}
+
+std::string get_compiletime_arch()
+{
+  return get_compiletime_identity().m_arch;
+}
+
+std::string get_runtime_os()
+{
+  return get_runtime_identity().m_os;
+}
+
+std::string get_runtime_arch()
+{
+  return get_runtime_identity().m_arch;
 }
 
 }  // namespace core
