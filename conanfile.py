@@ -19,10 +19,12 @@ class ConanPackage(ConanFile):
     description = "C++ SDK for rstream - serverless networking"
     settings = "os", "compiler", "build_type", "arch"
     options = {
+        "boost_ref": [None, "ANY"],
         "deploy_python_dependencies" : [True, False],
         "deploy_python_stdlib" : [True, False],
         "enable_testing": [True, False],
-        "protobuf_version": ["ANY"],
+        "ncurses_ref": [None, "ANY"],
+        "protobuf_ref": [None, "ANY"],
         "shared": [True, False],
         "ssl_provider": ["openssl", "libressl"],
         "static_libstdcxx": [True, False],
@@ -31,7 +33,9 @@ class ConanPackage(ConanFile):
         "with_python": [True, False],
     }
     default_options = {
-        "protobuf_version": "[>=3.21.12]",
+        "boost_ref": None,
+        "ncurses_ref": None,
+        "protobuf_ref": "protobuf/[>=3.21.12]",
         "shared": False,
         "ssl_provider": "openssl",
         "static_libstdcxx": False,
@@ -119,11 +123,16 @@ class ConanPackage(ConanFile):
     def build_requirements(self):
         if self.options.enable_testing:
             self.test_requires("gtest/1.12.1")
-        if self.options.protobuf_version.value != "none":
-            self.build_requires("protobuf/" + self.options.protobuf_version.value)
+        protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
+        if protobuf_ref and protobuf_ref != "none":
+            self.build_requires(protobuf_ref)
 
     def requirements(self):
-        self.requires("boost/[>=1.83.0]", transitive_headers=True, transitive_libs=True)
+        boost_ref = str(self.options.get_safe("boost_ref") or "").strip()
+        if boost_ref:
+            self.requires(boost_ref, transitive_headers=True, transitive_libs=True)
+        else:
+            self.requires("boost/[>=1.83.0]", transitive_headers=True, transitive_libs=True)
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
         self.requires("yaml-cpp/[>=0.8.0]", transitive_headers=True, transitive_libs=True)
@@ -131,12 +140,17 @@ class ConanPackage(ConanFile):
             self.requires("openssl/[>=3.1.2]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "libressl":
             self.requires("libressl/[>=3.9.1]", transitive_headers=True, transitive_libs=True)
-        if self.options.protobuf_version.value != "none":
-            self.requires("protobuf/" + self.options.protobuf_version.value, transitive_headers=True, transitive_libs=True)
+        protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
+        if protobuf_ref and protobuf_ref != "none":
+            self.requires(protobuf_ref, transitive_headers=True, transitive_libs=True)
         if self.options.with_maxminddb:
             self.requires("libmaxminddb/[>=1.9.1]", transitive_headers=True, transitive_libs=True)
         if self.options.with_ncurses:
-            self.requires("ncurses/[>=6.5]", transitive_headers=True, transitive_libs=True)
+            ncurses_ref = str(self.options.get_safe("ncurses_ref") or "").strip()
+            if ncurses_ref:
+                self.requires(ncurses_ref, transitive_headers=True, transitive_libs=True)
+            else:
+                self.requires("ncurses/[>=6.5]", transitive_headers=True, transitive_libs=True)
         
     def generate(self):
         cmake_toolchain = conan.tools.cmake.CMakeToolchain(self, generator="Ninja")

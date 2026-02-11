@@ -68,14 +68,15 @@ extra_conan_options["linux-ppc64le-musl"]="--options boost/*:without_charconv=Tr
 extra_conan_options["linux-riscv64-glibc"]="--options openssl/*:no_asm=True"
 extra_conan_options["linux-riscv64-musl"]="--options openssl/*:no_asm=True"
 
-function patched_require_overrides {
-  if [ "${use_patched_conan_deps}" = "on" ]; then
-    local overrides=("--require-override" "boost/${patched_boost_version}@${patched_conan_channel}")
-    if [ "${OS}" != "windows" ] && [ -n "${patched_ncurses_version}" ]; then
-      overrides+=("--require-override" "ncurses/${patched_ncurses_version}@${patched_conan_channel}")
-    fi
-    echo "${overrides[@]}"
+function patched_conan_conf {
+  if [ "${use_patched_conan_deps}" != "on" ]; then
+    return
   fi
+  local opts=("-o" "rstream/*:boost_ref=boost/${patched_boost_version}@${patched_conan_channel}")
+  if [ "${OS}" != "windows" ] && [ -n "${patched_ncurses_version}" ]; then
+    opts+=("-o" "rstream/*:ncurses_ref=ncurses/${patched_ncurses_version}@${patched_conan_channel}")
+  fi
+  echo "${opts[@]}"
 }
 
 function shared {
@@ -145,7 +146,7 @@ function windows_conan_extra_options {
 }
 
 function conan_options {
-  echo "$(${OS}_conan_extra_options) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type} $(patched_require_overrides)"
+  echo "$(${OS}_conan_extra_options) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type}"
 }
 
 function linux_conan_options {
@@ -173,7 +174,7 @@ function windows_package_outdir {
 }
 
 function cmd_build {
-  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} ${SRC_PATH}"
+  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
 }
 
 function linux_cmd_build {
@@ -189,7 +190,7 @@ function windows_cmd_build {
 }
 
 function cmd_export {
-  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH}"
+  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -c user.rstream:os=${OS} -c user.rstream:arch=${ARCH} $(patched_conan_conf)"
 }
 
 function linux_cmd_export {
