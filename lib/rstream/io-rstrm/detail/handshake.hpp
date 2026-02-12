@@ -324,9 +324,9 @@ void handshake<stream>::async_run_operation<T>::on_read_incoming_protobuf_messag
       if (rsp.error().has_message()) {
         ss << " (" << rsp.error().message().value() << ")";
       }
-      m_logger->warn("peer returned error code {}{}", rsp.error().code(), ss.str());
+      m_logger->warn("peer returned error code {}{}", static_cast<int>(rsp.error().code()), ss.str());
 #endif
-      error_code = error::make_error_code(rsp.error().code());
+      error_code = error::make_error_code(static_cast<int>(rsp.error().code()));
     }
     else if (!rsp.has_stream_id()) {
 #ifdef DEBUG_BUILD
@@ -343,9 +343,9 @@ void handshake<stream>::async_run_operation<T>::on_read_incoming_protobuf_messag
       if (rsp.error().has_message()) {
         ss << " (" << rsp.error().message().value() << ")";
       }
-      m_logger->warn("peer returned error code {}{}", rsp.error().code(), ss.str());
+      m_logger->warn("peer returned error code {}{}", static_cast<int>(rsp.error().code()), ss.str());
 #endif
-      error_code = error::make_error_code(rsp.error().code());
+      error_code = error::make_error_code(static_cast<int>(rsp.error().code()));
     }
   }
   else {

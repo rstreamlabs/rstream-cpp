@@ -967,7 +967,7 @@ void client::impl::do_send_proxy_response(tunnels_type::iterator& tunnel_it, con
   payload.set_stream_id(stream_id);
   if (error_code) {
     protobuf::Error error;
-    error.set_code(error_code.value());
+    error.set_code(static_cast<protobuf::ErrorCode>(error_code.value()));
     google::protobuf::StringValue str;
     str.set_value(error_code.message());
     error.mutable_message()->CopyFrom(str);
@@ -1155,7 +1155,7 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
         }
       }
       else if (payload.has_error()) {
-        error_code = error::make_error_code(payload.error().code());
+        error_code = error::make_error_code(static_cast<int>(payload.error().code()));
       }
       else {
 #ifdef DEBUG_BUILD
@@ -1191,7 +1191,7 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
             }
           }
           else if (payload.has_error()) {
-            error = error::make_error_code(payload.error().code());
+            error = error::make_error_code(static_cast<int>(payload.error().code()));
           }
           else {
 #ifdef DEBUG_BUILD
