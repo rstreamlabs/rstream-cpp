@@ -19,18 +19,29 @@ class category : public std::error_category {
 
 enum class code {
   success = 0,
-  invalid_configuration,
-  invalid_endpoint,
-  invalid_state,
-  no_valid_endpoint,
-  operation_aborted,
-  operation_in_progress,
-  operation_timeout,
-  protocol_error,
-  server_error,
-  stream_not_found,
-  tunnel_not_found,
-  unauthorized,
+  // Local/client-side errors
+  invalid_configuration = 1,
+  invalid_endpoint      = 2,
+  invalid_state         = 3,
+  no_valid_endpoint     = 4,
+  operation_aborted     = 5,
+  operation_in_progress = 6,
+  operation_timeout     = 7,
+  protocol_error        = 8,
+  server_error          = 9,
+  stream_not_found      = 10,
+
+  // Server-mapped error codes
+  unauthorized                  = 1000,
+  invalid_request               = 2000,
+  protocol_version_missing      = 2010,
+  protocol_version_invalid      = 2020,
+  protocol_version_incompatible = 2030,
+  tunnel_not_found              = 3000,
+  invalid_stream                = 4000,
+  feature_not_available         = 5000,
+  service_unavailable           = 6000,
+  internal                      = 9000,
 };
 
 extern inline const category& rstream_rstream_error_category()

@@ -465,6 +465,15 @@ void acceptor::impl::on_create_tunnel(const boost::system::error_code& error_cod
   }
   if (cause) {
     m_logger->trace("an error occurred while creating tunnel [error_code: {}]", cause.message());
+    m_status = status_extd{
+        status{m_server_status},
+        std::string("tunnel creation failed (" + boost::algorithm::to_lower_copy(cause.message()) + ")"),
+        {},
+        {},
+    };
+    if (m_control_callbacks.m_on_status_cb) {
+      m_control_callbacks.m_on_status_cb(m_status);
+    }
     if (m_settings.m_auto_recreate_tunnel) {
       do_recreate_tunnel();
     }

@@ -53,6 +53,22 @@ std::string to_string(error::code code)
       return "tunnel not found";
     case error::code::unauthorized:
       return "unauthorized";
+    case error::code::invalid_request:
+      return "invalid request";
+    case error::code::protocol_version_missing:
+      return "protocol version missing";
+    case error::code::protocol_version_invalid:
+      return "protocol version invalid";
+    case error::code::protocol_version_incompatible:
+      return "protocol version incompatible";
+    case error::code::invalid_stream:
+      return "invalid stream";
+    case error::code::feature_not_available:
+      return "feature not available";
+    case error::code::service_unavailable:
+      return "service unavailable";
+    case error::code::internal:
+      return "internal error";
     default:
       return "unknown error";
   }
