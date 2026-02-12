@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.3.1...1.4.0) (2026-02-12)
+
+
+### Features
+
+* rstrm protocol 1.4 (error codes) ([921c488](https://github.com/rstreamlabs/rstream-cpp/commit/921c48817ab44d1b12ce00b8dce5ac5982ff5f21))
+
 ## [1.3.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.3.0...1.3.1) (2026-02-11)
 
 
