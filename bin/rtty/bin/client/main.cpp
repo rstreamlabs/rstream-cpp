@@ -23,7 +23,7 @@ rstream-rtty-client - (https://rstream.io/) - remote TTY client using rstream pr
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 
 usage:
-  rstream-rtty-client [options] [-e=ARG...] [-i|-I] [-t|-T] [(-s -k=ARG)] [--] [<cmd>...]
+  rstream-rtty-client [options] [-e=ARG...] [-i|-I] [-t|-T] [--] [<cmd>...]
   rstream-rtty-client (-h|--help)
   rstream-rtty-client --version
 
@@ -40,8 +40,6 @@ options:
   -e --env=ARG          pass environment variable
   -w --workdir=ARG      set the working directory
   -u --user=ARG         username or UID
-  -s --secure           secure the connection using end-to-end encryption
-  -k --key=ARG          AES encryption key encoded in hexademical format
   --protocol=ARG        protocol to use [default: websocket]
   -j --jobs=ARG         number of threads to run simultaneously (0 = auto) [default: 0]
 
