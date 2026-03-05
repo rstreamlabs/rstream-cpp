@@ -52,6 +52,16 @@ A dedicated reference is available in [docs/URI_MODEL.md](docs/URI_MODEL.md).
 
 `rstream-cpp` builds on Linux, macOS, and Windows.
 
+## Installation (rstream binaries)
+
+The manual installer below installs packaged binaries produced from this SDK (the `rstream-utils` package). It installs operational tools such as `rstream-tunnel`, not the C++ SDK headers/libraries used for application development.
+
+```bash
+PACKAGE_NAME="rstream-utils" /bin/bash -i -c "$(curl -fsSL https://rstream.io/scripts/install.sh)"
+```
+
+If you want to integrate the SDK itself in a C++ codebase, use the build and package paths described in the next sections.
+
 ## Build prerequisites
 
 A typical source build uses a C++20 compiler, CMake, Conan 2.x, Python 3.x, and usually Ninja as build generator.
@@ -90,6 +100,26 @@ target_link_libraries(my_app PRIVATE rstream::rstream)
 ```
 
 If dynamic plugin mode is used (`ENABLE_STATIC_PLUGINS=OFF`), deploy plugin modules with the runtime layout.
+
+## Authentication and project setup
+
+Before using SDK or CLI flows, login and project/context setup are required through the `rstream` CLI. The standard developer-machine path is browser-based login:
+
+```bash
+rstream login
+```
+
+Then select the target project endpoint and set the default context:
+
+```bash
+rstream project use <project-endpoint> --default
+```
+
+`rstream-cpp` consumes the same configuration file and context model as the `rstream` CLI (default path: `~/.rstream/config.yaml`).
+
+For advanced authentication modes and context workflows, see the Go CLI workflow documentation:
+
+- https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
 
 ## Environment variables
 
@@ -316,6 +346,10 @@ rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1
 - Documentation: https://rstream.io/docs
 - Go SDK (reference implementation): https://github.com/rstreamlabs/rstream-go
 - C++ SDK: https://github.com/rstreamlabs/rstream-cpp
+- CLI workflow and authentication: https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
+- Declarative run workflows: https://github.com/rstreamlabs/rstream-go/blob/main/docs/CMD_RUN.md
+- Transport configuration: https://github.com/rstreamlabs/rstream-go/blob/main/docs/TRANSPORT.md
+- Tunnel property reference: https://github.com/rstreamlabs/rstream-go/blob/main/docs/TUNNEL_PROPERTIES.md
 
 ## Contributing
 
