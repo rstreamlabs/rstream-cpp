@@ -12,6 +12,18 @@ rstream is a secure connectivity platform built around an edge network and outbo
 
 This model avoids inbound exposure on infrastructure while keeping publication, policy, and observability centralized.
 
+## What is a tunnel?
+
+A tunnel is an outbound secure path from an upstream service to the rstream edge. It allows controlled exposure without opening inbound ports on the service side.
+
+Published tunnels provide forwarding addresses for standard clients. Private tunnels are resolved by tunnel id or name and are consumed through rstream-native dial flows.
+
+## How rstream works
+
+The client side establishes and maintains outbound connectivity to the edge. The edge receives downstream traffic, authenticates and evaluates access policies, then forwards traffic over the active tunnel to the upstream workload.
+
+In this model, transport setup remains centralized while application workloads stay in private networks.
+
 ## What this SDK is for
 
 `rstream-cpp` is intended for teams that build native services, gateways, agents, or device software in C or C++. The SDK is compatible with **bytestream tunnels** and is optimized for long-lived, operational connectivity inside native processes.
@@ -23,6 +35,8 @@ For broader protocol coverage and the most complete tunnel lifecycle features, u
 The SDK supports both published and private tunnel patterns. Published tunnels expose forwarding addresses through the edge. Private tunnels remain non-public and are consumed through rstream endpoint semantics (id or name on an engine).
 
 Tunnel configuration includes labels and policy-related settings. Those properties are carried by the SDK and applied when creating tunnels, while policy enforcement is performed by the rstream edge.
+
+The API surface carries both bytestream and datagram-oriented tunnel properties. Operational compatibility in `rstream-cpp` is focused on bytestream tunnel workflows.
 
 ## Boost.Asio integration
 
@@ -79,21 +93,24 @@ target_link_libraries(my_app PRIVATE rstream::rstream)
 
 If dynamic plugin mode is used (`ENABLE_STATIC_PLUGINS=OFF`), deploy plugin modules with the runtime layout.
 
-## Environment variables and resolution behavior
+## Environment variables
 
 The SDK and CLI flows use the same configuration concepts, and the variables below participate in explicit resolution paths inside `io-rstrm`.
 
-`RSTREAM_CONFIG` points to the config file location. If it is not set, the SDK falls back to `~/.rstream/config.yaml`.
+For consistency with CLI flows, the following variables are the primary explicit overrides:
 
-`RSTREAM_CONTEXT` and `RSTREAM_API_URL` select context and environment scopes during config-based resolution.
+- `RSTREAM_CONFIG`: Override the config file path. If unset, the SDK falls back to `~/.rstream/config.yaml`.
+- `RSTREAM_CONTEXT`: Select the active context during config-based resolution.
+- `RSTREAM_API_URL`: Override the control-plane API URL used by context-aware resolution paths.
+- `RSTREAM_ENGINE_ADDRESS`: Highest-priority engine address override for runtime connection targets.
+- `RSTREAM_ENGINE`: Secondary engine override; when provided as `host:port`, it is expanded to a default `tcp://...` URI with TLS and ALPN defaults.
+- `RSTREAM_AUTHENTICATION_TOKEN`: Override token resolution when token behavior is not fixed in SDK options.
 
-`RSTREAM_ENGINE_ADDRESS` is the highest-priority engine override. `RSTREAM_ENGINE` is the next engine override; when provided as `host:port`, the SDK expands it to a default `tcp://...` URI with TLS and ALPN defaults.
-
-`RSTREAM_AUTHENTICATION_TOKEN` overrides token resolution when token behavior is not explicitly fixed in SDK options.
+### Resolution behavior
 
 In short, engine resolution starts from explicit environment overrides and then falls back to config/context resolution. Token resolution starts from explicit SDK options, then environment override, then config-derived values.
 
-## SDK code samples
+## Code examples
 
 The samples below illustrate the two common patterns: publishing an HTTP server through the edge, and using a private tunnel with a programmatic dial. Both use the same asynchronous style that integrates with existing Asio-based code.
 
@@ -304,7 +321,15 @@ rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1
 
 ## Contributing
 
-Contributions are welcome. Build locally, run checks, and submit focused pull requests with clear validation notes.
+Pull requests are encouraged and appreciated. Whether you're fixing bugs, adding features, improving documentation, or suggesting enhancements, your contributions help make rstream better for everyone. Build locally, run checks, and submit focused pull requests with clear validation notes.
+
+## Support
+
+**Get help:**  
+support@rstream.io
+
+**Report security concerns:**  
+reports@rstream.io
 
 ## License
 
