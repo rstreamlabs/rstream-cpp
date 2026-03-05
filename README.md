@@ -1,7 +1,5 @@
 # rstream-cpp
 
-Transform localhost into global reach through secure tunneling.
-
 `rstream-cpp` is the C++ SDK for **rstream**. It targets native environments where performance, control over runtime behavior, and deep integration with existing networking stacks matter, while keeping an API surface that fits naturally into modern asynchronous C++.
 
 The Go SDK is the reference implementation and covers the full rstream API surface. The C++ SDK follows the same platform model and the same agent-to-edge architecture, with a different implementation focus: high-performance native integration and operational bytestream tunnel workflows. If an application already uses Boost.Asio (or Boost.Beast) and needs rstream connectivity without introducing an external process, `rstream-cpp` is designed for that integration style.
