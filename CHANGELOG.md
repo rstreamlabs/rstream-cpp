@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.4.0...1.4.1) (2026-03-08)
+
+
+### Bug Fixes
+
+* fix windows builds ([b6dcaa4](https://github.com/rstreamlabs/rstream-cpp/commit/b6dcaa47866ddbed16620f0bd39125a7c8c1a21a))
+
 ## [1.4.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.3.1...1.4.0) (2026-02-12)
 
 
