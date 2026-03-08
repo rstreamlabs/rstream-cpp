@@ -257,7 +257,7 @@ function windows_run_build {
 function linux_run_export {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
-    ${OS}_run_docker "$(${OS}_cmd_export) && chown -R $(id -u):$(id -g) /source/out"
+    ${OS}_run_docker "$(${OS}_cmd_export) && chown -R $(id -u):$(id -g) /source/$(${OS}_package_outdir)"
   else
     export SRC_PATH=${script_dir}
     bash -c "$(${OS}_cmd_export)"
@@ -272,7 +272,7 @@ function macos_run_export {
 function windows_run_export {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
-    ${OS}_run_docker "$(${OS}_cmd_export) && chown -R $(id -u):$(id -g) /source/out"
+    ${OS}_run_docker "$(${OS}_cmd_export) && chown -R $(id -u):$(id -g) /source/$(${OS}_package_outdir)"
   else
     export SRC_PATH=${script_dir}
     bash -c "$(${OS}_cmd_export)"
