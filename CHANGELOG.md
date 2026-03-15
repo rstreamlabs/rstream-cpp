@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.4.1...1.5.0) (2026-03-15)
+
+
+### Features
+
+* add webtty client on windows; add windows arm64 build profile ([2c74242](https://github.com/rstreamlabs/rstream-cpp/commit/2c7424218317edf2773ecfa2a34aeb0e627323e6))
+
 ## [1.4.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.4.0...1.4.1) (2026-03-08)
 
 
