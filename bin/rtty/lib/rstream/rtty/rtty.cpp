@@ -584,47 +584,6 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
 
 }  // namespace protocol
 
-endpoint_config parse_endpoint_config(const std::string& uri, protocol::type protocol_type)
-{
-  if (protocol_type != protocol::type::websocket) {
-    return {
-        .m_address          = io::address(uri),
-        .m_websocket_target = boost::none,
-    };
-  }
-  auto address = io::address(uri);
-  auto scheme  = std::string(address.m_url.scheme());
-  if (scheme.empty() || scheme == "tcp") {
-    return {
-        .m_address          = address,
-        .m_websocket_target = std::string("/"),
-    };
-  }
-  if (scheme == "ws") {
-    auto host = address.host();
-    if (host.find(':') != std::string::npos) {
-      host = "[" + host + "]";
-    }
-    auto transport = std::string("tcp://") + host;
-    auto port      = address.port();
-    if (!port.empty()) {
-      transport += ":" + port;
-    }
-    auto target = std::string(address.m_url.encoded_target());
-    if (target.empty()) {
-      target = "/";
-    }
-    return {
-        .m_address          = io::address(transport),
-        .m_websocket_target = target,
-    };
-  }
-  if (scheme == "wss") {
-    throw std::runtime_error("unsupported URI scheme 'wss'");
-  }
-  throw std::runtime_error("unsupported URI scheme '" + scheme + "'");
-}
-
 std::string build_webtty_uri()
 {
   static const std::string base_uri = "rstrm://?rstrm.publish=true&rstrm.protocol=http&rstrm.token_auth=true";
