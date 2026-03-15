@@ -12,16 +12,16 @@ namespace helpers {
 std::string to_json_string(const google::protobuf::Message& message)
 {
   std::string str;
-  #if GOOGLE_PROTOBUF_VERSION < 3030000
+#if GOOGLE_PROTOBUF_VERSION < 3030000
   google::protobuf::util::JsonOptions options;
 #else
   google::protobuf::util::JsonPrintOptions options;
 #endif
   options.add_whitespace = true;
-#if GOOGLE_PROTOBUF_VERSION < 3026000
-  options.always_print_primitive_fields = true;
-#else
+#if GOOGLE_PROTOBUF_VERSION >= 5026000
   options.always_print_fields_with_no_presence = true;
+#else
+  options.always_print_primitive_fields = true;
 #endif
   auto status = google::protobuf::util::MessageToJsonString(message, &str, options);
   if (!status.ok()) {

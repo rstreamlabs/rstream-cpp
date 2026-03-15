@@ -92,10 +92,17 @@ if(WITH_IO_STREAMS)
 endif()
 
 if(ENABLE_STATIC_PLUGINS)
-  target_link_libraries(
-    ${LIBRARY_NAME}
-    PRIVATE
-    ${PROJECT_NAME}::static-plugins)
+  if(BUILD_SHARED_LIBS)
+    target_link_libraries(
+      ${LIBRARY_NAME}
+      PRIVATE
+      ${PROJECT_NAME}::static-plugins)
+  else()
+    target_link_libraries(
+      ${LIBRARY_NAME}
+      PUBLIC
+      ${PROJECT_NAME}::static-plugins)
+  endif()
 endif()
 
 if(EMBED_DEFAULT_CA_CERTIFICATES)

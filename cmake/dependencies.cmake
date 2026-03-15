@@ -4,11 +4,25 @@
 
 include(FindPkgConfig)
 
+macro(find_boost_package)
+  find_package(Boost ${ARGN} CONFIG QUIET)
+  if(NOT Boost_FOUND)
+    if(POLICY CMP0167)
+      cmake_policy(PUSH)
+      cmake_policy(SET CMP0167 OLD)
+    endif()
+    find_package(Boost ${ARGN})
+    if(POLICY CMP0167)
+      cmake_policy(POP)
+    endif()
+  endif()
+endmacro()
+
 set(SSL_PROVIDER "openssl" CACHE STRING "SSL provider to use")
 if(EMSCRIPTEN)
-  find_package(Boost "1.81.0")
+  find_boost_package("1.81.0")
 else()
-  find_package(Boost "1.81.0" REQUIRED COMPONENTS filesystem date_time regex url random OPTIONAL_COMPONENTS coroutine thread)
+  find_boost_package("1.81.0" REQUIRED COMPONENTS filesystem date_time regex url random OPTIONAL_COMPONENTS thread)
 endif()
 find_package(CompatProtobuf REQUIRED)
 find_package(docopt QUIET)
@@ -62,7 +76,7 @@ if(NOT DEFINED BUILD_BINDING_PYTHON OR BUILD_BINDING_PYTHON)
     python${Python3_VERSION_MAJOR}
     python)
   foreach(candidate IN LISTS BOOST_COMPONENT_PYTHON_CANDIDATES)
-    find_package(Boost QUIET OPTIONAL_COMPONENTS ${candidate})
+    find_boost_package(OPTIONAL_COMPONENTS ${candidate})
     if(TARGET Boost::${candidate})
       set(BOOST_COMPONENT_PYTHON ${candidate})
       break()
@@ -84,6 +98,10 @@ include(CheckAtomic)
 
 # TODO : Replace boost::asio::deadline_timer with boost::asio::system_timer
 # add_compile_definitions(BOOST_ASIO_NO_DEPRECATED)
+
+if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  add_compile_definitions(FMT_CONSTEVAL=)
+endif()
 
 if(MSVC)
   add_compile_definitions(BOOST_ALL_NO_LIB)

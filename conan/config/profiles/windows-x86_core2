@@ -1,33 +1,33 @@
 include(default)
 
 {% set compiler_target_cpu = "core2" %}
+{% set compiler_target_triplet = "i686-w64-windows-gnu" %}
 
 [settings]
 arch=x86
 build_type=Release
-compiler=gcc
+compiler=clang
 compiler.cppstd=20
-compiler.libcxx=libstdc++11
-compiler.threads=posix
-compiler.version=13
-compiler.target={{ compiler_target_cpu }}
+compiler.libcxx=libc++
+compiler.version=21
+compiler.target={{ compiler_target_triplet }}
 os=Windows
 [options]
 [buildenv]
-CC=i686-w64-mingw32-gcc -march={{ compiler_target_cpu }} -mtune=generic
-CXX=i686-w64-mingw32-g++ -march={{ compiler_target_cpu }} -mtune=generic
-CPP=i686-w64-mingw32-cpp
-AR=i686-w64-mingw32-ar
-AS=i686-w64-mingw32-as
-GDB=i686-w64-mingw32-gdb
-LD=i686-w64-mingw32-ld
-NM=i686-w64-mingw32-nm
-OBJCOPY=i686-w64-mingw32-objcopy
-OBJDUMP=i686-w64-mingw32-objdump
-RANLIB=i686-w64-mingw32-ranlib
-SIZE=i686-w64-mingw32-size
-STRINGS=i686-w64-mingw32-strings
-STRIP=i686-w64-mingw32-strip
-GCOV=i686-w64-mingw32-gcov
-RC=i686-w64-mingw32-windres
-DLLTOOL=i686-w64-mingw32-dlltool
+CPPFLAGS=-DFMT_CONSTEVAL=
+CXXFLAGS=-DFMT_CONSTEVAL=
+CC=/opt/llvm-mingw/bin/i686-w64-mingw32-gcc -march={{ compiler_target_cpu }} -mtune=generic
+CXX=/opt/llvm-mingw/bin/i686-w64-mingw32-g++ -march={{ compiler_target_cpu }} -mtune=generic
+CPP=/opt/llvm-mingw/bin/i686-w64-mingw32-gcc -E
+AR=/opt/llvm-mingw/bin/i686-w64-mingw32-ar
+AS=/opt/llvm-mingw/bin/i686-w64-mingw32-as
+LD=/opt/llvm-mingw/bin/i686-w64-mingw32-ld
+NM=/opt/llvm-mingw/bin/i686-w64-mingw32-nm
+OBJCOPY=/opt/llvm-mingw/bin/i686-w64-mingw32-objcopy
+OBJDUMP=/opt/llvm-mingw/bin/i686-w64-mingw32-objdump
+RANLIB=/opt/llvm-mingw/bin/i686-w64-mingw32-ranlib
+SIZE=/opt/llvm-mingw/bin/i686-w64-mingw32-size
+STRINGS=/opt/llvm-mingw/bin/i686-w64-mingw32-strings
+STRIP=/opt/llvm-mingw/bin/i686-w64-mingw32-strip
+RC=/opt/llvm-mingw/bin/i686-w64-mingw32-windres
+DLLTOOL=/opt/llvm-mingw/bin/i686-w64-mingw32-dlltool

@@ -492,6 +492,32 @@ void parse_type(type& dst, const std::string& src)
   }
 }
 
+void parse_identifier(identifier& dst, const std::string& src)
+{
+  auto is_str_id = [](const std::string& str) {
+    auto it = str.begin();
+    while (it != str.end() && std::isdigit(*it)) {
+      ++it;
+    }
+    return !str.empty() && it == str.end();
+  };
+  if (is_str_id(src)) {
+    dst = std::stoul(src);
+  }
+  else {
+    dst = src;
+  }
+}
+
+void parse_username(username& dst, const std::string& src)
+{
+  if (!src.empty()) {
+    identifier identifier;
+    parse_identifier(identifier, src);
+    dst = identifier;
+  }
+}
+
 #ifdef _WIN32
 
 void get_user_info(user_info& user_info, std::error_code& error_code)
@@ -530,32 +556,6 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
 
 #else
 
-void parse_identifier(identifier& dst, const std::string& src)
-{
-  auto is_str_id = [](const std::string& str) {
-    auto it = str.begin();
-    while (it != str.end() && std::isdigit(*it)) {
-      ++it;
-    }
-    return !str.empty() && it == str.end();
-  };
-  if (is_str_id(src)) {
-    dst = std::stoul(src);
-  }
-  else {
-    dst = src;
-  }
-}
-
-void parse_username(username& dst, const std::string& src)
-{
-  if (!src.empty()) {
-    identifier identifier;
-    parse_identifier(identifier, src);
-    dst = identifier;
-  }
-}
-
 void get_user_info(user_info& user_info, const username& username, std::error_code& error_code)
 {
   identifier user = username ? username.get() : getuid();
@@ -583,6 +583,47 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
 #endif
 
 }  // namespace protocol
+
+endpoint_config parse_endpoint_config(const std::string& uri, protocol::type protocol_type)
+{
+  if (protocol_type != protocol::type::websocket) {
+    return {
+        .m_address          = io::address(uri),
+        .m_websocket_target = boost::none,
+    };
+  }
+  auto address = io::address(uri);
+  auto scheme  = std::string(address.m_url.scheme());
+  if (scheme.empty() || scheme == "tcp") {
+    return {
+        .m_address          = address,
+        .m_websocket_target = std::string("/"),
+    };
+  }
+  if (scheme == "ws") {
+    auto host = address.host();
+    if (host.find(':') != std::string::npos) {
+      host = "[" + host + "]";
+    }
+    auto transport = std::string("tcp://") + host;
+    auto port      = address.port();
+    if (!port.empty()) {
+      transport += ":" + port;
+    }
+    auto target = std::string(address.m_url.encoded_target());
+    if (target.empty()) {
+      target = "/";
+    }
+    return {
+        .m_address          = io::address(transport),
+        .m_websocket_target = target,
+    };
+  }
+  if (scheme == "wss") {
+    throw std::runtime_error("unsupported URI scheme 'wss'");
+  }
+  throw std::runtime_error("unsupported URI scheme '" + scheme + "'");
+}
 
 std::string build_webtty_uri()
 {

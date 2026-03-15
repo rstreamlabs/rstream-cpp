@@ -8,7 +8,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends build-essential
 
 RUN apt-get update && apt-get -y install --no-install-recommends python3-dev python3-numpy python3-pip && PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade conan
 
-RUN apt-get update && apt-get -y install --no-install-recommends mingw-w64
+RUN apt-get update && apt-get -y install --no-install-recommends mingw-w64 nasm
 
 RUN ln -s /usr/${MINGW_ARCH}-w64-mingw32/include/winioctl.h /usr/${MINGW_ARCH}-w64-mingw32/include/WinIoCtl.h
 
@@ -25,16 +25,19 @@ RUN echo "[settings]\n\
     compiler.cppstd=20\n\
     compiler.version=13\n\
     compiler.libcxx=libstdc++11\n\
-    compiler.threads=win32\n\
+    compiler.threads=posix\n\
+    compiler.target=${MINGW_ARCH}\n\
     build_type=Release\n\
     [options]\n\
     boost/*:without_stacktrace=True\n\
     [tool_requires]\n\
     [runenv]\n\
     [buildenv]\n\
+    CPPFLAGS=-DFMT_CONSTEVAL=\n\
+    CXXFLAGS=-DFMT_CONSTEVAL=\n\
     CC=${MINGW_ARCH}-w64-mingw32-gcc\n\
     CXX=${MINGW_ARCH}-w64-mingw32-g++\n\
-    CPP=${MINGW_ARCH}-w64-mingw32-cpp\n\
+    CPP=${MINGW_ARCH}-w64-mingw32-gcc -E\n\
     AR=${MINGW_ARCH}-w64-mingw32-ar\n\
     AS=${MINGW_ARCH}-w64-mingw32-as\n\
     GDB=${MINGW_ARCH}-w64-mingw32-gdb\n\

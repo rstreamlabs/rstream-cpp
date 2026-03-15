@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -96,7 +97,7 @@ inline std::string get_processor_architecture(WORD wProcessorArchitecture)
 
 system_info get_system_info()
 {
-#ifdef _WIN32  // Windows
+#ifdef _WIN32
   OSVERSIONINFOEX osver;
   ::ZeroMemory(&osver, sizeof(osver));
   osver.dwOSVersionInfoSize = sizeof(osver);
@@ -122,7 +123,7 @@ system_info get_system_info()
   info.m_version = versionStream.str();
   info.m_machine = get_processor_architecture(sysInfo.wProcessorArchitecture);
   return info;
-#else  // Non-Windows (Linux, macOS, etc.)
+#else
   utsname uts;
   uname(&uts);
   system_info info;

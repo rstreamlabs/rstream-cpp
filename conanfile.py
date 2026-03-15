@@ -41,7 +41,7 @@ class ConanPackage(ConanFile):
         "build_channel": None,
         "build_os": None,
         "ncurses_ref": None,
-        "protobuf_ref": "protobuf/[>=3.21.12]",
+        "protobuf_ref": "protobuf/3.21.12",
         "shared": False,
         "ssl_provider": "openssl",
         "static_libstdcxx": False,

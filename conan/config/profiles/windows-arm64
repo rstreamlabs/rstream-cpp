@@ -1,0 +1,33 @@
+include(default)
+
+{% set compiler_target_cpu = "armv8-a" %}
+{% set compiler_target_triplet = "aarch64-w64-windows-gnu" %}
+
+[settings]
+arch=armv8
+build_type=Release
+compiler=clang
+compiler.cppstd=20
+compiler.libcxx=libc++
+compiler.version=21
+compiler.target={{ compiler_target_triplet }}
+os=Windows
+[options]
+[buildenv]
+CPPFLAGS=-DFMT_CONSTEVAL=
+CXXFLAGS=-DFMT_CONSTEVAL=
+CC=/opt/llvm-mingw/bin/aarch64-w64-mingw32-gcc -march={{ compiler_target_cpu }} -mtune=generic
+CXX=/opt/llvm-mingw/bin/aarch64-w64-mingw32-g++ -march={{ compiler_target_cpu }} -mtune=generic
+CPP=/opt/llvm-mingw/bin/aarch64-w64-mingw32-gcc -E
+AR=/opt/llvm-mingw/bin/aarch64-w64-mingw32-ar
+AS=/opt/llvm-mingw/bin/aarch64-w64-mingw32-as
+LD=/opt/llvm-mingw/bin/aarch64-w64-mingw32-ld
+NM=/opt/llvm-mingw/bin/aarch64-w64-mingw32-nm
+OBJCOPY=/opt/llvm-mingw/bin/aarch64-w64-mingw32-objcopy
+OBJDUMP=/opt/llvm-mingw/bin/aarch64-w64-mingw32-objdump
+RANLIB=/opt/llvm-mingw/bin/aarch64-w64-mingw32-ranlib
+SIZE=/opt/llvm-mingw/bin/aarch64-w64-mingw32-size
+STRINGS=/opt/llvm-mingw/bin/aarch64-w64-mingw32-strings
+STRIP=/opt/llvm-mingw/bin/aarch64-w64-mingw32-strip
+RC=/opt/llvm-mingw/bin/aarch64-w64-mingw32-windres
+DLLTOOL=/opt/llvm-mingw/bin/aarch64-w64-mingw32-dlltool

@@ -20,8 +20,9 @@ cmake_dependent_option(BUILD_EXAMPLES "Build example programs" ON "NOT CMAKE_BUI
 cmake_dependent_option(ENABLE_TESTING "Build and run unitary tests programs" ON "NOT CMAKE_CROSSCOMPILING" OFF)
 
 set(ENABLE_STATIC_PLUGINS_CONDITION TRUE)
-if(WIN32 AND BUILD_SHARED_LIBS)
-    set(ENABLE_STATIC_PLUGINS_CONDITION FALSE)
+if(BUILD_SHARED_LIBS)
+  set(ENABLE_STATIC_PLUGINS OFF CACHE BOOL "Use static linking for plugins" FORCE)
+  set(ENABLE_STATIC_PLUGINS_CONDITION FALSE)
 endif()
 
 cmake_dependent_option_strict(BUILD_BINDING_JAVA "Build JAVA binding" OFF "JNI_FOUND" OFF)

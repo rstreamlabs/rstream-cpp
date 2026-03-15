@@ -69,15 +69,17 @@ int run(int argc, char** argv)
   boost::asio::signal_set signal_set(io_context, SIGINT, SIGTERM);
   rstream::rtty::protocol::type protocol_type;
   rstream::rtty::protocol::parse_type(protocol_type, args.at("--protocol").asString());
+  auto endpoint                        = rstream::rtty::parse_endpoint_config(args.at("--uri").asString(), protocol_type);
   rstream::rtty::client::config config = {
-      .m_address         = args.at("--uri").asString(),
-      .m_protocol_config = {
-          .m_protocol_type = protocol_type,
-          .m_options       = {},
-          .m_env_vars      = {},
-          .m_cmd_args      = {},
-          .m_workdir       = {},
-          .m_username      = {},
+      .m_address          = endpoint.m_address,
+      .m_websocket_target = endpoint.m_websocket_target,
+      .m_protocol_config  = {
+           .m_protocol_type = protocol_type,
+           .m_options       = {},
+           .m_env_vars      = {},
+           .m_cmd_args      = {},
+           .m_workdir       = {},
+           .m_username      = {},
       },
   };
   {

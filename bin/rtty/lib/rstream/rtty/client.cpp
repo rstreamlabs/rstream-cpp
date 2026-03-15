@@ -13,9 +13,15 @@
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
+#ifdef _WIN32
+#include <boost/asio/windows/stream_handle.hpp>
+#else
 #include <boost/asio/posix/stream_descriptor.hpp>
-#include <boost/asio/read.hpp>
 #include <boost/asio/signal_set.hpp>
+
+#include <unistd.h>
+#endif
+#include <boost/asio/read.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/buffers_adaptor.hpp>
@@ -42,8 +48,57 @@
 #include "error.hpp"
 #include "terminal.hpp"
 
+// clang-format off
+// To be included after boost headers
+#ifdef _WIN32
+#include <windows.h>
+#endif
+// clang-format on
+
 namespace rstream {
 namespace rtty {
+
+namespace {
+
+bool is_eof_error(const std::error_code& error_code)
+{
+  if (!error_code) {
+    return false;
+  }
+  if (error_code == boost::system::error_code(boost::asio::error::eof)) {
+    return true;
+  }
+#ifdef _WIN32
+  if (error_code == boost::system::error_code(boost::asio::error::broken_pipe)) {
+    return true;
+  }
+  if (error_code.value() == ERROR_BROKEN_PIPE && error_code.category() == std::system_category()) {
+    return true;
+  }
+#endif
+  return false;
+}
+
+#ifdef _WIN32
+HANDLE duplicate_handle(HANDLE handle)
+{
+  HANDLE dup = nullptr;
+  if (!handle || handle == INVALID_HANDLE_VALUE) {
+    return nullptr;
+  }
+  if (!::DuplicateHandle(::GetCurrentProcess(), handle, ::GetCurrentProcess(), &dup, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+    return nullptr;
+  }
+  return dup;
+}
+#endif
+
+bool is_same_terminal_size(const terminal_size& lhs, const terminal_size& rhs)
+{
+  return lhs.m_row == rhs.m_row && lhs.m_col == rhs.m_col && lhs.m_xpixel == rhs.m_xpixel && lhs.m_ypixel == rhs.m_ypixel;
+}
+
+}  // namespace
 
 class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<impl> {
  public:
@@ -72,9 +127,12 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   using queue_type = rstream::io::queue_base::ptr;
 
-  using stream_type = boost::asio::posix::stream_descriptor;
-
+#ifdef _WIN32
+  using stream_type = boost::asio::windows::stream_handle;
+#else
+  using stream_type     = boost::asio::posix::stream_descriptor;
   using signal_set_type = boost::asio::signal_set;
+#endif
 
   enum class stdfd_type {
     std_out,
@@ -144,13 +202,15 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void read_terminal_size_loop();
 
-  void do_wait_for_signal();
+  void do_wait_for_terminal_size();
 
   void do_send_message(const rstream::rtty::protobuf::Message& message, enum loop loop = loop::null);
 
   void on_send_message(const std::error_code& error_code, enum loop loop);
 
   void on_terminal_size_signal(const std::error_code& error_code, int);
+
+  void on_wait_for_terminal_size(const std::error_code& error_code);
 
   void on_terminal_size(const terminal_size& terminal_size);
 
@@ -202,7 +262,11 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   stream_type m_stream_std_err;
 
+  boost::asio::deadline_timer m_terminal_size_timer;
+
+#ifndef _WIN32
   signal_set_type m_signal_set;
+#endif
 
   rstream::core::buffer m_buffer_std_in;
 
@@ -213,6 +277,8 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   std::shared_ptr<terminal> m_terminal_std_in;
 
   std::error_code m_error_code;
+
+  boost::optional<terminal_size> m_terminal_size;
 
   state_changed_signal_type m_state_changed_signal;
 };
@@ -245,10 +311,19 @@ client::impl::impl(const executor_type& executor, const config& config, const se
       m_state(state::null),
       m_resolver(executor),
       m_socket(executor),
+#ifdef _WIN32
+      m_stream_std_in(executor, duplicate_handle(::GetStdHandle(STD_INPUT_HANDLE))),
+      m_stream_std_out(executor, duplicate_handle(::GetStdHandle(STD_OUTPUT_HANDLE))),
+      m_stream_std_err(executor, duplicate_handle(::GetStdHandle(STD_ERROR_HANDLE))),
+#else
       m_stream_std_in(executor, ::dup(STDIN_FILENO)),
       m_stream_std_out(executor, ::dup(STDOUT_FILENO)),
       m_stream_std_err(executor, ::dup(STDERR_FILENO)),
+#endif
+      m_terminal_size_timer(executor),
+#ifndef _WIN32
       m_signal_set(executor, SIGWINCH),
+#endif
       m_buffer_std_in(rstream::core::make_buffer_allocated(m_settings.m_std_in_buffer_size)),
       m_buffer_socket(rstream::core::make_buffer_allocated(m_settings.m_common.m_mtu)),
       m_http_buffers_adaptor(core::helpers::mutable_memory_sequence(m_buffer_socket))
@@ -266,7 +341,11 @@ client::impl::impl(const executor_type& executor, const config& config, const se
     m_queue = std::make_shared<rstream::io::queue<payloader_type::element_type&>>(*m_payloader);
   }
   if (m_config.m_protocol_config.m_options.m_allocate_tty) {
+#ifdef _WIN32
+    m_terminal_std_in = std::make_shared<terminal>(::GetStdHandle(STD_INPUT_HANDLE));
+#else
     m_terminal_std_in = std::make_shared<terminal>(STDIN_FILENO);
+#endif
   }
 }
 
@@ -431,7 +510,8 @@ void client::impl::do_handshake_websocket(const resolver_type::results_type::end
   m_websocket->set_option(boost::beast::websocket::stream_base::decorator(decorator));
   // Perform the websocket handshake
   auto completion_handler = std::bind(&impl::on_handshake_websocket, shared_from_this(), std::placeholders::_1);
-  m_websocket->async_handshake(m_config.m_address.host(), "/", boost::asio::bind_executor(m_strand, completion_handler));
+  auto target             = m_config.m_websocket_target ? *m_config.m_websocket_target : "/";
+  m_websocket->async_handshake(m_config.m_address.host(), target, boost::asio::bind_executor(m_strand, completion_handler));
 }
 
 void client::impl::on_handshake_websocket(const std::error_code& error_code)
@@ -561,7 +641,10 @@ void client::impl::on_close(const std::error_code& error_code, int code)
     m_stream_std_in.close(tmp);
     m_stream_std_out.close(tmp);
     m_stream_std_err.close(tmp);
+    m_terminal_size_timer.cancel(tmp);
+#ifndef _WIN32
     m_signal_set.cancel(tmp);
+#endif
   }
 }
 
@@ -655,9 +738,7 @@ void client::impl::on_read_std_in(const std::error_code& error_code, std::size_t
   }
   bool eos = false;
   if (error_code) {
-    if (error_code == boost::system::error_code(boost::asio::error::eof)) {
-      eos = true;
-    }
+    eos = is_eof_error(error_code);
   }
   if (error_code && !eos) {
     on_error(error_code);
@@ -684,7 +765,7 @@ void client::impl::read_terminal_size_loop()
   on_terminal_size_signal(std::error_code(), 0);
 }
 
-void client::impl::do_wait_for_signal()
+void client::impl::do_wait_for_terminal_size()
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -692,8 +773,22 @@ void client::impl::do_wait_for_signal()
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
+#ifdef _WIN32
+  m_terminal_size_timer.expires_from_now(boost::posix_time::milliseconds(300));
+  auto completion_handler = std::bind(&impl::on_wait_for_terminal_size, shared_from_this(), std::placeholders::_1);
+  m_terminal_size_timer.async_wait(boost::asio::bind_executor(m_strand, completion_handler));
+#else
   auto completion_handler = std::bind(&impl::on_terminal_size_signal, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
   m_signal_set.async_wait(boost::asio::bind_executor(m_strand, completion_handler));
+#endif
+}
+
+void client::impl::on_wait_for_terminal_size(const std::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  on_terminal_size_signal(error_code, 0);
 }
 
 void client::impl::on_terminal_size_signal(const std::error_code& error_code, int)
@@ -708,7 +803,7 @@ void client::impl::on_terminal_size_signal(const std::error_code& error_code, in
   terminal_size size;
   if (!cause) {
     try {
-      size = terminal(STDIN_FILENO).get_size(cause);
+      size = m_terminal_std_in->get_size(cause);
     }
     catch (std::system_error& error) {
       cause = error.code();
@@ -718,6 +813,11 @@ void client::impl::on_terminal_size_signal(const std::error_code& error_code, in
     }
   }
   if (!cause) {
+    if (m_terminal_size && is_same_terminal_size(m_terminal_size.get(), size)) {
+      do_wait_for_terminal_size();
+      return;
+    }
+    m_terminal_size = size;
     on_terminal_size(size);
   }
   else {
@@ -767,7 +867,7 @@ void client::impl::on_send_message(const std::error_code& error_code, enum loop 
         do_read_std_in();
         break;
       case loop::read_terminal_size:
-        do_wait_for_signal();
+        do_wait_for_terminal_size();
         break;
       case loop::heartbeat:
         do_send_heartbeat();

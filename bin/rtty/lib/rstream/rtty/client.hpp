@@ -18,6 +18,7 @@ class client : private boost::noncopyable {
  public:
   struct config {
     io::address m_address;
+    boost::optional<std::string> m_websocket_target;
     protocol::config m_protocol_config;
   };
 
