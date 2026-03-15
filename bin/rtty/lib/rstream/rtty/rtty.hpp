@@ -12,8 +12,6 @@
 #include <boost/system/error_code.hpp>
 #include <boost/variant.hpp>
 
-#include <rstream/io/address.hpp>
-
 namespace rstream {
 namespace rtty {
 
@@ -94,13 +92,6 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
 
 // Build rstream URI for webtty tunnels with the default labels.
 std::string build_webtty_uri();
-
-struct endpoint_config {
-  io::address m_address;
-  boost::optional<std::string> m_websocket_target;
-};
-
-endpoint_config parse_endpoint_config(const std::string& uri, protocol::type protocol_type);
 
 struct settings {
   std::uint32_t m_mtu;
