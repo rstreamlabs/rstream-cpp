@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.5.0...1.5.1) (2026-03-15)
+
+
+### Bug Fixes
+
+* fix rstream-rtty-server uri parsing ([0ad5560](https://github.com/rstreamlabs/rstream-cpp/commit/0ad5560c4be3eb18cd38cefde3f5fd2f7bdd9928))
+
 ## [1.5.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.4.1...1.5.0) (2026-03-15)
 
 
