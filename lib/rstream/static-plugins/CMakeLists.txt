@@ -12,7 +12,7 @@ file(GLOB_RECURSE HEADERS *.hpp)
 
 # library definition
 
-add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS})
+add_library(${LIBRARY_NAME} STATIC ${SOURCES} ${HEADERS})
 add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
 
 set_target_properties(
@@ -40,25 +40,6 @@ target_link_libraries(
   ${LIBRARY_NAME}
   PUBLIC
   ${PROJECT_NAME}::core)
-
-if(BUILD_SHARED_LIBS)
-  include(CheckCompilerFlag)
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-    check_compiler_flag(CXX "-Wl,-undefined,dynamic_lookup" COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
-    if(COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
-      target_link_options(${LIBRARY_NAME} PRIVATE -Wl,-undefined,dynamic_lookup)
-    else()
-      message(WARNING "Compiler does not support -Wl,-undefined,dynamic_lookup")
-    endif()
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    check_compiler_flag(CXX "-Wl,-allow-shlib-undefined" COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
-    if(COMPILER_SUPPORTS_UNDEFINED_SYMBOLS)
-      target_link_options(${LIBRARY_NAME} PRIVATE -Wl,-allow-shlib-undefined)
-    else()
-      message(WARNING "Compiler does not support -Wl,-allow-shlib-undefined")
-    endif()
-  endif()
-endif()
 
 # install the library
 

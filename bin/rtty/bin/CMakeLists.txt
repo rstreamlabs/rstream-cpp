@@ -2,7 +2,5 @@
 
 # process subdirectories
 
-if(NOT WIN32)
-  add_subdirectory(client)
-endif()
+add_subdirectory(client)
 add_subdirectory(server)

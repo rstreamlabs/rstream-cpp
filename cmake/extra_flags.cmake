@@ -40,6 +40,7 @@ endif()
 
 if(ENABLE_STATIC_PLUGINS)
   add_compile_definitions(RSTREAM_ENABLE_STATIC_PLUGINS)
+  set(PLUGIN_LIBRARY_TYPE STATIC)
 else()
   set(PLUGIN_LIBRARY_TYPE MODULE)
 endif()

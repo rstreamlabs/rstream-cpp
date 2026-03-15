@@ -9,8 +9,10 @@ ENV DEBIAN_FRONTEND noninteractive
 # Install build tools
 RUN apt-get update && apt-get -y install --no-install-recommends \
     build-essential \
+    ca-certificates \
     ccache \
     cmake \
+    curl \
     file \
     git \
     gzip \
@@ -22,14 +24,22 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     tar \
     xz-utils
 
-# Install mingw-w64
-RUN apt-get update && apt-get -y install --no-install-recommends mingw-w64
+RUN apt-get update && apt-get -y install --no-install-recommends nasm
 
-# Force the POSIX MinGW toolchain for consistent Windows cross-build thread support.
-RUN update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix && \
-    update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix && \
-    update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix && \
-    update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+ARG LLVM_MINGW_VERSION=20251118
+
+RUN set -eux; \
+    host_arch="$(dpkg --print-architecture)"; \
+    case "${host_arch}" in \
+      amd64) llvm_mingw_host_arch="x86_64" ;; \
+      arm64) llvm_mingw_host_arch="aarch64" ;; \
+      *) echo "unsupported host architecture for llvm-mingw: ${host_arch}" >&2; exit 1 ;; \
+    esac; \
+    llvm_mingw_dir="/opt/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${llvm_mingw_host_arch}"; \
+    curl -fsSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${llvm_mingw_host_arch}.tar.xz" | tar -xJf - -C /opt; \
+    ln -s "${llvm_mingw_dir}" /opt/llvm-mingw
+
+ENV PATH="/opt/llvm-mingw/bin:${PATH}"
 
 # Run binaries linked with musl
 RUN apt-get update && apt-get -y install --no-install-recommends musl-dev

@@ -70,8 +70,9 @@ int run(int argc, char** argv)
       uri = args.at("--uri").asString();
     }
   }
+  auto endpoint                        = rstream::rtty::parse_endpoint_config(uri, protocol_type);
   rstream::rtty::server::config config = {
-      .m_address       = uri,
+      .m_address       = endpoint.m_address,
       .m_protocol_type = protocol_type,
   };
   rstream::rtty::settings_server settings = {

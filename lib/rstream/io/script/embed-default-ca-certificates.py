@@ -24,16 +24,16 @@ import sys
 
 def import_or_install(package):
     try:
-        return __import__(package)
+        module = __import__(package)
     except ImportError:
         env = os.environ.copy()
         env['PIP_BREAK_SYSTEM_PACKAGES'] = '1'
         if subprocess.call([sys.executable, "-m", "pip", "install", package], env=env) != 0:
             print(f"Failed to install {package}. Please install it manually.")
             sys.exit(1)
-    finally:
         importlib.reload(site)
-        return __import__(package)
+        module = __import__(package)
+    return module
 
 docopt = import_or_install("docopt")
 requests = import_or_install("requests")

@@ -17,28 +17,67 @@ default_macos_archs=("x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4" "arm64" "apple
 default_macos_build_shared=("on" "off")
 default_oss=("macos" "linux" "windows")
 default_use_docker="on"
-default_windows_archs=("x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4")
+default_windows_archs=("x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4" "arm64")
 default_windows_build_shared=("on" "off")
 default_use_patched_conan_deps="on"
 default_patched_conan_channel="conan/stable"
 default_patched_boost_version="1.85.0"
 default_patched_ncurses_version="6.5"
+default_boost_disabled_components=("cobalt" "context" "contract" "coroutine" "fiber" "graph" "graph_parallel" "iostreams" "json" "locale" "log" "math" "mpi" "nowide" "program_options" "serialization" "stacktrace" "test" "timer" "type_erasure" "wave")
+docker_conan_config_synced="off"
+patched_conan_recipes_exported="off"
+package_name_cache=""
+package_version_cache=""
+
+function resolve_list {
+  local value="$1"
+  local -n dst="$2"
+  shift 2
+  if [ -n "${value}" ]; then
+    read -r -a dst <<<"${value}"
+  else
+    dst=("$@")
+  fi
+}
+
+function boost_conan_options {
+  local component
+  local opts=""
+  for component in "${default_boost_disabled_components[@]}"; do
+    opts="${opts} --options boost/*:without_${component}=True"
+  done
+  echo "${opts}"
+}
+
+function inspect_package_metadata {
+  if [ -n "${package_name_cache}" ] && [ -n "${package_version_cache}" ]; then
+    return
+  fi
+  local metadata
+  metadata=$(conan inspect "${script_dir}" --format=json | python3 -c 'import json, sys; data = json.load(sys.stdin); print(data["name"] + "\t" + data["version"])')
+  package_name_cache="${metadata%%$'\t'*}"
+  package_version_cache="${metadata#*$'\t'}"
+}
+
+function docker_run_builder {
+  docker compose -f ${docker_compose_file} run --rm --no-deps "$@"
+}
 
 # Allow overrides from environment variables
 build_type="${BUILD_TYPE:-${default_build_type}}"
 docker_compose_file="${DOCKER_COMPOSE_FILE-${default_compose_file}}"
 export_package_name="${EXPORT_PACKAGE_NAME:-${default_export_package_name}}"
-linux_archs=("${LINUX_ARCHS[@]:-${default_linux_archs[@]}}")
-linux_build_shared=("${LINUX_BUILD_SHARED[@]:-${default_linux_build_shared[@]}}")
-linux_tclibcs=("${LINUX_TCLIBCS[@]:-${default_linux_tclibcs[@]}}")
+resolve_list "${LINUX_ARCHS:-}" linux_archs "${default_linux_archs[@]}"
+resolve_list "${LINUX_BUILD_SHARED:-}" linux_build_shared "${default_linux_build_shared[@]}"
+resolve_list "${LINUX_TCLIBCS:-}" linux_tclibcs "${default_linux_tclibcs[@]}"
 linux_toolchain_version="${LINUX_TOOLCHAIN_VERSION:-${default_linux_toolchain_version}}"
 linux_toolchain="${LINUX_TOOLCHAIN:-${default_linux_toolchain}}"
-macos_archs=("${MACOS_ARCHS[@]:-${default_macos_archs[@]}}")
-macos_build_shared=("${MACOS_BUILD_SHARED[@]:-${default_macos_build_shared[@]}}")
-oss=("${OSS[@]:-${default_oss[@]}}")
+resolve_list "${MACOS_ARCHS:-}" macos_archs "${default_macos_archs[@]}"
+resolve_list "${MACOS_BUILD_SHARED:-}" macos_build_shared "${default_macos_build_shared[@]}"
+resolve_list "${OSS:-}" oss "${default_oss[@]}"
 use_docker="${USE_DOCKER:-${default_use_docker}}"
-windows_archs=("${WINDOWS_ARCHS[@]:-${default_windows_archs[@]}}")
-windows_build_shared=("${WINDOWS_BUILD_SHARED[@]:-${default_windows_build_shared[@]}}")
+resolve_list "${WINDOWS_ARCHS:-}" windows_archs "${default_windows_archs[@]}"
+resolve_list "${WINDOWS_BUILD_SHARED:-}" windows_build_shared "${default_windows_build_shared[@]}"
 use_patched_conan_deps="${USE_PATCHED_CONAN_DEPS:-${default_use_patched_conan_deps}}"
 patched_conan_channel="${PATCHED_CONAN_CHANNEL:-${default_patched_conan_channel}}"
 patched_boost_version="${PATCHED_BOOST_VERSION:-${default_patched_boost_version}}"
@@ -59,6 +98,12 @@ extra_env_vars["linux-mips64le-glibc"]="CONAN_OPENSSL_CONFIGURATION=linux64-mips
 extra_env_vars["linux-mips64le-musl"]="CONAN_OPENSSL_CONFIGURATION=linux64-mips64"
 extra_env_vars["linux-riscv64-glibc"]="CONAN_OPENSSL_CONFIGURATION=linux64-riscv64"
 extra_env_vars["linux-riscv64-musl"]="CONAN_OPENSSL_CONFIGURATION=linux64-riscv64"
+extra_env_vars["windows-x86_64"]="CONAN_OPENSSL_CONFIGURATION=mingw64"
+extra_env_vars["windows-x86_64_v2"]="CONAN_OPENSSL_CONFIGURATION=mingw64"
+extra_env_vars["windows-x86_64_v3"]="CONAN_OPENSSL_CONFIGURATION=mingw64"
+extra_env_vars["windows-x86_64_v4"]="CONAN_OPENSSL_CONFIGURATION=mingw64"
+extra_env_vars["windows-x86_i686"]="CONAN_OPENSSL_CONFIGURATION=mingw"
+extra_env_vars["windows-x86_core2"]="CONAN_OPENSSL_CONFIGURATION=mingw"
 
 declare -A extra_conan_options
 extra_conan_options["linux-ppc64-glibc"]="--options boost/*:without_charconv=True"
@@ -92,11 +137,13 @@ function shared {
 }
 
 function package_name {
-  echo "\$(conan inspect ${SRC_PATH} --format=json | jq -r .name)"
+  inspect_package_metadata
+  echo "${package_name_cache}"
 }
 
 function package_version {
-  echo "\$(conan inspect ${SRC_PATH} --format=json | jq -r .version)"
+  inspect_package_metadata
+  echo "${package_version_cache}"
 }
 
 function conan_arch {
@@ -142,19 +189,31 @@ function windows_package_options {
 }
 
 function linux_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]} --options boost/*:without_stacktrace=True"
+  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}$(boost_conan_options)"
 }
 
 function macos_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}"]}"
+  echo "${extra_conan_options["${OS}-${ARCH}"]}$(boost_conan_options)"
 }
 
 function windows_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]} --options boost/*:without_stacktrace=True"
+  echo "${extra_conan_options["${OS}-${ARCH}"]}$(boost_conan_options) --options openssl/*:no_apps=True"
+}
+
+function linux_conan_extra_settings {
+  echo ""
+}
+
+function macos_conan_extra_settings {
+  echo ""
+}
+
+function windows_conan_extra_settings {
+  echo "-s:h openssl/*:compiler=gcc -s:h openssl/*:compiler.version=13 -s:h openssl/*:compiler.libcxx=libstdc++11 -s:h openssl/*:compiler.threads=posix -s:h protobuf/*:compiler.runtime=dynamic -s:h protobuf/*:compiler.runtime_type=${build_type} -s:h zlib/*:compiler=gcc -s:h zlib/*:compiler.version=13 -s:h zlib/*:compiler.libcxx=libstdc++11 -s:h zlib/*:compiler.threads=posix"
 }
 
 function conan_options {
-  echo "$(${OS}_conan_extra_options) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type}"
+  echo "$(${OS}_conan_extra_options) $(${OS}_conan_extra_settings) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type}"
 }
 
 function linux_conan_options {
@@ -214,11 +273,38 @@ function windows_cmd_export {
 }
 
 function linux_run_docker {
-  docker compose -f ${docker_compose_file} run --rm --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e LIBC -e BUILD_SHARED -e SRC_PATH "${@:2}" conan2-builder -c "$1"
+  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e LIBC -e BUILD_SHARED -e SRC_PATH "${@:2}" conan2-builder -c "$1"
 }
 
 function windows_run_docker {
-  docker compose -f ${docker_compose_file} run --rm --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e BUILD_SHARED -e SRC_PATH "${@:2}" conan2-builder -c "$1"
+  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e BUILD_SHARED -e SRC_PATH "${@:2}" conan2-builder -c "$1"
+}
+
+function sync_docker_conan_config {
+  if [ "${docker_conan_config_synced}" = "on" ]; then
+    return
+  fi
+  DOCKER_COMPOSE_FILE="${docker_compose_file}" "${script_dir}/conan/update-conan-profile.sh"
+  docker_conan_config_synced="on"
+}
+
+function export_patched_conan_recipes {
+  if [ "${use_patched_conan_deps}" != "on" ] || [ "${patched_conan_recipes_exported}" = "on" ]; then
+    return
+  fi
+  local recipe
+  for recipe in boost ncurses; do
+    if [ "${use_docker}" != "on" ]; then
+      (
+        cd "${script_dir}/conan/recipes/${recipe}"
+        python3 export.py
+      )
+    fi
+  done
+  if [ "${use_docker}" = "on" ]; then
+    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done"
+  fi
+  patched_conan_recipes_exported="on"
 }
 
 function linux_run_build {
@@ -280,53 +366,27 @@ function windows_run_export {
 }
 
 function linux_get_outdir {
-  if [ "${use_docker}" = "on" ]; then
-    export SRC_PATH=/source
-    ${OS}_run_docker "echo $(${OS}_package_outdir)"
-  else
-    export SRC_PATH=${script_dir}
-    bash -c "echo $(${OS}_package_outdir)"
-  fi
+  echo "$(${OS}_package_outdir)"
 }
 
 function macos_get_outdir {
-  export SRC_PATH=${script_dir}
-  bash -c "echo $(${OS}_package_outdir)"
+  echo "$(${OS}_package_outdir)"
 }
 
 function windows_get_outdir {
-  if [ "${use_docker}" = "on" ]; then
-    export SRC_PATH=/source
-    ${OS}_run_docker "echo $(${OS}_package_outdir)"
-  else
-    export SRC_PATH=${script_dir}
-    bash -c "echo $(${OS}_package_outdir)"
-  fi
+  echo "$(${OS}_package_outdir)"
 }
 
 function linux_get_version {
-  if [ "${use_docker}" = "on" ]; then
-    export SRC_PATH=/source
-    ${OS}_run_docker "echo $(package_version)"
-  else
-    export SRC_PATH=${script_dir}
-    bash -c "echo $(package_version)"
-  fi
+  echo "$(package_version)"
 }
 
 function macos_get_version {
-  export SRC_PATH=${script_dir}
-  bash -c "echo $(package_version)"
+  echo "$(package_version)"
 }
 
 function windows_get_version {
-  if [ "${use_docker}" = "on" ]; then
-    export SRC_PATH=/source
-    ${OS}_run_docker "echo $(package_version)"
-  else
-    export SRC_PATH=${script_dir}
-    bash -c "echo $(package_version)"
-  fi
+  echo "$(package_version)"
 }
 
 function run_upload {
@@ -454,6 +514,16 @@ function run {
     echo "Conan 2.0.0 or later is required"
     exit 1
   fi
+  inspect_package_metadata
+  if [ "${use_docker}" = "on" ]; then
+    for os in "${oss[@]}"; do
+      if [ "${os}" = "linux" ] || [ "${os}" = "windows" ]; then
+        sync_docker_conan_config
+        break
+      fi
+    done
+  fi
+  export_patched_conan_recipes
   for os in "${oss[@]}"; do
     OS=${os} ${os}_run
   done
@@ -507,9 +577,9 @@ function show_help {
   echo ""
   echo "EXPORT_PACKAGE_NAME=\"rstream-utils\" OSS=\"macos\" MACOS_ARCHS=\"apple-m1\" MACOS_BUILD_SHARED=\"on\" $0"
   echo ""
-  echo "Build and export 'rstream-utils' for x86_64 using static libraries (windows):"
+  echo "Build and export 'rstream-utils' for arm64 using static libraries (windows):"
   echo ""
-  echo "EXPORT_PACKAGE_NAME=\"rstream-utils\" OSS=\"windows\" WINDOWS_ARCHS=\"x86_64\" WINDOWS_BUILD_SHARED=\"off\" $0"
+  echo "EXPORT_PACKAGE_NAME=\"rstream-utils\" OSS=\"windows\" WINDOWS_ARCHS=\"arm64\" WINDOWS_BUILD_SHARED=\"off\" $0"
   echo ""
 }
 

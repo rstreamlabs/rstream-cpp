@@ -28,13 +28,28 @@ if(NOT ENABLE_STATIC_PLUGINS)
     PREFIX "")
 endif()
 
-target_link_libraries(
-  ${LIBRARY_NAME}
-  PUBLIC
-  Boost::boost
-  ${PROJECT_NAME}::core
-  ${PROJECT_NAME}::io
-  ${PROJECT_NAME}::io-rstrm)
+if(ENABLE_STATIC_PLUGINS)
+  target_include_directories(
+    ${LIBRARY_NAME}
+    PRIVATE
+    $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/lib/>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/>)
+  target_link_libraries(
+    ${LIBRARY_NAME}
+    PUBLIC
+    Boost::boost
+    ${PROJECT_NAME}::core
+    ${PROJECT_NAME}::io
+    ${PROJECT_NAME}::io-rstrm)
+else()
+  target_link_libraries(
+    ${LIBRARY_NAME}
+    PUBLIC
+    Boost::boost
+    ${PROJECT_NAME}::core
+    ${PROJECT_NAME}::io
+    ${PROJECT_NAME}::io-rstrm)
+endif()
 
 # install the library
 
@@ -42,7 +57,7 @@ if(ENABLE_STATIC_PLUGINS)
   if(INSTALL_RPATH_KEYWORD)
     set_target_properties(${LIBRARY_NAME} PROPERTIES ${INSTALL_RPATH_KEYWORD} ${RPATH_LIBRARY})
   endif()
-  install(TARGETS ${LIBRARY_NAME} EXPORT ${CMAKE_PACKAGE_TARGETS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(TARGETS ${LIBRARY_NAME} EXPORT ${CMAKE_PACKAGE_TARGETS} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 else()
   if(INSTALL_RPATH_KEYWORD)
     set_target_properties(${LIBRARY_NAME} PROPERTIES ${INSTALL_RPATH_KEYWORD} ${RPATH_PLUGIN})

@@ -127,17 +127,17 @@ const memory buffer::map_range(map_mode mode, unsigned int index, int length)
   }
   else if (length != 0) {
     auto size = get_size_range(index, length);
-    auto mem  = make_memory_allocated(size, m_impl->m_allocator);
+    result    = make_memory_allocated(size, m_impl->m_allocator);
     auto it   = m_impl->m_memory_blocks.begin();
     std::advance(it, index);
     std::size_t offset = 0;
     for (std::size_t i = 0; i < length; ++i) {
-      std::size_t to_copy = it->get_size();
-      memcpy(&((std::uint8_t*)mem.get_data())[offset], mem.get_const_data(), to_copy);
+      auto mem            = *map_memory_block(it, mode);
+      std::size_t to_copy = mem.get_size();
+      memcpy(&((std::uint8_t*)result.get_data())[offset], mem.get_const_data(), to_copy);
       offset += to_copy;
       it = m_impl->m_memory_blocks.erase(it);
     }
-    std::prev(it);
     m_impl->m_memory_blocks.insert(it, result);
   }
   return result;

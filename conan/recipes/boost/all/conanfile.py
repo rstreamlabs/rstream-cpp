@@ -1539,6 +1539,9 @@ class BoostConan(ConanFile):
         if is_msvc(self):
             return "clang-win" if self.settings.compiler.get_safe("toolset") == "ClangCL" else "msvc"
         if self.settings.os == "Windows" and self.settings.compiler == "clang":
+            cxx = self._cxx.replace("\\", "/").lower()
+            if "mingw" in cxx:
+                return "clang"
             return "clang-win"
         if self.settings.os == "Emscripten" and self.settings.compiler == "clang":
             return "emscripten"
@@ -1829,6 +1832,8 @@ class BoostConan(ConanFile):
                 """ On MSVC, static libraries are built with a 'lib' prefix. Some libraries do not support shared, so are always built as a static library. """
                 libprefix = ""
                 if is_msvc(self) and (not self._shared or n in self._dependencies["static_only"]):
+                    libprefix = "lib"
+                elif self.settings.os == "Windows" and self.settings.compiler == "clang" and "mingw" in self._cxx.replace("\\", "/").lower():
                     libprefix = "lib"
                 return libprefix + n
 

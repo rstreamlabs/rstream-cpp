@@ -6,27 +6,8 @@ set(LIBRARY_COMPONENT "rtty")
 set(LIBRARY_NAME "${PROJECT_NAME}-lib-${LIBRARY_COMPONENT}")
 
 # library sources
-
-function(filter_files out_var input_list pattern)
-  set(filtered_files "")
-  foreach(file IN LISTS ${input_list})
-    if(NOT file MATCHES ${pattern})
-      list(APPEND filtered_files "${file}")
-    endif()
-  endforeach()
-  set(${out_var} ${filtered_files} PARENT_SCOPE)
-endfunction()
-
-file(GLOB_RECURSE SOURCES_TMP "*.cpp")
-file(GLOB_RECURSE HEADERS_TMP "*.hpp")
-
-if(WIN32)
-  filter_files(SOURCES SOURCES_TMP "client\\.cpp$")
-  filter_files(HEADERS HEADERS_TMP "client\\.hpp$")
-else()
-  set(SOURCES ${SOURCES_TMP})
-  set(HEADERS ${HEADERS_TMP})
-endif()
+file(GLOB_RECURSE SOURCES "*.cpp")
+file(GLOB_RECURSE HEADERS "*.hpp")
 
 # generated sources
 

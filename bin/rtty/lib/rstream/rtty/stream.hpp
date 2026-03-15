@@ -56,7 +56,7 @@ enum class backend { pipe,
 
 class base {
  public:
-  using executor_type = executor_type;
+  using executor_type = rstream::rtty::executor_type;
   virtual ~base()     = default;
 
   enum backend backend() const;
