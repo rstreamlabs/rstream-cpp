@@ -36,7 +36,7 @@
 #endif
 
 static const char USAGE[] = R"(
-rstream-tunnel - (https://rstream.io/) - serverless networking
+rstream-tunnel - https://rstream.io/ - serverless networking
 
 this program is part of rstream (https://rstream.io/download) and was created using rstream C++ SDK
 

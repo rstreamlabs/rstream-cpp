@@ -18,7 +18,7 @@
 #include <rstream/rtty/rtty.hpp>
 
 static const char USAGE[] = R"(
-rstream-rtty-client - (https://rstream.io/) - remote TTY client using rstream primitives
+rstream-rtty-client - https://rstream.io/ - remote TTY client using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 

@@ -15,7 +15,7 @@
 #include <rstream/stun/server.hpp>
 
 static const char USAGE[] = R"(
-rstream-stun-server - (https://rstream.io/) - STUN server
+rstream-stun-server - https://rstream.io/ - STUN server
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 

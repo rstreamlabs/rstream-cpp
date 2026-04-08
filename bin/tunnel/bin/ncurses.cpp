@@ -291,7 +291,7 @@ void ncurses::impl::print_wrapped(WINDOW* win, const char* text)
 
 void ncurses::impl::render_header(WINDOW* win)
 {
-  print_wrapped(win, "rstream-tunnel - (https://rstream.io/) - serverless networking");
+  print_wrapped(win, "rstream-tunnel - https://rstream.io/ - serverless networking");
   wprintw(win, "\n");
   print_wrapped(win, "this program is part of rstream (https://rstream.io/download) and was created using rstream C++ SDK");
 }

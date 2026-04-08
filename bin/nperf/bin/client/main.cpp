@@ -30,7 +30,7 @@
 #include <rstream/nperf/nperf.hpp>
 
 static const char USAGE[] = R"(
-rstream-nperf-client - (https://rstream.io/) - network performance testing utility using rstream primitives
+rstream-nperf-client - https://rstream.io/ - network performance testing utility using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 
@@ -183,7 +183,7 @@ int run(int argc, char** argv)
     jobs = std::thread::hardware_concurrency();
   }
   if (format == format::human || format == format::human_pretty) {
-    std::cout << "\n\tnperf by rstream - (https://rstream.io/)\n"
+    std::cout << "\n\tnperf by rstream - https://rstream.io/\n"
               << std::endl;
   }
   boost::asio::io_context io_context(jobs);
