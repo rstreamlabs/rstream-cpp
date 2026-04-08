@@ -8,7 +8,9 @@
     <name>rstream</name>
     <licenses>
         <license>
-            <name>Copyright RSTREAM - All Rights Reserved.</name>
+            <name>Apache License 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
         </license>
     </licenses>
     <url>https://rstream.io/</url>

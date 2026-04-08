@@ -8,9 +8,19 @@ RUN apt-get update && apt-get -y install --no-install-recommends python3-dev pyt
 
 RUN conan profile detect
 
-RUN conan remote list | grep -q "rstream" || conan remote add rstream https://nexus.rstream.io/repository/conan
+ARG CONAN_REMOTE_NAME=rstream
 
-RUN --mount=type=secret,id=password conan remote login rstream admin -p $(cat /run/secrets/password)
+ARG CONAN_REMOTE_URL
+
+ARG CONAN_REMOTE_USERNAME
+
+RUN if [ -n "${CONAN_REMOTE_URL}" ]; then \
+      conan remote list | grep -q "${CONAN_REMOTE_NAME}" || conan remote add "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_URL}"; \
+    fi
+
+RUN --mount=type=secret,id=password if [ -n "${CONAN_REMOTE_URL}" ] && [ -n "${CONAN_REMOTE_USERNAME}" ]; then \
+      conan remote login "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_USERNAME}" -p "$(cat /run/secrets/password)"; \
+    fi
 
 RUN echo "[settings]\n\
     os=Emscripten\n\
@@ -25,7 +35,7 @@ RUN echo "[settings]\n\
     [runenv]\n"\
     > /root/.conan2/profiles/wasm
 
-COPY conanfile.py COPYING version.txt /rstream/src/
+COPY conanfile.py LICENSE version.txt /rstream/src/
 
 RUN mkdir -p /rstream/build
 

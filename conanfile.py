@@ -14,7 +14,7 @@ import conan.tools.scm
 
 class ConanPackage(ConanFile):
     name = "rstream"
-    license = "proprietary"
+    license = "Apache-2.0"
     url = "https://github.com/rstreamlabs/rstream-cpp"
     description = "C++ SDK for rstream - serverless networking"
     settings = "os", "compiler", "build_type", "arch"
@@ -199,7 +199,7 @@ class ConanPackage(ConanFile):
             cmake.install()
         else:
             cmake.build(target="install/strip")
-        conan.tools.files.copy(self, "COPYING", self.build_folder, os.path.join(self.package_folder, "licenses"))
+        conan.tools.files.copy(self, "LICENSE", self.build_folder, os.path.join(self.package_folder, "licenses"))
 
     def package_info(self):
         self.cpp_info.set_property("cmake_find_mode", "none")

@@ -7,9 +7,12 @@ on:
         type: string
     secrets:
       CONAN_PASSWORD:
-        required: true
+        required: false
 env:
   RSTREAM_URL: "${{ github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io' }}"
+  CONAN_REMOTE_NAME: "${{ vars.CONAN_REMOTE_NAME }}"
+  CONAN_REMOTE_URL: "${{ vars.CONAN_REMOTE_URL }}"
+  CONAN_REMOTE_USERNAME: "${{ vars.CONAN_REMOTE_USERNAME }}"
 jobs:
   build:
     strategy:
@@ -49,7 +52,13 @@ jobs:
         run: |
           conan profile detect -f
           conan config install conan/config
-          [[ ! "$(conan remote list)" =~ "rstream" ]] && conan remote add -f rstream https://nexus.rstream.io/repository/conan; conan remote login rstream admin -p ${{ secrets.CONAN_PASSWORD }}
+          if [[ -n "${CONAN_REMOTE_URL}" ]]; then
+            remote_name="${CONAN_REMOTE_NAME:-rstream}"
+            conan remote list | grep -q "${remote_name}" || conan remote add -f "${remote_name}" "${CONAN_REMOTE_URL}"
+            if [[ -n "${CONAN_REMOTE_USERNAME}" ]]; then
+              conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${{ secrets.CONAN_PASSWORD }}"
+            fi
+          fi
       - name: build
         shell: bash
         run: |
