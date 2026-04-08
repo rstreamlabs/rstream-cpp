@@ -87,7 +87,16 @@ conan config install conan/config
 conan create . -u --build=missing -pr:b default -pr:h default
 ```
 
-For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh` and `deploy.py` to produce standalone deliverables under `out/release/...`.
+For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.
+
+If your packaging flow needs an authenticated Conan remote, configure it through environment variables instead of editing repository files:
+
+- `CONAN_REMOTE_URL`
+- `CONAN_REMOTE_USERNAME`
+- `CONAN_REMOTE_NAME` (optional, defaults to `rstream`)
+- `CONAN_PASSWORD_FILE` (used by `build-docker-conan.sh` and `conan/compose.yaml`, defaults to `~/.credentials/conan`)
+
+When those variables are unset, the Docker and CI packaging flows skip remote configuration and use the existing Conan setup.
 
 ## Using the SDK in a CMake project
 
@@ -147,6 +156,7 @@ The samples below illustrate the two common patterns: publishing an HTTP server 
 This sample creates a published HTTP tunnel, prints the forwarding address, then serves HTTP requests using Boost.Beast over an `io_rstrm` socket. The tunnel accept loop keeps accepting edge connections and hands them to per-connection sessions.
 
 ```cpp
+#include <csignal>
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
@@ -353,16 +363,14 @@ rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1
 
 ## Contributing
 
-Pull requests are encouraged and appreciated. Whether you're fixing bugs, adding features, improving documentation, or suggesting enhancements, your contributions help make rstream better for everyone. Build locally, run checks, and submit focused pull requests with clear validation notes.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the expected local checks, scope guidance, and pull request conventions.
 
 ## Support
 
-**Get help:**  
-support@rstream.io
+For support requests, contact `support@rstream.io`.
 
-**Report security concerns:**  
-reports@rstream.io
+For security reporting guidance, see [SECURITY.md](./SECURITY.md).
 
 ## License
 
-See `LICENSE` and `COPYING` in the repository root.
+This repository is licensed under the Apache License 2.0. See `LICENSE`.

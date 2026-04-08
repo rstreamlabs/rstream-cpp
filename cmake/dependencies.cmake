@@ -2,8 +2,6 @@
 
 # dependencies
 
-include(FindPkgConfig)
-
 macro(find_boost_package)
   find_package(Boost ${ARGN} CONFIG QUIET)
   if(NOT Boost_FOUND)
@@ -31,13 +29,6 @@ if(NOT DEFINED BUILD_BINDING_JAVA OR BUILD_BINDING_JAVA)
   find_package(JNI QUIET)
 endif()
 find_package(maxminddb QUIET)
-if(NOT maxminddb_FOUND)
-  pkg_check_modules(libmaxminddb IMPORTED_TARGET libmaxminddb)
-  if(TARGET PkgConfig::libmaxminddb)
-    add_library(maxminddb::maxminddb INTERFACE IMPORTED GLOBAL)
-    set_property(TARGET maxminddb::maxminddb PROPERTY INTERFACE_LINK_LIBRARIES PkgConfig::libmaxminddb)
-  endif()
-endif()
 find_package(Curses QUIET)
 if(CURSES_FOUND AND NOT TARGET Curses::Curses)
   add_library(Curses::Curses INTERFACE IMPORTED GLOBAL)

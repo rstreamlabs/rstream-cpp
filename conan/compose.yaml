@@ -14,4 +14,4 @@ volumes:
   ccache-cache:
 secrets:
   password:
-    file: ${HOME}/.credentials/conan
+    file: ${CONAN_PASSWORD_FILE:-$HOME/.credentials/conan}

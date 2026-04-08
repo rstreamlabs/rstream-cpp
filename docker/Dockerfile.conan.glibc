@@ -33,12 +33,22 @@ RUN --mount=type=cache,target=/root/.conan2 \
     --mount=type=bind,src=.,target=/rstream/src \
     conan config install /rstream/src/conan/config
 
+ARG CONAN_REMOTE_NAME=rstream
+
+ARG CONAN_REMOTE_URL
+
+ARG CONAN_REMOTE_USERNAME
+
 RUN --mount=type=cache,target=/root/.conan2 \
-    conan remote list | grep -q "rstream" || conan remote add rstream https://nexus.rstream.io/repository/conan
+    if [ -n "${CONAN_REMOTE_URL}" ]; then \
+      conan remote list | grep -q "${CONAN_REMOTE_NAME}" || conan remote add "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_URL}"; \
+    fi
 
 RUN --mount=type=cache,target=/root/.conan2 \
     --mount=type=secret,id=password \
-    conan remote login rstream admin -p $(cat /run/secrets/password)
+    if [ -n "${CONAN_REMOTE_URL}" ] && [ -n "${CONAN_REMOTE_USERNAME}" ]; then \
+      conan remote login "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_USERNAME}" -p "$(cat /run/secrets/password)"; \
+    fi
 
 RUN --mount=type=cache,target=/root/.conan2 \
     --mount=type=bind,src=.,target=/rstream/src \

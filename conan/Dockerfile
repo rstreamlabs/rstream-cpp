@@ -59,8 +59,18 @@ RUN conan config install /tmp/conan-config
 
 RUN rm -rf /tmp/conan-config
 
-RUN conan remote list | grep -q "rstream" || conan remote add rstream https://nexus.rstream.io/repository/conan
+ARG CONAN_REMOTE_NAME=rstream
 
-RUN --mount=type=secret,id=password conan remote login rstream admin -p $(cat /run/secrets/password)
+ARG CONAN_REMOTE_URL
+
+ARG CONAN_REMOTE_USERNAME
+
+RUN if [ -n "${CONAN_REMOTE_URL}" ]; then \
+      conan remote list | grep -q "${CONAN_REMOTE_NAME}" || conan remote add "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_URL}"; \
+    fi
+
+RUN --mount=type=secret,id=password if [ -n "${CONAN_REMOTE_URL}" ] && [ -n "${CONAN_REMOTE_USERNAME}" ]; then \
+      conan remote login "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_USERNAME}" -p "$(cat /run/secrets/password)"; \
+    fi
 
 RUN git config --global --add safe.directory /source
