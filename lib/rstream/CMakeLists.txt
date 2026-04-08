@@ -28,13 +28,11 @@ if(NOT DEFINED Git_FOUND)
   set(Git_FOUND FALSE)
 endif()
 
-if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/config.hpp)
-  string(TIMESTAMP RSTREAM_BUILD_DATE "%Y-%m-%d %H:%M:%S UTC" UTC)
-  configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in
-    ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
-    @ONLY)
-endif()
+string(TIMESTAMP RSTREAM_BUILD_DATE "%Y-%m-%d %H:%M:%S UTC" UTC)
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in
+  ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
+  @ONLY)
 
 # build components
 
