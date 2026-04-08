@@ -16,7 +16,7 @@
 #include <rstream/nperf/server.hpp>
 
 static const char USAGE[] = R"(
-rstream-nperf-server - (https://rstream.io/) - network performance server using rstream primitives
+rstream-nperf-server - https://rstream.io/ - network performance server using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 
@@ -57,7 +57,7 @@ int run(int argc, char** argv)
   if (jobs == 0) {
     jobs = std::thread::hardware_concurrency();
   }
-  std::cout << "\n\tnperf by rstream - (https://rstream.io/)\n"
+  std::cout << "\n\tnperf by rstream - https://rstream.io/\n"
             << std::endl;
   boost::asio::io_context io_context(jobs);
   boost::asio::signal_set signal_set(io_context, SIGINT, SIGTERM);

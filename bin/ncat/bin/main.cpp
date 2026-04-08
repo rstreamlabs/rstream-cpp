@@ -17,7 +17,7 @@
 #include <rstream/ncat/server.hpp>
 
 static const char USAGE[] = R"(
-rstream-ncat - (https://rstream.io/) - netcat-like utility using rstream primitives
+rstream-ncat - https://rstream.io/ - netcat-like utility using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 

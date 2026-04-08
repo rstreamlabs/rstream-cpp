@@ -16,7 +16,7 @@
 #include <rstream/file-server/server.hpp>
 
 static const char USAGE[] = R"(
-rstream-file-server - (https://rstream.io/) - file server using rstream primitives
+rstream-file-server - https://rstream.io/ - file server using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 

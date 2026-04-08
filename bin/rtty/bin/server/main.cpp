@@ -16,7 +16,7 @@
 #include <rstream/rtty/server.hpp>
 
 static const char USAGE[] = R"(
-rstream-rtty-server - (https://rstream.io/) - remote TTY server using rstream primitives
+rstream-rtty-server - https://rstream.io/ - remote TTY server using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 

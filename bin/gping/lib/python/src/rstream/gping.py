@@ -4,7 +4,7 @@
 # See LICENSE file in the project root for license information.
 
 """
-rstream-gping - (https://rstream.io/) - interactive ping tool using rstream primitives
+rstream-gping - https://rstream.io/ - interactive ping tool using rstream primitives
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 
@@ -113,7 +113,7 @@ def main():
         print("\033c")
         width = 10
         print()
-        print("\tgping by rstream - (https://rstream.io/)")
+        print("\tgping by rstream - https://rstream.io/")
         print()
         keys = ["type : ", "size : ", "min : ", "max : ", "mean : ", "stdev : "]
         values_connection = format_sample(connection)

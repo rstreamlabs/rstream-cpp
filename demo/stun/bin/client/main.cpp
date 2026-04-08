@@ -13,7 +13,7 @@
 #include "client.hpp"
 
 static const char USAGE[] = R"(
-rstream-stun-client - (https://rstream.io/) - STUN client
+rstream-stun-client - https://rstream.io/ - STUN client
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 

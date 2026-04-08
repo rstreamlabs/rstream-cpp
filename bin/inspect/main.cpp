@@ -13,7 +13,7 @@
 #endif
 
 static const char USAGE[] = R"(
-rstream-inspect - (https://rstream.io/) - inspect rstream plugins and elements
+rstream-inspect - https://rstream.io/ - inspect rstream plugins and elements
 
 this program is part of rstream-utils (https://rstream.io/download/utils) and was created using rstream C++ SDK (https://rstream.io/sdk)
 
