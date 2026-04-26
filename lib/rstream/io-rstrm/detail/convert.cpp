@@ -100,6 +100,14 @@ void convert(client_details& dst, const protobuf::ClientDetails& src)
   }
 }
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
 {
   if (src.m_id) {
@@ -146,6 +154,16 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     val.set_value(*src.m_host);
     dst.mutable_host()->CopyFrom(val);
   }
+  if (src.m_hostname) {
+    google::protobuf::StringValue val;
+    val.set_value(*src.m_hostname);
+    dst.mutable_hostname()->CopyFrom(val);
+  }
+  if (src.m_port) {
+    google::protobuf::UInt32Value val;
+    val.set_value(*src.m_port);
+    dst.mutable_port()->CopyFrom(val);
+  }
   if (src.m_tls_mode) {
     google::protobuf::StringValue val;
     val.set_value(*src.m_tls_mode);
@@ -181,6 +199,11 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     google::protobuf::BoolValue val;
     val.set_value(*src.m_http_use_tls);
     dst.mutable_http_use_tls()->CopyFrom(val);
+  }
+  if (src.m_upstream_tls) {
+    google::protobuf::BoolValue val;
+    val.set_value(*src.m_upstream_tls);
+    dst.mutable_upstream_tls()->CopyFrom(val);
   }
   if (src.m_token_auth) {
     google::protobuf::BoolValue val;
@@ -227,6 +250,12 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   if (src.has_host()) {
     dst.m_host = src.host().value();
   }
+  if (src.has_hostname()) {
+    dst.m_hostname = src.hostname().value();
+  }
+  if (src.has_port()) {
+    dst.m_port = src.port().value();
+  }
   if (src.has_tls_mode()) {
     dst.m_tls_mode = src.tls_mode().value();
   }
@@ -247,6 +276,9 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   if (src.has_http_use_tls()) {
     dst.m_http_use_tls = src.http_use_tls().value();
   }
+  if (src.has_upstream_tls()) {
+    dst.m_upstream_tls = src.upstream_tls().value();
+  }
   if (src.has_token_auth()) {
     dst.m_token_auth = src.token_auth().value();
   }
@@ -257,6 +289,12 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
     dst.m_challenge_mode = src.challenge_mode().value();
   }
 }
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 }  // namespace detail
 }  // namespace io_rstrm
