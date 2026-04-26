@@ -230,12 +230,14 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
   PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, geoip, ',')
   PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, trusted_ips, ',')
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, host)
+  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, hostname)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, tls_min_version)
   PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, tls_ciphers, ',')
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, mtls)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, mtls_cacert_pem)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, http_version)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, http_use_tls)
+  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, upstream_tls)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, token_auth)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, rstream_auth)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, challenge_mode)
@@ -840,19 +842,27 @@ boost::system::result<std::string> get_rstream_engine_address(const boost::optio
 
 boost::system::result<std::string> format_forwarding_address(const tunnel_properties& properties)
 {
-  if (properties.m_host) {
+  if (properties.m_hostname || properties.m_host) {
     std::string res;
-    std::string protocol;
+    std::string edge_protocol;
     if (properties.m_protocol && properties.m_protocol.value() == "http") {
-      protocol = "https";
-      res      = protocol + "://";
+      edge_protocol = "https";
+      res           = edge_protocol + "://";
     }
     else {
-      protocol = "tls";
+      edge_protocol = properties.m_protocol.value_or("tls");
     }
-    res += properties.m_host.value();
-    if (protocol != "https") {
-      res += " (" + protocol + ")";
+    if (properties.m_hostname) {
+      res += properties.m_hostname.value();
+      if (properties.m_port && (edge_protocol != "https" || properties.m_port.value() != 443)) {
+        res += ":" + std::to_string(properties.m_port.value());
+      }
+    }
+    else {
+      res += properties.m_host.value();
+    }
+    if (edge_protocol != "https") {
+      res += " (" + edge_protocol + ")";
     }
     return res;
   }
@@ -885,7 +895,8 @@ boost::system::result<std::string> format_forwarded_address(const io::address& f
   std::string res;
   std::string protocol;
   if (properties.m_protocol && properties.m_protocol.value() == "http") {
-    if (properties.m_http_use_tls && properties.m_http_use_tls.value()) {
+    auto upstream_tls = properties.m_upstream_tls ? properties.m_upstream_tls : properties.m_http_use_tls;
+    if (upstream_tls && upstream_tls.value()) {
       protocol = "https";
     }
     else {
@@ -906,6 +917,23 @@ boost::system::result<std::string> format_forwarded_address(const io::address& f
   else if (protocol != "https") {
     if (properties.m_tls_mode && properties.m_tls_mode.value() == "passthrough") {
       res += " (tls)";
+    }
+    else if (properties.m_upstream_tls && properties.m_upstream_tls.value()) {
+      if (properties.m_protocol && properties.m_protocol.value() == "dtls") {
+        res += " (dtls)";
+      }
+      else if (properties.m_protocol && properties.m_protocol.value() == "quic") {
+        res += " (quic)";
+      }
+      else {
+        res += " (tls)";
+      }
+    }
+    else if (properties.m_protocol && properties.m_protocol.value() == "dtls") {
+      res += " (udp)";
+    }
+    else if (properties.m_protocol && properties.m_protocol.value() == "quic") {
+      res += " (quic)";
     }
     else {
       res += " (tcp)";

@@ -73,7 +73,8 @@ security options:
   --trusted-ips=ARG                     specify allowed IPs or CIDR ranges (comma separated)
 
 publishing options:
-  --host=ARG                            host name for publishing
+  --host=ARG                            stable domain for publishing
+  --upstream-tls                        proxy the connection to upstream using TLS
 
 tls options:
   --tls-mode=ARG                        specify the TLS mode (terminated, passthrough)
@@ -88,7 +89,7 @@ publishing (terminated tunnels) options:
 
 http tunnel options:
   --http-version=ARG                    specify the HTTP version (http/1.1, h2c)
-  --http-use-tls                        proxy the connection to upstream using TLS
+  --http-use-tls                        proxy HTTP upstream using TLS (deprecated; use --upstream-tls)
   --token-auth                          enable token based authentication
   --rstream-auth                        require rstream account authentication
   --challenge-mode                      require an interactive challenge before access
@@ -352,7 +353,13 @@ int run(int argc, char** argv)
     {
       auto it = args.find("--host");
       if (it != args.end() && it->second.operator bool()) {
-        tunnel_properties.m_host = it->second.asString();
+        tunnel_properties.m_hostname = it->second.asString();
+      }
+    }
+    {
+      auto it = args.find("--upstream-tls");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_upstream_tls = true;
       }
     }
   }
@@ -403,6 +410,8 @@ int run(int argc, char** argv)
     tunnel_properties.m_mtls_cacert_pem = mtls_cacert_pem;
   }
   if (publish) {
+    bool is_http_protocol = !tunnel_properties.m_protocol
+                            || tunnel_properties.m_protocol.value() == rstream::io_rstrm::protocol::http;
     {
       auto it = args.find("--http-version");
       if (it != args.end() && it->second.operator bool()) {
@@ -414,6 +423,9 @@ int run(int argc, char** argv)
       if (it != args.end() && it->second.asBool()) {
         tunnel_properties.m_http_use_tls = true;
       }
+    }
+    if (is_http_protocol && tunnel_properties.m_upstream_tls && !tunnel_properties.m_http_use_tls) {
+      tunnel_properties.m_http_use_tls = tunnel_properties.m_upstream_tls;
     }
     {
       auto it = args.find("--token-auth");

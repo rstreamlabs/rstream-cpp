@@ -29,7 +29,8 @@ Common keys include:
 - `rstrm.labels` (repeatable, key/value encoded as `k=v`)
 - `rstrm.geoip`
 - `rstrm.trusted_ips`
-- `rstrm.host`
+- `rstrm.hostname` (Stable domain)
+- `rstrm.host` (deprecated read-only field returned by the server)
 - `rstrm.tls_mode`
 - `rstrm.tls_alpns`
 - `rstrm.tls_min_version`
@@ -37,7 +38,8 @@ Common keys include:
 - `rstrm.mtls`
 - `rstrm.mtls_cacert_pem`
 - `rstrm.http_version`
-- `rstrm.http_use_tls`
+- `rstrm.upstream_tls`
+- `rstrm.http_use_tls` (deprecated HTTP-only alias)
 - `rstrm.token_auth`
 - `rstrm.rstream_auth`
 - `rstrm.challenge_mode`
@@ -49,6 +51,8 @@ Parsing entry point:
 Serialization to control-plane protobuf:
 
 - `lib/rstream/io-rstrm/detail/convert.cpp` (`convert(protobuf::TunnelProperties&, ...)`)
+
+Stable domains use the engine-owned pattern `<slug>-<project-endpoint>.t.<cluster-domain>` and are carried in `rstrm.hostname`.
 
 Note: many policy/auth controls are enforced by the rstream edge. The SDK transports and applies configuration locally where needed, while edge policy decisions remain centralized.
 

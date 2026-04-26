@@ -2,7 +2,13 @@
 
 #include "acceptor.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <iomanip>
 #include <mutex>
+#include <random>
+#include <sstream>
+#include <vector>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/asio/bind_executor.hpp>
@@ -23,6 +29,109 @@
 
 namespace rstream {
 namespace io_rstrm {
+
+static std::string join_labels(const std::vector<std::string>& labels, std::size_t offset)
+{
+  std::string out;
+  for (std::size_t i = offset; i < labels.size(); ++i) {
+    if (!out.empty()) {
+      out += ".";
+    }
+    out += labels[i];
+  }
+  return out;
+}
+
+static std::vector<std::string> split_labels(const std::string& host)
+{
+  std::vector<std::string> labels;
+  std::string label;
+  std::istringstream stream(host);
+  while (std::getline(stream, label, '.')) {
+    labels.push_back(label);
+  }
+  return labels;
+}
+
+static bool is_stable_domain_label(const std::string& label)
+{
+  if (label.empty() || label.size() > 63 || label.front() == '-' || label.back() == '-') {
+    return false;
+  }
+  return std::all_of(label.begin(), label.end(), [](unsigned char c) {
+    return std::islower(c) || std::isdigit(c) || c == '-';
+  });
+}
+
+static std::string random_stable_domain_slug()
+{
+  std::random_device random_device;
+  std::uniform_int_distribution<unsigned int> dist(0, 255);
+  std::ostringstream out;
+  out << 'r' << std::hex << std::setfill('0');
+  for (int i = 0; i < 4; ++i) {
+    out << std::setw(2) << dist(random_device);
+  }
+  return out.str();
+}
+
+static boost::optional<std::string> generate_stable_domain(const io::address& server_address)
+{
+  std::string host = server_address.host();
+  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  while (!host.empty() && host.back() == '.') {
+    host.pop_back();
+  }
+  if (host.empty() || host.find(':') != std::string::npos) {
+    return {};
+  }
+  auto labels = split_labels(host);
+  if (labels.size() < 2) {
+    return {};
+  }
+  const auto& project_endpoint = labels.front();
+  const auto cluster_domain    = join_labels(labels, 1);
+  if (!is_stable_domain_label(project_endpoint)) {
+    return {};
+  }
+  for (const auto& label : split_labels(cluster_domain)) {
+    if (!is_stable_domain_label(label)) {
+      return {};
+    }
+  }
+  if (project_endpoint.size() >= 63) {
+    return {};
+  }
+  const auto max_slug_len = 63 - project_endpoint.size() - 1;
+  if (max_slug_len < 9) {
+    return {};
+  }
+  auto slug = random_stable_domain_slug();
+  if (slug.size() > max_slug_len) {
+    slug.resize(max_slug_len);
+  }
+  return slug + "-" + project_endpoint + ".t." + cluster_domain;
+}
+
+static void maybe_set_generated_stable_domain(tunnel_properties& properties,
+                                              const io::address& server_address,
+                                              boost::optional<std::string>& generated_stable_domain)
+{
+  if (properties.m_hostname || properties.m_host) {
+    return;
+  }
+  if (properties.m_publish && !properties.m_publish.value()) {
+    return;
+  }
+  if (!generated_stable_domain) {
+    generated_stable_domain = generate_stable_domain(server_address);
+  }
+  if (generated_stable_domain) {
+    properties.m_hostname = generated_stable_domain.value();
+  }
+}
 
 class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this<impl> {
  public:
@@ -125,6 +234,8 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
   control_callbacks m_control_callbacks;
 
   boost::optional<endpoint> m_local_endpoint;
+
+  boost::optional<std::string> m_generated_stable_domain;
 
   status m_server_status;
 
@@ -434,6 +545,12 @@ void acceptor::impl::do_create_tunnel()
     }
     properties.m_name = m_endpoint.m_id_name;
   }
+  maybe_set_generated_stable_domain(properties, m_endpoint.m_server_address, m_generated_stable_domain);
+#ifdef DEBUG_BUILD
+  if (properties.m_hostname) {
+    m_logger->trace("using tunnel stable domain [hostname={}]", properties.m_hostname.value());
+  }
+#endif
   m_client->async_create_tunnel(properties, boost::asio::bind_executor(m_strand, completion_handler));
 }
 

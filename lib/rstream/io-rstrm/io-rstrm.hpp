@@ -80,6 +80,8 @@ struct tunnel_properties {
   std::vector<std::string> m_trusted_ips;
   // publishing options
   boost::optional<std::string> m_host;
+  boost::optional<std::string> m_hostname;
+  boost::optional<std::uint32_t> m_port;
   // tls options
   boost::optional<std::string> m_tls_mode;
   std::vector<std::string> m_tls_alpns;
@@ -91,6 +93,7 @@ struct tunnel_properties {
   // http tunnel options (http tunnels only)
   boost::optional<std::string> m_http_version;
   boost::optional<bool> m_http_use_tls;
+  boost::optional<bool> m_upstream_tls;
   boost::optional<bool> m_token_auth;
   boost::optional<bool> m_rstream_auth;
   boost::optional<bool> m_challenge_mode;
