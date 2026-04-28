@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.6.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.5.1...1.6.0) (2026-04-26)
+
+
+### Features
+
+* add stable domains and upstream TLS ([3d16d26](https://github.com/rstreamlabs/rstream-cpp/commit/3d16d26b46285c5bb1fb4a08bb6502ed4e4d788e))
+
+
+### Bug Fixes
+
+* keep generated license metadata C++ safe ([a153db9](https://github.com/rstreamlabs/rstream-cpp/commit/a153db9ae9a34bef3ad19db5fbe84d623813fa44))
+* regenerate build metadata on reconfigure ([ead0ecc](https://github.com/rstreamlabs/rstream-cpp/commit/ead0eccfa9a326fe14ee558efd794c9c8a05ff2b))
+
 ## [1.5.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.5.0...1.5.1) (2026-03-15)
 
 
