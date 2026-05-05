@@ -134,7 +134,7 @@
       }
     },
     {
-      "name": "linux-releae-conan",
+      "name": "linux-release-conan",
       "displayName": "Linux Release (conan)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",

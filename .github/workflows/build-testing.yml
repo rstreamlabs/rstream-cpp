@@ -1,10 +1,11 @@
 name: Build Testing
 on:
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   build:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     strategy:
       fail-fast: false
       matrix:
