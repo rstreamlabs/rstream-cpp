@@ -8,6 +8,8 @@ on:
     secrets:
       CONAN_PASSWORD:
         required: false
+permissions:
+  contents: read
 env:
   RSTREAM_URL: "${{ github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io' }}"
   CONAN_REMOTE_NAME: "${{ vars.CONAN_REMOTE_NAME }}"
@@ -15,6 +17,7 @@ env:
   CONAN_REMOTE_USERNAME: "${{ vars.CONAN_REMOTE_USERNAME }}"
 jobs:
   build:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     strategy:
       fail-fast: true
       matrix:

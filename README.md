@@ -70,21 +70,21 @@ Dependencies are resolved through Conan/CMake integration and include Boost, Ope
 
 ## Build from source
 
-For a local developer build, configure, build, run checks, and install with standard CMake commands.
-
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-cmake --build build --target check
-cmake --install build --prefix ./build/release
-```
-
-For a Conan-managed package build, use the repository Conan configuration.
+The recommended source build uses Conan to provision third-party dependencies and then builds the package:
 
 ```bash
 conan profile detect --force
 conan config install conan/config
 conan create . -u --build=missing -pr:b default -pr:h default
+```
+
+If Boost, protobuf, OpenSSL, yaml-cpp, nlohmann_json, spdlog, and test dependencies are already available through your system package manager or local CMake package registry, a direct CMake build also works:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+cmake --install build --prefix ./build/release
 ```
 
 For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.

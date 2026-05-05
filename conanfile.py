@@ -51,10 +51,15 @@ class ConanPackage(ConanFile):
         "version.txt"
     exports_sources = \
         "!.devcontainer", \
+        "!.env*", \
         "!.git", \
         "!.github", \
         "!.vscode", \
+        "!**/__pycache__", \
+        "!**/.DS_Store", \
+        "!**/*.pyc", \
         "!build*", \
+        "!CMakeUserPresets.json", \
         "!conan", \
         "!out", \
         "!test_package/build", \

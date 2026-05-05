@@ -79,7 +79,7 @@ void test_1()
 
   const std::string software         = "STUN test client";
   const std::string username         = "evtj:h6vY";
-  const std::string password         = "VOkJxbRl1RmTxUk/WvJxBt";
+  const std::string integrity_key    = "VOkJxbRl1RmTxUk/WvJxBt";
   const std::uint32_t priority       = 4278255726;
   const std::uint64_t ice_controlled = 3907759233994141587;
   // create buffer
@@ -97,7 +97,7 @@ void test_1()
   // check 'USERNAME' attribute
   compare(get_attribute<attribute_value_username>(message).get_value(), username);
   // check 'MESSAGE-INTEGRITY' attribute
-  message.check_message_integrity(password);
+  message.check_message_integrity(integrity_key);
   // check 'FINGERPRINT' attribute
   message.check_fingerprint();
 }
@@ -146,7 +146,7 @@ void test_2()
   };
   const std::string software = "test vector";
   const auto address         = std::make_pair("192.0.2.1", 32853);
-  const std::string password = "VOkJxbRl1RmTxUk/WvJxBt";
+  const std::string integrity_key = "VOkJxbRl1RmTxUk/WvJxBt";
   // create buffer
   auto memory = rstream::core::make_memory_wrapped(test_message, sizeof(test_message));
   memory.resize(4, sizeof(test_message) - 8);
@@ -163,7 +163,7 @@ void test_2()
     compare(attribute.get_port(), (std::uint16_t)address.second);
   }
   // check 'MESSAGE-INTEGRITY' attribute
-  message.check_message_integrity(password);
+  message.check_message_integrity(integrity_key);
   // check 'FINGERPRINT' attribute
   message.check_fingerprint();
 }
@@ -213,7 +213,7 @@ void test_3()
   };
   const std::string software = "test vector";
   const auto address         = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", 32853);
-  const std::string password = "VOkJxbRl1RmTxUk/WvJxBt";
+  const std::string integrity_key = "VOkJxbRl1RmTxUk/WvJxBt";
   // create buffer
   auto memory = rstream::core::make_memory_wrapped(test_message, sizeof(test_message));
   // parse buffer
@@ -229,7 +229,7 @@ void test_3()
     compare(attribute.get_port(), (std::uint16_t)address.second);
   }
   // check 'MESSAGE-INTEGRITY' attribute
-  message.check_message_integrity(password);
+  message.check_message_integrity(integrity_key);
   // check 'FINGERPRINT' attribute
   message.check_fingerprint();
 }

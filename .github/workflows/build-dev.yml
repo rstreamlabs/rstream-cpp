@@ -4,8 +4,12 @@ on:
     branches:
       - feature-**
       - fix-**
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   build:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     strategy:
       fail-fast: false
       matrix:
