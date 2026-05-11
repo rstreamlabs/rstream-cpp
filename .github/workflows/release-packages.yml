@@ -1,0 +1,322 @@
+name: Release Packages
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload packages after a successful export.
+        required: true
+        type: boolean
+        default: false
+      channel:
+        description: Package channel.
+        required: true
+        type: choice
+        default: stable
+        options:
+          - stable
+          - dev
+      rstream_url:
+        description: Package API base URL.
+        required: true
+        type: choice
+        default: https://rstream.io
+        options:
+          - https://rstream.io
+          - https://dev.rstream.io
+      package_name:
+        description: Exported package name.
+        required: true
+        type: string
+        default: rstream-utils
+  push:
+    tags:
+      - "*"
+permissions:
+  contents: read
+concurrency:
+  group: release-packages-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CHANNEL: "${{ inputs.channel || (github.ref_type == 'tag' && 'stable' || 'dev') }}"
+  CONAN_VERSION: "2.26.2"
+  CONAN_REMOTE_NAME: "${{ vars.CONAN_REMOTE_NAME }}"
+  CONAN_REMOTE_URL: "${{ vars.CONAN_REMOTE_URL }}"
+  CONAN_REMOTE_USERNAME: "${{ vars.CONAN_REMOTE_USERNAME }}"
+  EXPORT_PACKAGE_NAME: "${{ inputs.package_name || 'rstream-utils' }}"
+  RSTREAM_URL: "${{ inputs.rstream_url || (github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io') }}"
+  UPLOAD_PACKAGES: "${{ github.ref_type == 'tag' || inputs.upload == true }}"
+  VERSION: "${{ github.ref_name }}"
+jobs:
+  package-linux-windows:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
+    name: Package ${{ matrix.target.os }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - os: linux
+          - os: windows
+    env:
+      LINUX_BUILD_SHARED: "off"
+      LINUX_TCLIBCS: musl
+      OSS: ${{ matrix.target.os }}
+      USE_DOCKER: "on"
+      WINDOWS_BUILD_SHARED: "off"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          cache: "pip"
+      - name: Configure Docker Conan secret path
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "CONAN_PASSWORD_FILE=${RUNNER_TEMP}/conan-password" >> "${GITHUB_ENV}"
+      - name: Validate release tag
+        if: ${{ github.ref_type == 'tag' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid release tag: ${VERSION}" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt update
+          sudo apt-get install -y \
+            jq \
+            libdigest-sha-perl \
+            pipx \
+            python3 \
+            python3-pip
+          pipx install "conan==${CONAN_VERSION}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Validate package version
+        if: ${{ github.ref_type == 'tag' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(conan inspect . --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+          if [[ "${package_version}" != "${VERSION}" ]]; then
+            echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
+            exit 1
+          fi
+      - name: Prepare Docker Conan secret
+        shell: bash
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${CONAN_PASSWORD_FILE}")"
+          printf "%s" "${CONAN_PASSWORD:-}" > "${CONAN_PASSWORD_FILE}"
+          chmod 600 "${CONAN_PASSWORD_FILE}"
+      - name: Build and export packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-conan-cross.sh
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ env.EXPORT_PACKAGE_NAME }}-${{ matrix.target.os }}-${{ env.CHANNEL }}
+          path: out/release/**/${{ matrix.target.os }}/**/packages/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload packages
+        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
+        shell: bash
+        env:
+          RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RSTREAM_TOKEN}" ]]; then
+            echo "RSTREAM_TOKEN is required when package upload is enabled."
+            exit 1
+          fi
+          ./build-conan-cross.sh upload
+  package-macos:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
+    name: Package macos
+    runs-on: macos-latest
+    env:
+      MACOS_APP_STORE_API_KEY: ${{ secrets.MACOS_APP_STORE_API_KEY }}
+      MACOS_BUILD_SHARED: "on"
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+      MACOS_CODESIGN_MODE: "${{ (github.ref_type == 'tag' || inputs.upload == true) && 'certificate' || '' }}"
+      MACOS_CODESIGN_TOOL: rcodesign
+      OSS: macos
+      USE_DOCKER: "off"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          cache: "pip"
+      - name: Validate release tag
+        if: ${{ github.ref_type == 'tag' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid release tag: ${VERSION}" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew list bash >/dev/null 2>&1 || brew install bash
+          brew list jq >/dev/null 2>&1 || brew install jq
+          echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
+          python3 -m pip install --user pipx
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          "${HOME}/.local/bin/pipx" install "conan==${CONAN_VERSION}"
+      - name: Install apple-codesign
+        if: ${{ env.MACOS_CODESIGN_MODE != '' }}
+        shell: bash
+        env:
+          APPLE_CODESIGN_SHA256_MACOS_UNIVERSAL: d98372d5524226ccf9dc0eda03d4e4f5826182dabb2fc3f2bd303ed9113a748d
+          APPLE_CODESIGN_VERSION: "0.29.0"
+        run: |
+          set -euo pipefail
+          if command -v rcodesign >/dev/null 2>&1 && [[ "$(rcodesign --version | grep -o '[0-9.]*')" == "${APPLE_CODESIGN_VERSION}" ]]; then
+            exit 0
+          fi
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "${tmp_dir}"' EXIT
+          archive="apple-codesign-${APPLE_CODESIGN_VERSION}-macos-universal.tar.gz"
+          curl -fsSL -o "${tmp_dir}/${archive}" "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${APPLE_CODESIGN_VERSION}/${archive}"
+          echo "${APPLE_CODESIGN_SHA256_MACOS_UNIVERSAL}  ${tmp_dir}/${archive}" | shasum -a 256 -c -
+          tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}"
+          sudo install -m 0755 "${tmp_dir}/apple-codesign-${APPLE_CODESIGN_VERSION}-macos-universal/rcodesign" /usr/local/bin/rcodesign
+      - name: Configure Conan
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan profile detect -f
+          conan config install conan/config
+      - name: Validate package version
+        if: ${{ github.ref_type == 'tag' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(conan inspect . --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+          if [[ "${package_version}" != "${VERSION}" ]]; then
+            echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
+            exit 1
+          fi
+      - name: Build and export packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-conan-cross.sh
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ env.EXPORT_PACKAGE_NAME }}-macos-${{ env.CHANNEL }}
+          path: out/release/**/macos/**/packages/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload packages
+        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
+        shell: bash
+        env:
+          RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RSTREAM_TOKEN}" ]]; then
+            echo "RSTREAM_TOKEN is required when package upload is enabled."
+            exit 1
+          fi
+          ./build-conan-cross.sh upload
+  publish-conan-source:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && github.ref_type == 'tag' }}
+    name: Publish Conan source package
+    needs:
+      - package-linux-windows
+      - package-macos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          cache: "pip"
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid release tag: ${VERSION}" >&2
+            exit 1
+          fi
+          echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt update
+          sudo apt-get install -y \
+            build-essential \
+            ccache \
+            cmake \
+            file \
+            git \
+            gzip \
+            jq \
+            ninja-build \
+            pipx \
+            pkg-config \
+            tar \
+            xz-utils
+          pipx install "conan==${CONAN_VERSION}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Configure Conan
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan profile detect -f
+          conan config install conan/config
+          if [[ -n "${CONAN_REMOTE_URL}" ]]; then
+            remote_name="${CONAN_REMOTE_NAME:-rstream}"
+            conan remote list | grep -q "${remote_name}" || conan remote add -f "${remote_name}" "${CONAN_REMOTE_URL}"
+          fi
+      - name: Validate package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(conan inspect . --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+          if [[ "${package_version}" != "${VERSION}" ]]; then
+            echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
+            exit 1
+          fi
+      - name: Validate Conan package from source
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan create --build=missing --user conan --channel stable -pr:b default -pr:h default .
+      - name: Upload Conan source package
+        shell: bash
+        env:
+          CONAN_LOGIN_USERNAME: ${{ env.CONAN_REMOTE_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_LOGIN_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "CONAN_REMOTE_URL, CONAN_REMOTE_USERNAME and CONAN_PASSWORD are required on release tags."
+            exit 1
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote login "${remote_name}" "${CONAN_LOGIN_USERNAME}" -p "${CONAN_PASSWORD}"
+          conan upload "rstream/${VERSION}@conan/stable" --only-recipe -r "${remote_name}" --check --confirm

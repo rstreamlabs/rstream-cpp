@@ -97,6 +97,20 @@ Set `RSTREAM_TUNNEL_BIN` when the binary is not under a standard build directory
 
 For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.
 
+Regular CI is handled by the `Build` GitHub Actions workflow. Pushes to `main` build the `stable` Conan channel, `feature-*` and `fix-*` branches build the `dev` channel, and manual runs can select `dev`, `stable`, or `testing`. This workflow only validates the Conan package with `conan create`; it does not run the full cross-platform release export.
+
+Release packaging is handled separately by the `Release Packages` workflow. Manual dispatch builds the same `rstream-utils` artifacts as:
+
+```bash
+EXPORT_PACKAGE_NAME="rstream-utils" LINUX_TCLIBCS="musl" LINUX_BUILD_SHARED="off" MACOS_BUILD_SHARED="on" WINDOWS_BUILD_SHARED="off" ./build-conan-cross.sh
+```
+
+The workflow runs macOS packaging on a macOS runner and Linux/Windows packaging on Ubuntu runners. Manual runs upload only when the `upload` input is enabled; release tags upload automatically to the stable channel after the tag and Conan package version have been checked. Package upload requires the `RSTREAM_TOKEN` repository secret.
+
+macOS binaries are signed inside `deploy.py` before the release archive is compressed. Signing is enabled for release tags and manual upload runs through `MACOS_CODESIGN_MODE=certificate`, `MACOS_CODESIGN_TOOL=rcodesign`, `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, and `MACOS_APP_STORE_API_KEY`. Leave `MACOS_CODESIGN_MODE` unset for local, unsigned packaging.
+
+On release tags, the same workflow also validates the Conan recipe with `conan create` and publishes only the Conan source package to the configured Conan remote with `conan upload --only-recipe`. This requires `CONAN_REMOTE_URL`, `CONAN_REMOTE_USERNAME`, and optionally `CONAN_REMOTE_NAME` repository variables, plus the `CONAN_PASSWORD` repository secret. Missing Conan publication credentials fail the release job.
+
 If your packaging flow needs an authenticated Conan remote, configure it through environment variables instead of editing repository files:
 
 - `CONAN_REMOTE_URL`
@@ -104,7 +118,7 @@ If your packaging flow needs an authenticated Conan remote, configure it through
 - `CONAN_REMOTE_NAME` (optional, defaults to `rstream`)
 - `CONAN_PASSWORD_FILE` (used by `build-docker-conan.sh` and `conan/compose.yaml`, defaults to `~/.credentials/conan`)
 
-When those variables are unset, the Docker and CI packaging flows skip remote configuration and use the existing Conan setup.
+When those variables are unset, local Docker packaging and non-upload CI runs use the existing Conan setup.
 
 ## Using the SDK in a CMake project
 
