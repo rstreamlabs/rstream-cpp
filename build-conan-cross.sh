@@ -1,6 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e
+
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  echo "Bash 4 or later is required. On macOS, install Homebrew bash and ensure it is first in PATH." >&2
+  exit 1
+fi
 
 script_dir=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
 

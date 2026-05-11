@@ -1,0 +1,26 @@
+name: Build
+on:
+  push:
+    branches:
+      - main
+      - feature-**
+      - fix-**
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Conan package channel.
+        required: true
+        type: choice
+        default: testing
+        options:
+          - dev
+          - stable
+          - testing
+permissions:
+  contents: read
+jobs:
+  build:
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    uses: ./.github/workflows/conan.yml
+    with:
+      channel: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (github.ref_name == 'main' && 'stable' || 'dev') }}
