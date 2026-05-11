@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include <nlohmann/json.hpp>
+#include <openssl/opensslv.h>
 #include <yaml-cpp/yaml.h>
 
 #include <rstream/config.hpp>
@@ -21,6 +22,15 @@
 #include "error.hpp"
 
 static const rstream::core::logger g_logger({"rstream", "io-rstrm", "common"});
+
+static std::string default_tls_groups_query()
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30500000L
+  return "&ssl.groups=SecP256r1MLKEM768%3ASecP384r1MLKEM1024%3AX25519MLKEM768%3AX25519%3Asecp256r1%3Asecp384r1";
+#else
+  return "&ssl.groups=X25519%3Asecp256r1%3Asecp384r1";
+#endif
+}
 
 static std::vector<std::string> split(const std::string& str, char delimiter)
 {
@@ -195,7 +205,8 @@ nlohmann::json& operator<<(nlohmann::json& json, const status_extd& status)
 config::config()
     : m_max_buffer_size(UINT16_MAX),
       m_zero_rtt(!g_is_debug_build),
-      m_no_token(false)
+      m_no_token(false),
+      m_token_from_uri_param(false)
 {
 }
 
@@ -264,6 +275,7 @@ void parse_config(const boost::urls::url& url, config& config, boost::system::er
       }
       else {
         rstream::io::detail::stream::parse_url_param_value(config.m_token, *it, error_code);
+        config.m_token_from_uri_param = !error_code;
       }
     }
   }
@@ -837,7 +849,7 @@ boost::system::result<std::string> get_rstream_engine_address(const boost::optio
   if (engine.find("://") != std::string::npos) {
     return engine;
   }
-  return std::string("tcp://") + engine + "?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1";
+  return std::string("tcp://") + engine + "?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_tls_groups_query();
 }
 
 boost::system::result<std::string> format_forwarding_address(const tunnel_properties& properties)
@@ -883,6 +895,9 @@ boost::system::result<std::string> format_forwarded_address(const io::address& f
 {
   if (forwarded_address.m_str) {
     if (forwarded_address.m_str->find("://") != std::string::npos) {
+      if (forwarded_address.host().empty()) {
+        return boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+      }
       return forwarded_address.m_str.value() + " (unparsed)";
     }
   }

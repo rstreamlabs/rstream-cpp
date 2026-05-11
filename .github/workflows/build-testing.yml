@@ -18,6 +18,5 @@ jobs:
                 },
             }
     uses: ./.github/workflows/conan.yml
-    secrets: inherit
     with:
       build: ${{ toJson(matrix.build) }}

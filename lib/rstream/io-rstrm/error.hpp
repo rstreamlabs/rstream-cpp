@@ -4,14 +4,14 @@
 
 #include <string>
 
-#include <boost/system/error_code.hpp>
+#include <boost/system/system_error.hpp>
 
 namespace rstream {
 namespace io_rstrm {
 
 namespace error {
 
-class category : public std::error_category {
+class category : public boost::system::error_category {
  public:
   virtual const char* name() const noexcept override;
   virtual std::string message(int code) const override;
@@ -50,12 +50,12 @@ extern inline const category& rstream_rstream_error_category()
   return category;
 }
 
-inline std::error_code make_error_code(code code)
+inline boost::system::error_code make_error_code(code code)
 {
   return {static_cast<int>(code), rstream_rstream_error_category()};
 }
 
-std::error_code make_error_code(int code);
+boost::system::error_code make_error_code(int code);
 
 }  // namespace error
 
@@ -64,9 +64,11 @@ std::string to_string(error::code code);
 }  // namespace io_rstrm
 }  // namespace rstream
 
-namespace std {
+namespace boost {
+namespace system {
 
 template <>
 struct is_error_code_enum<::rstream::io_rstrm::error::code> : std::true_type {};
 
-}  // namespace std
+}  // namespace system
+}  // namespace boost

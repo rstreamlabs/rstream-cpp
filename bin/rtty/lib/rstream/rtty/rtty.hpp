@@ -70,6 +70,8 @@ env_vars::iterator find_environment_variable(env_vars& dst, const std::string& k
 
 void add_environment_variable(std::list<environment>& dst, const std::string& key, const std::string& value, bool force = false);
 
+void add_environment_variable(std::list<environment>& dst, const std::string& key, const char* value, bool force = false);
+
 void add_environment_variable(std::list<environment>& dst, const std::string& key, bool force = false);
 
 void parse_type(type& dst, const std::string& src);

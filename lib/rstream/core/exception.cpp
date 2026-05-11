@@ -15,14 +15,23 @@
 namespace rstream {
 namespace core {
 
+static std::string format_system_error(const boost::system::error_code& error_code, const std::string& what)
+{
+  std::string result = error_code.message();
+  if (!what.empty()) {
+    result += " (" + what + ")";
+  }
+  return result;
+}
+
 system_error::system_error(const boost::system::error_code& error_code)
-    : std::runtime_error(""),
+    : std::runtime_error(format_system_error(error_code, "")),
       m_error_code(error_code)
 {
 }
 
 system_error::system_error(const boost::system::error_code& error_code, const std::string& what)
-    : std::runtime_error(what),
+    : std::runtime_error(format_system_error(error_code, what)),
       m_error_code(error_code)
 {
 }
@@ -34,19 +43,7 @@ boost::system::error_code system_error::code() const noexcept
 
 const char* system_error::what() const noexcept
 {
-  if (m_what.empty()) {
-    try {
-      m_what += m_error_code.message();
-      std::string tmp = std::runtime_error::what();
-      if (!tmp.empty()) {
-        m_what += " (" + tmp + ")";
-      }
-    }
-    catch (...) {
-      return std::runtime_error::what();
-    }
-  }
-  return m_what.c_str();
+  return std::runtime_error::what();
 }
 
 namespace abi {

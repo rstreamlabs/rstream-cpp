@@ -1,7 +1,7 @@
 Source: rstream
 Section: misc
 Priority: extra
-Maintainer: @uartnet <hello@rstream.io>
+Maintainer: rstream labs <hello@rstream.io>
 Build-Depends:
  ccache,
  clang-tidy,

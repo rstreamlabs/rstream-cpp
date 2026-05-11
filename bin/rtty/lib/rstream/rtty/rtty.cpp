@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -471,6 +472,11 @@ void add_environment_variable(std::list<environment>& dst, const std::string& ke
   }
 }
 
+void add_environment_variable(std::list<environment>& dst, const std::string& key, const char* value, bool force)
+{
+  add_environment_variable(dst, key, std::string(value == nullptr ? "" : value), force);
+}
+
 void add_environment_variable(env_vars& dst, const std::string& key, bool force)
 {
   auto value = std::getenv(key.c_str());
@@ -496,13 +502,17 @@ void parse_identifier(identifier& dst, const std::string& src)
 {
   auto is_str_id = [](const std::string& str) {
     auto it = str.begin();
-    while (it != str.end() && std::isdigit(*it)) {
+    while (it != str.end() && std::isdigit(static_cast<unsigned char>(*it))) {
       ++it;
     }
     return !str.empty() && it == str.end();
   };
   if (is_str_id(src)) {
-    dst = std::stoul(src);
+    auto value = std::stoull(src);
+    if (value > std::numeric_limits<std::uint32_t>::max()) {
+      throw std::out_of_range("numeric user identifier is out of range");
+    }
+    dst = static_cast<std::uint32_t>(value);
   }
   else {
     dst = src;
@@ -511,6 +521,7 @@ void parse_identifier(identifier& dst, const std::string& src)
 
 void parse_username(username& dst, const std::string& src)
 {
+  dst = boost::none;
   if (!src.empty()) {
     identifier identifier;
     parse_identifier(identifier, src);
@@ -558,8 +569,10 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
 
 void get_user_info(user_info& user_info, const username& username, std::error_code& error_code)
 {
+  error_code.clear();
   identifier user = username ? username.get() : getuid();
-  struct passwd* pw;
+  struct passwd* pw = nullptr;
+  errno             = 0;
   if (user.type() == typeid(std::string)) {
     pw = getpwnam(boost::get<std::string>(user).c_str());
   }
@@ -567,7 +580,7 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
     pw = getpwuid(boost::get<std::uint32_t>(user));
   }
   if (!pw) {
-    error_code = std::error_code(errno, std::system_category());
+    error_code = errno == 0 ? error::code::server_error : std::error_code(errno, std::system_category());
   }
   else {
     user_info = {
@@ -577,6 +590,7 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
         .m_uid   = pw->pw_uid,
         .m_gid   = pw->pw_gid,
     };
+    error_code.clear();
   }
 }
 

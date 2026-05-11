@@ -53,6 +53,7 @@ class buffer {
   const memory_blocks& get_memory_blocks() const;
   memory_blocks::iterator map_memory_block(const memory_blocks::iterator& it, map_mode mode);
   void process_args(unsigned int index, int& length) const;
+  void resize_range_checked(unsigned int index, int length, std::size_t offset, bool has_size, std::size_t size);
   std::shared_ptr<impl> m_impl;
 };
 

@@ -382,6 +382,9 @@ void socket::impl::async_connect_internal(type type, const endpoint& endpoint, a
   if (m_state != state::null) {
     rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state);
   }
+  else if (endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_configuration);
+  }
   else if (!endpoint.m_id_name) {
     rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_endpoint);
   }

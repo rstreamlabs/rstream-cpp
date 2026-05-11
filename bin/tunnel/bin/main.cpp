@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -62,9 +63,9 @@ valid output formats: human, human-pretty, json, json-pretty
 
 tunnel options:
   --name=ARG                            tunnel name
-  --publish                             publish the tunnel (default)
+  --publish                             require a published tunnel
   --no-publish                          do not publish the tunnel
-  --http                                use HTTP protocol (default)
+  --http                                use HTTP protocol
   --tls                                 use TLS protocol
   --label=ARG                           set a label for the tunnel (might be specified multiple times)
 
@@ -81,7 +82,7 @@ tls options:
   --tls-alpn=ARG                        specify the ALPN protocols (comma separated list)
 
 publishing (terminated tunnels) options:
-  --tls-min-version=ARG                 specify the minimum TLS version (tls1.2, tls1.3) [default: tls1.2]
+  --tls-min-version=ARG                 specify the minimum TLS version (tls1.2, tls1.3)
   --tls-ciphers=ARG                     specify the allowed TLS ciphers (comma separated list)
   --mtls                                enable mutual TLS authentication
   --mtls-cacert-file=ARG                specify the CA certificate file
@@ -282,7 +283,6 @@ int run(int argc, char** argv)
     }
   }
   rstream::io_rstrm::tunnel_properties tunnel_properties;
-  tunnel_properties.m_type = "bytestream";
   {
     auto it = args.find("--publish");
     if (it != args.end() && it->second.asBool()) {
@@ -408,6 +408,19 @@ int run(int argc, char** argv)
       }
     }
     tunnel_properties.m_mtls_cacert_pem = mtls_cacert_pem;
+    if (tunnel_properties.m_tls_mode
+        && tunnel_properties.m_tls_mode.value() == rstream::io_rstrm::tls_mode::passthrough) {
+      if (tunnel_properties.m_upstream_tls && tunnel_properties.m_upstream_tls.value()) {
+        throw std::runtime_error("TLS passthrough cannot be combined with --upstream-tls");
+      }
+      if (!tunnel_properties.m_tls_alpns.empty()) {
+        throw std::runtime_error("TLS passthrough cannot be combined with --tls-alpn");
+      }
+      if (tunnel_properties.m_tls_min_version || (tunnel_properties.m_mtls && tunnel_properties.m_mtls.value())
+          || tunnel_properties.m_mtls_cacert_pem) {
+        throw std::runtime_error("TLS passthrough cannot be combined with server-side TLS policy or mTLS");
+      }
+    }
   }
   if (publish) {
     bool is_http_protocol = !tunnel_properties.m_protocol

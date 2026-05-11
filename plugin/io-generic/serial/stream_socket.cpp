@@ -38,6 +38,12 @@ void rstream::plugin::io_generic::serial::stream_socket::configure_internal(rstr
     return;
   }
   (void)mode;
+  if (!m_socket.is_open()) {
+    open_internal(endpoint, error_code);
+    if (error_code) {
+      return;
+    }
+  }
   m_socket.set_option(boost::asio::serial_port_base::baud_rate(endpoint.m_baudrate), error_code);
   if (error_code) {
     return;

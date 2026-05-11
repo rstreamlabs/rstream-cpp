@@ -287,7 +287,7 @@ tunnel::tunnel()
 }
 
 tunnel::tunnel(std::shared_ptr<impl> impl)
-    : m_impl(nullptr)
+    : m_impl(std::move(impl))
 {
 }
 

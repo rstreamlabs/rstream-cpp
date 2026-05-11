@@ -22,7 +22,6 @@ class system_error : public std::runtime_error {
 
  private:
   boost::system::error_code m_error_code;
-  mutable std::string m_what;
 };
 
 class throwable : public std::exception {

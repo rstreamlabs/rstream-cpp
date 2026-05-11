@@ -43,6 +43,7 @@ struct config {
   boost::optional<std::string> m_capath;
   boost::optional<std::string> m_ciphers;
   boost::optional<std::string> m_ciphers_tlsv13;
+  boost::optional<std::string> m_groups;
   boost::optional<std::string> m_sni;
   boost::optional<std::string> m_alpn_protos;
   boost::optional<std::string> m_engine;

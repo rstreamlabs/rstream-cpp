@@ -13,7 +13,7 @@ macro(add_test_target name sources)
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_OUT_DIR})
   target_link_libraries(${name} Boost::boost GTest::GTest ${PROJECT_NAME}::${PROJECT_NAME})
   add_test(NAME ${name} WORKING_DIRECTORY ${BIN_OUT_DIR} COMMAND ${name})
-  list(APPEND test_targets ${targets} PARENT_SCOPE)
+  set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS ${name})
 endmacro()
 
 macro(add_check_target)
@@ -24,6 +24,8 @@ macro(add_check_target)
   if(is_multi_config)
     list(APPEND ctest_args -C $<CONFIG>)
   endif()
+  get_property(rstream_test_targets GLOBAL PROPERTY RSTREAM_TEST_TARGETS)
+  list(APPEND test_targets_TESTS ${rstream_test_targets})
   add_custom_target(check
     COMMAND ${CMAKE_COMMAND} -E env GTEST_COLOR=1 ${CMAKE_CTEST_COMMAND} ${ctest_args}
     DEPENDS ${test_targets_TESTS})

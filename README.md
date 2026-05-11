@@ -87,6 +87,14 @@ ctest --test-dir build --output-on-failure
 cmake --install build --prefix ./build/release
 ```
 
+Runtime smoke tests that need a reachable rstream engine live under `test/e2e`. After building `rstream-tunnel`, run:
+
+```bash
+RSTREAM_CONTEXT=tests test/e2e/rstream-tunnel-passthrough.sh
+```
+
+Set `RSTREAM_TUNNEL_BIN` when the binary is not under a standard build directory.
+
 For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.
 
 If your packaging flow needs an authenticated Conan remote, configure it through environment variables instead of editing repository files:
@@ -326,6 +334,7 @@ This repository also builds native tools that reuse the same transport and tunne
 ## rstream-tunnel command examples
 
 The `rstream-tunnel` CLI uses the same tunnel model as the SDK. The examples below are practical starting points for local forwarding, private tunnels, and edge policy options.
+When neither `--publish` nor `--no-publish` is provided, the project policy decides the final exposure mode. On projects where public access is forbidden, the tunnel falls back to a private tunnel instead of sending public-only defaults.
 
 To publish a local HTTP service:
 
@@ -349,6 +358,12 @@ To configure terminated TLS publication with mTLS and explicit cipher policy:
 
 ```bash
 rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1.2 --tls-ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384 --mtls --mtls-cacert-file ./ca.pem --label env=prod --label app=api
+```
+
+To publish a passthrough TLS tunnel, keep edge TLS policy options off so the upstream service owns the certificate and handshake:
+
+```bash
+rstream-tunnel 127.0.0.1:8443 --tls --tls-mode passthrough
 ```
 
 ## References

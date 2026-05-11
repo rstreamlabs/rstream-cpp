@@ -70,7 +70,7 @@ void wrapper<info>::impl::set(const info::value_type& value, const examplar& exa
 sample wrapper<info>::impl::get_sample()
 {
   std::shared_lock lock(m_mutex);
-  auto labels = wrapper_common::get_labels(false);
+  auto labels = wrapper_common::get_labels();
   labels.insert(m_value.cbegin(), m_value.cend());
   return (sample){
       .m_value     = {},

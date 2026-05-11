@@ -26,7 +26,7 @@ std::string random_str64(std::size_t size)
   static char constexpr chars[] = {
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"};
   std::random_device device;
-  std::uniform_int_distribution<> distribution(0, sizeof(chars) - 1);
+  std::uniform_int_distribution<> distribution(0, sizeof(chars) - 2);
   auto randchar = [&]() {
     return chars[distribution(device)];
   };

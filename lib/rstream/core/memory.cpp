@@ -2,6 +2,7 @@
 
 #include "memory.hpp"
 
+#include <cstdint>
 #include <cstring>
 
 #include <boost/make_shared.hpp>
@@ -13,6 +14,16 @@
 
 namespace rstream {
 namespace core {
+
+static void check_wrapped_memory_args(const void* data, std::size_t max_size, std::size_t offset)
+{
+  if (offset > max_size) {
+    throw boost::system::system_error(error::code::invalid_size);
+  }
+  if (data == nullptr && max_size > 0) {
+    throw boost::system::system_error(error::code::object_null);
+  }
+}
 
 class RSTREAM_GNUC_INTERNAL memory::impl {
  public:
@@ -86,11 +97,13 @@ memory::memory(std::size_t size, allocator::ptr allocator)
 
 memory::memory(void* data, std::size_t max_size, std::size_t offset, const destroy_notify_func& destroy_notify_func, allocator::ptr allocator)
 {
+  check_wrapped_memory_args(data, max_size, offset);
   m_impl = std::allocate_shared<impl>(core::allocator::wrapper<impl>(allocator), data, max_size, offset, destroy_notify_func, allocator);
 }
 
 memory::memory(const void* data, std::size_t max_size, std::size_t offset, allocator::ptr allocator)
 {
+  check_wrapped_memory_args(data, max_size, offset);
   m_impl = std::allocate_shared<impl>(core::allocator::wrapper<impl>(allocator), data, max_size, offset, allocator);
 }
 
@@ -121,7 +134,7 @@ bool memory::is_mutable() const
 
 void memory::make_mutable()
 {
-  if (is_mutable()) {
+  if (m_impl == nullptr || is_mutable()) {
     return;
   }
 
@@ -146,6 +159,8 @@ std::size_t memory::get_size() const
 std::size_t memory::get_size(std::size_t& offset, std::size_t& maxsize) const
 {
   if (m_impl == nullptr) {
+    offset  = 0;
+    maxsize = 0;
     return 0;
   }
   offset  = m_impl->m_offset;
@@ -170,7 +185,12 @@ void memory::resize(std::size_t offset, std::size_t size)
   if (m_impl == nullptr) {
     return;
   }
-  if (m_impl->m_offset + offset + size > m_impl->m_base->get_size()) {
+  auto base_size = m_impl->m_base->get_size();
+  if (m_impl->m_offset > base_size) {
+    throw boost::system::system_error(error::code::invalid_size);
+  }
+  auto available = base_size - m_impl->m_offset;
+  if (offset > available || size > available - offset) {
     throw boost::system::system_error(error::code::invalid_size);
   }
   m_impl->m_offset += offset;
@@ -184,9 +204,11 @@ void memory::set_size(std::size_t size)
 
 void memory::reset_size()
 {
-  std::size_t offset, maxsize;
-  get_size(offset, maxsize);
-  resize(offset, maxsize);
+  if (m_impl == nullptr) {
+    return;
+  }
+  m_impl->m_offset = 0;
+  m_impl->m_size   = m_impl->m_base->get_size();
 }
 
 memory memory::copy(std::size_t offset) const
@@ -196,6 +218,12 @@ memory memory::copy(std::size_t offset) const
 
 memory memory::copy(std::size_t offset, std::size_t size) const
 {
+  if (m_impl == nullptr) {
+    if (offset != 0 || size != 0) {
+      throw boost::system::system_error(error::code::invalid_size);
+    }
+    return nullptr;
+  }
   if (offset > get_size()) {
     throw boost::system::system_error(error::code::invalid_size);
   }
@@ -209,6 +237,12 @@ memory memory::copy(std::size_t offset, std::size_t size) const
 
 memory memory::share(std::size_t offset, std::size_t size)
 {
+  if (m_impl == nullptr) {
+    if (offset != 0 || size != 0) {
+      throw boost::system::system_error(error::code::invalid_size);
+    }
+    return nullptr;
+  }
   memory memory(*this, m_impl->m_base->get_allocator());
   memory.resize(offset, size);
   return memory;
@@ -216,6 +250,12 @@ memory memory::share(std::size_t offset, std::size_t size)
 
 const memory memory::share(std::size_t offset, std::size_t size) const
 {
+  if (m_impl == nullptr) {
+    if (offset != 0 || size != 0) {
+      throw boost::system::system_error(error::code::invalid_size);
+    }
+    return nullptr;
+  }
   memory memory(*this, m_impl->m_base->get_allocator());
   memory.resize(offset, size);
   return memory;
@@ -293,9 +333,9 @@ memory_wrapped_mutable::~memory_wrapped_mutable()
   }
 }
 
-void* memory_wrapped_mutable::get_data() const { return m_data; }
+void* memory_wrapped_mutable::get_data() const { return &((std::uint8_t*)m_data)[m_offset]; }
 
-const void* memory_wrapped_mutable::get_const_data() const { return m_data; }
+const void* memory_wrapped_mutable::get_const_data() const { return &((const std::uint8_t*)m_data)[m_offset]; }
 
 std::size_t memory_wrapped_mutable::get_size() const { return (m_max_size - m_offset); }
 
@@ -307,7 +347,7 @@ memory_wrapped_const::memory_wrapped_const(const void* data, std::size_t max_siz
 {
 }
 
-const void* memory_wrapped_const::get_const_data() const { return m_data; }
+const void* memory_wrapped_const::get_const_data() const { return &((const std::uint8_t*)m_data)[m_offset]; }
 
 std::size_t memory_wrapped_const::get_size() const { return (m_max_size - m_offset); }
 

@@ -179,7 +179,7 @@ plugin::extended_info factory::impl::get_plugin(const plugin::name& name, boost:
     error_code = error::code::plugin_not_found;
   }
   else {
-    it->second.first->get_extended_info();
+    res = it->second.first->get_extended_info();
   }
   return res;
 }
