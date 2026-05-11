@@ -24,7 +24,7 @@ jobs:
       matrix:
         build:
           - ${{ fromJSON(inputs.build) }}
-    runs-on: ["self-hosted", "Linux"]
+    runs-on: ubuntu-latest
     steps:
       - name: Install dependencies
         shell: bash
@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           pipx install "conan==${CONAN_VERSION}"
-          echo "/root/.local/bin/" >> $GITHUB_PATH
+          echo "${HOME}/.local/bin" >> $GITHUB_PATH
       - name: configure conan
         shell: bash
         run: |
