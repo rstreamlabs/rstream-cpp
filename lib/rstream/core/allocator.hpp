@@ -3,7 +3,9 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <new>
 
 namespace rstream {
 namespace core {
@@ -50,6 +52,9 @@ class allocator : public std::enable_shared_from_this<allocator> {
 
     pointer allocate(std::size_t n)
     {
+      if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+        throw std::bad_array_new_length();
+      }
       return static_cast<T*>(wrapper::get_allocator()->allocate(n * sizeof(T)));
     }
 

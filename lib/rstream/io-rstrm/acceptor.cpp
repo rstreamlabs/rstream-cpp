@@ -122,7 +122,7 @@ static void maybe_set_generated_stable_domain(tunnel_properties& properties,
   if (properties.m_hostname || properties.m_host) {
     return;
   }
-  if (properties.m_publish && !properties.m_publish.value()) {
+  if (!properties.m_publish || !properties.m_publish.value()) {
     return;
   }
   if (!generated_stable_domain) {
@@ -413,6 +413,9 @@ void acceptor::impl::async_accept_internal(socket& peer, endpoint& endpoint, asy
       if (m_local_endpoint) {
         m_endpoint          = m_local_endpoint.get();
         m_is_state_non_null = true;
+        if (m_endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
+          error_code = error::code::invalid_configuration;
+        }
       }
       else {
         error_code = error::code::no_valid_endpoint;

@@ -1794,7 +1794,7 @@ class BoostConan(ConanFile):
                 "toolset": f"-{self._toolset_tag}",
                 "threading": "-mt" if self.options.multithreading else "",
                 "abi": "",
-                "ach": "",
+                "arch": "",
                 "version": "",
             }
             if is_msvc(self):  # FIXME: mingw?

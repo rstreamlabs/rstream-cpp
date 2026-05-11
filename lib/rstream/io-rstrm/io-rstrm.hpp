@@ -105,6 +105,7 @@ struct config {
   bool m_zero_rtt;
   bool m_no_token;
   boost::optional<std::string> m_token;
+  bool m_token_from_uri_param;
   boost::optional<std::string> m_config_path;
 };
 

@@ -4,3 +4,5 @@
 
 add_subdirectory(common)
 add_subdirectory(http)
+add_subdirectory(io-rstrm)
+add_subdirectory(metrics)

@@ -16,9 +16,11 @@
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/deadline_timer.hpp>
+#include <boost/asio/ip/address.hpp>
 #include <boost/asio/strand.hpp>
 
 #include <fmt/ranges.h>
+#include <openssl/x509_vfy.h>
 
 #include <rstream/config.hpp>
 #include <rstream/core/allocator.hpp>
@@ -44,12 +46,39 @@ namespace stream {
 
 static boost::system::error_code translate_error(long error);
 
+static boost::system::error_code configure_expected_peer_identity(SSL* ssl, const std::string& identity);
+
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
 static int ssl_ui_reader(UI* ui, UI_STRING* uis);
 static int ssl_ui_writer(UI* ui, UI_STRING* uis);
 #endif
 
 static const unsigned long g_async_shutdown_timeout_ms = 5000;
+
+static boost::system::error_code configure_expected_peer_identity(SSL* ssl, const std::string& identity)
+{
+  if (identity.empty()) {
+    return {};
+  }
+  ::ERR_clear_error();
+  boost::system::error_code address_error;
+  (void)boost::asio::ip::make_address(identity, address_error);
+  int ok = 0;
+  if (!address_error) {
+    ok = ::X509_VERIFY_PARAM_set1_ip_asc(::SSL_get0_param(ssl), identity.c_str());
+  }
+  else {
+    ok = ::SSL_set1_host(ssl, identity.c_str());
+  }
+  if (ok == 1) {
+    return {};
+  }
+  auto error_code = translate_error(::ERR_get_error());
+  if (!error_code) {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+  }
+  return error_code;
+}
 
 class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_from_this<impl> {
  public:
@@ -985,6 +1014,28 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
       throw boost::system::system_error(error_code);
     }
   }
+  if (m_config.m_groups) {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    ::ERR_clear_error();
+    if (::SSL_CTX_set1_groups_list(ssl_context.native_handle(), m_config.m_groups.get().c_str()) != 1) {
+      error_code = translate_error(::ERR_get_error());
+      if (!error_code) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
+    }
+    if (error_code) {
+#ifdef DEBUG_BUILD
+      m_logger->warn("failed to set TLS supported groups [error_code: {}]", error_code.message());
+#endif
+      throw boost::system::system_error(error_code);
+    }
+#else
+#ifdef DEBUG_BUILD
+    m_logger->warn("TLS supported groups are not supported by this OpenSSL version");
+#endif
+    throw boost::system::system_error(error::code::ssl_configuration_error);
+#endif
+  }
   if (m_config.m_peer_verification || m_config.m_request_peer_cert) {
     if (m_config.m_peer_verification && !m_config.m_request_peer_cert) {
 #ifdef DEBUG_BUILD
@@ -1170,6 +1221,9 @@ void stream_socket_ssl::impl::async_connect_operation::do_connect()
 #endif
     if (!SSL_set_tlsext_host_name(m_ptr->m_ssl_stream.native_handle(), sni.get().c_str())) {
       error_code = boost::system::error_code(static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category());
+    }
+    if (!error_code && m_ptr->m_config.m_peer_verification && m_ptr->m_type == type::client) {
+      error_code = configure_expected_peer_identity(m_ptr->m_ssl_stream.native_handle(), sni.get());
     }
   }
   else {

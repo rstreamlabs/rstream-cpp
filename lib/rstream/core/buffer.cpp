@@ -2,7 +2,9 @@
 
 #include "buffer.hpp"
 
+#include <limits>
 #include <list>
+#include <vector>
 
 #include <boost/system/system_error.hpp>
 
@@ -12,6 +14,13 @@
 
 namespace rstream {
 namespace core {
+
+static void check_size_add(std::size_t base, std::size_t value)
+{
+  if (value > std::numeric_limits<std::size_t>::max() - base) {
+    throw boost::system::system_error(error::code::invalid_size);
+  }
+}
 
 class RSTREAM_GNUC_INTERNAL buffer::impl {
  public:
@@ -48,13 +57,17 @@ void buffer::append(const memory& memory)
 
 void buffer::append(const buffer& buffer)
 {
-  for (const auto& memory : buffer.m_impl->m_memory_blocks) {
+  auto memory_blocks = std::vector<memory>(buffer.m_impl->m_memory_blocks.begin(), buffer.m_impl->m_memory_blocks.end());
+  for (const auto& memory : memory_blocks) {
     append(memory);
   }
 }
 
 void buffer::insert_memory(int index, const memory& memory)
 {
+  if (!memory) {
+    throw boost::system::system_error(error::code::object_null);
+  }
   if (!(index == -1 || (index >= 0 && index <= m_impl->m_memory_blocks.size()))) {
     throw boost::system::system_error(error::code::invalid_size);
   }
@@ -162,15 +175,21 @@ std::size_t buffer::get_size_range(unsigned int index, int length, std::size_t* 
   std::advance(it, index);
   for (std::size_t i = 0; i < length; ++i) {
     std::size_t mem_size, mem_offset, mem_maxsize;
-    mem_size = it->get_size(mem_offset, mem_maxsize);
+    mem_size = mem_offset = mem_maxsize = 0;
+    mem_size                         = it->get_size(mem_offset, mem_maxsize);
+    if (mem_offset > mem_maxsize || mem_size > mem_maxsize - mem_offset) {
+      throw boost::system::system_error(error::code::invalid_size);
+    }
     if (mem_size != 0) {
       if (size == 0) {
         offset = extra + mem_offset;
       }
+      check_size_add(size, mem_size);
       size += mem_size;
       extra = mem_maxsize - (mem_offset + mem_size);
     }
     else {
+      check_size_add(extra, mem_maxsize);
       extra += mem_maxsize;
     }
     ++it;
@@ -179,6 +198,8 @@ std::size_t buffer::get_size_range(unsigned int index, int length, std::size_t* 
     *p_offset = offset;
   }
   if (p_maxsize) {
+    check_size_add(offset, size);
+    check_size_add(offset + size, extra);
     *p_maxsize = offset + size + extra;
   }
   return size;
@@ -186,29 +207,37 @@ std::size_t buffer::get_size_range(unsigned int index, int length, std::size_t* 
 
 void buffer::resize(std::size_t offset)
 {
-  resize_range(0, -1, offset, -1);
+  resize_range_checked(0, -1, offset, false, 0);
 }
 
 void buffer::resize(std::size_t offset, std::size_t size)
 {
-  resize_range(0, -1, offset, size);
+  resize_range_checked(0, -1, offset, true, size);
 }
 
 void buffer::resize_range(unsigned int index, int length, std::size_t offset, int size)
 {
+  if (size < -1) {
+    throw boost::system::system_error(error::code::invalid_size);
+  }
+  resize_range_checked(index, length, offset, size != -1, size != -1 ? static_cast<std::size_t>(size) : 0);
+}
+
+void buffer::resize_range_checked(unsigned int index, int length, std::size_t offset, bool has_size, std::size_t size)
+{
   process_args(index, length);
   std::size_t buf_size, buf_offset, buf_maxsize;
   buf_size = get_size_range(index, length, &buf_offset, &buf_maxsize);
-  if (!((offset < 0 && buf_offset >= -offset) || (offset >= 0 && buf_offset + offset <= buf_maxsize))) {
+  if (buf_offset > buf_maxsize || offset > buf_maxsize - buf_offset) {
     throw boost::system::system_error(error::code::invalid_size);
   }
-  if (size == -1) {
+  if (!has_size) {
     if (!(buf_size >= offset)) {
       throw boost::system::system_error(error::code::invalid_size);
     }
     size = buf_size - offset;
   }
-  if (!(buf_maxsize >= buf_offset + offset + size)) {
+  if (size > buf_maxsize - buf_offset - offset) {
     throw boost::system::system_error(error::code::invalid_size);
   }
   if (offset == 0 && size == buf_size) {
@@ -247,9 +276,9 @@ void buffer::set_size(std::size_t size)
 
 void buffer::reset_size()
 {
-  std::size_t offset, maxsize;
-  get_size(offset, maxsize);
-  resize(offset, maxsize);
+  for (auto& memory : m_impl->m_memory_blocks) {
+    memory.reset_size();
+  }
 }
 
 buffer buffer::copy(std::size_t offset) const
@@ -286,11 +315,17 @@ buffer::memory_blocks::iterator buffer::map_memory_block(const memory_blocks::it
 void buffer::process_args(unsigned int index, int& length) const
 {
   auto max_length = m_impl->m_memory_blocks.size();
-  if (!((max_length == 0 && index == 0 && length == -1) || (length == -1 && index < max_length) || (length + index <= max_length))) {
+  if (length < -1 || index > max_length) {
     throw boost::system::system_error(error::code::invalid_size);
   }
   if (length == -1) {
+    if (max_length - index > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      throw boost::system::system_error(error::code::invalid_size);
+    }
     length = max_length - index;
+  }
+  else if (static_cast<std::size_t>(length) > max_length - index) {
+    throw boost::system::system_error(error::code::invalid_size);
   }
 }
 

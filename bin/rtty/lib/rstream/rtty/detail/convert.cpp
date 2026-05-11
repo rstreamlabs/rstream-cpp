@@ -78,6 +78,8 @@ void convert(protocol::config& dst, const rstream::rtty::protobuf::Config& src)
   convert(dst.m_options, src.options());
   convert(dst.m_cmd_args, src.cmd_args());
   convert(dst.m_env_vars, src.env_vars());
+  dst.m_workdir  = boost::none;
+  dst.m_username = boost::none;
   if (src.has_workdir()) {
     dst.m_workdir = src.workdir().value();
   }
@@ -93,6 +95,8 @@ void convert(rstream::rtty::protobuf::Config& dst, const protocol::config& src)
   convert(*dst.mutable_options(), src.m_options);
   convert(*dst.mutable_cmd_args(), src.m_cmd_args);
   convert(*dst.mutable_env_vars(), src.m_env_vars);
+  dst.clear_workdir();
+  dst.clear_username();
   if (src.m_workdir) {
     dst.mutable_workdir()->set_value(src.m_workdir.get());
   }

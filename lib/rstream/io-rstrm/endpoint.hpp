@@ -22,6 +22,7 @@ namespace io_rstrm {
 struct endpoint {
   boost::optional<std::string> m_id_name;
   io::address m_server_address;
+  bool m_server_address_from_uri_param = false;
   boost::optional<std::string> m_secret;
   boost::optional<boost::asio::ip::address> m_source_ip;
 };

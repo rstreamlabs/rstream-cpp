@@ -57,10 +57,12 @@ boost::system::result<endpoint> make_endpoint(const boost::urls::url& url)
 {
   boost::system::error_code error_code;
   boost::optional<std::string> server;
+  bool server_from_uri_param = false;
   {
     auto it = url.params().find("server");
     if (it != url.params().end()) {
       rstream::io::detail::stream::parse_url_param_value(server, *it, error_code);
+      server_from_uri_param = true;
     }
     if (!error_code && !server) {
       auto server_result = get_rstream_engine_address();
@@ -82,8 +84,9 @@ boost::system::result<endpoint> make_endpoint(const boost::urls::url& url)
       }
     }
     return (endpoint){
-        .m_id_name        = id_name,
-        .m_server_address = io::make_address(server.get()),
+        .m_id_name                       = id_name,
+        .m_server_address                = io::make_address(server.get()),
+        .m_server_address_from_uri_param = server_from_uri_param,
     };
   }
   else {

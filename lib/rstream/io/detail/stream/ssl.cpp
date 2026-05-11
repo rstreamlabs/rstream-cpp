@@ -87,6 +87,7 @@ boost::optional<ssl::config> parse_ssl_config(const boost::urls::url& url, boost
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, capath)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, ciphers)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, ciphers_tlsv13)
+      PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, groups)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, sni)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, alpn_protos)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, engine)

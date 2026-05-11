@@ -118,6 +118,18 @@ class BoostDependencyBuilder(object):
     def boost_path(self) -> Path:
         return self.tmppath / "boost"
 
+    def validate_existing_boost_path(self) -> None:
+        if not self.boost_path.exists():
+            return
+        if self.boost_path.is_symlink():
+            raise RuntimeError(f"Refusing to use symlinked boost checkout: {self.boost_path}")
+        if not (self.boost_path / ".git").is_dir():
+            raise RuntimeError(f"Refusing to use non-git boost checkout: {self.boost_path}")
+        with chdir(self, self.boost_path):
+            origin = subprocess.check_output(["git", "config", "--get", "remote.origin.url"], text=True).strip()
+        if origin != self.git_url:
+            raise RuntimeError(f"Refusing to use boost checkout with unexpected origin: {origin}")
+
     def do_git_update(self) -> None:
         if not self.boost_path.exists():
             with chdir(self, self.tmppath):
@@ -129,6 +141,7 @@ class BoostDependencyBuilder(object):
                 print("Removing master branch")
                 subprocess.check_call(["git", "branch", "-D", "master"])
         else:
+            self.validate_existing_boost_path()
             with chdir(self, self.boost_path):
                 print("Updating git repo")
                 subprocess.check_call(["git", "fetch", "origin"])
@@ -138,6 +151,7 @@ class BoostDependencyBuilder(object):
                 subprocess.check_call(["git", "checkout", "origin/master"])
 
     def do_git_submodule_update(self):
+        self.validate_existing_boost_path()
         with chdir(self, self.boost_path):
             if not self.unsafe:
                 # De-init + init to make sure that boostdep won't detect a new or removed boost library
@@ -442,8 +456,10 @@ def main(args=None) -> int:
     if ns.verbose:
         log.setLevel(logging.DEBUG)
 
+    temporary_directory = None
     if not ns.tmppath:
-        ns.tmppath = Path(tempfile.gettempdir())
+        temporary_directory = tempfile.TemporaryDirectory(prefix="boost-dependencies-")
+        ns.tmppath = Path(temporary_directory.name)
     print(f"Temporary folder is {ns.tmppath}")
     if not ns.outputdir:
         ns.outputdir = Path("dependencies")

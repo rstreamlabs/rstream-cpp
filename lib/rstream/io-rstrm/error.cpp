@@ -17,7 +17,7 @@ std::string category::message(int code) const
   return to_string(static_cast<enum code>(code));
 }
 
-std::error_code make_error_code(int code)
+boost::system::error_code make_error_code(int code)
 {
   return make_error_code((error::code)code);
 }

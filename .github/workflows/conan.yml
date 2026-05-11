@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
 env:
+  CONAN_VERSION: "2.26.2"
   RSTREAM_URL: "${{ github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io' }}"
   CONAN_REMOTE_NAME: "${{ vars.CONAN_REMOTE_NAME }}"
   CONAN_REMOTE_URL: "${{ vars.CONAN_REMOTE_URL }}"
@@ -41,14 +42,14 @@ jobs:
             pkg-config \
             tar \
             xz-utils
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           cache: "pip"
       - name: install conan
         shell: bash
         run: |
-          pipx install conan
+          pipx install "conan==${CONAN_VERSION}"
           echo "/root/.local/bin/" >> $GITHUB_PATH
       - name: configure conan
         shell: bash
@@ -58,11 +59,21 @@ jobs:
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
             conan remote list | grep -q "${remote_name}" || conan remote add -f "${remote_name}" "${CONAN_REMOTE_URL}"
-            if [[ -n "${CONAN_REMOTE_USERNAME}" ]]; then
-              conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${{ secrets.CONAN_PASSWORD }}"
-            fi
           fi
       - name: build
         shell: bash
         run: |
-          conan create -u --build=missing --user conan --channel ${{ matrix.build.conan.channel }} -pr:b ${{ matrix.build.conan.profiles.build }} -pr:h ${{ matrix.build.conan.profiles.host }} .
+          conan create --build=missing --user conan --channel ${{ matrix.build.conan.channel }} -pr:b ${{ matrix.build.conan.profiles.build }} -pr:h ${{ matrix.build.conan.profiles.host }} .
+      - name: upload
+        shell: bash
+        env:
+          CONAN_LOGIN_USERNAME: ${{ env.CONAN_REMOTE_USERNAME }}
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_LOGIN_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "Conan upload skipped: remote credentials are not configured."
+            exit 0
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote login "${remote_name}"
+          conan upload "rstream/*@conan/${{ matrix.build.conan.channel }}" -r "${remote_name}" --confirm
