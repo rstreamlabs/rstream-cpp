@@ -69,7 +69,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
-          cache: "pip"
+          python-version: "3.x"
       - name: Configure Docker Conan secret path
         shell: bash
         run: |
@@ -160,7 +160,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
-          cache: "pip"
+          python-version: "3.x"
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: conan-cache
+        with:
+          path: ~/.conan2/p
+          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Validate release tag
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -220,6 +228,17 @@ jobs:
         run: |
           set -euo pipefail
           ./build-conan-cross.sh
+      - name: Trim Conan cache
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan cache clean "*" --source --build --download --temp
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ~/.conan2/p
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -252,7 +271,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
-          cache: "pip"
+          python-version: "3.x"
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: conan-cache
+        with:
+          path: ~/.conan2/p
+          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-stable-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-stable-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Validate release tag
         shell: bash
         run: |
@@ -306,6 +333,17 @@ jobs:
         run: |
           set -euo pipefail
           conan create --build=missing --user conan --channel stable -pr:b default -pr:h default .
+      - name: Trim Conan cache
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan cache clean "*" --source --build --download --temp
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ~/.conan2/p
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - name: Upload Conan source package
         shell: bash
         env:
