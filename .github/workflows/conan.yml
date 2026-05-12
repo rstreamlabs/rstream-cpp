@@ -1,4 +1,4 @@
-name: build and package
+name: Build Conan package
 on:
   workflow_call:
     inputs:
@@ -11,6 +11,7 @@ env:
   CONAN_VERSION: "2.26.2"
 jobs:
   build:
+    name: Conan create
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: ubuntu-latest
     steps:
@@ -44,17 +45,17 @@ jobs:
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
-      - name: install conan
+      - name: Install Conan
         shell: bash
         run: |
           pipx install "conan==${CONAN_VERSION}"
           echo "${HOME}/.local/bin" >> $GITHUB_PATH
-      - name: configure conan
+      - name: Configure Conan
         shell: bash
         run: |
           conan profile detect -f
           conan config install conan/config
-      - name: build
+      - name: Build Conan package
         shell: bash
         run: |
           conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default .
