@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.6.0...1.7.0) (2026-05-13)
+
+
+### Features
+
+* support mTLS agent authentication ([6f55c5a](https://github.com/rstreamlabs/rstream-cpp/commit/6f55c5a93b22e3afcd8f5809a1e6a6f025e97a01))
+
+
+### Bug Fixes
+
+* clarify mtls agent authentication limits ([aadcec7](https://github.com/rstreamlabs/rstream-cpp/commit/aadcec719896e09a6f69c3f5d6f03f23439192b7))
+* harden cpp sdk tunnel runtime ([8eb1b80](https://github.com/rstreamlabs/rstream-cpp/commit/8eb1b8051a0373ca511a1de43d0b34166f787253))
+
 ## [1.6.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.5.1...1.6.0) (2026-04-26)
 
 
