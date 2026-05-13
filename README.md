@@ -164,14 +164,14 @@ For consistency with CLI flows, the following variables are the primary explicit
 - `RSTREAM_ENGINE_ADDRESS`: Highest-priority engine address override for runtime connection targets.
 - `RSTREAM_ENGINE`: Secondary engine override; when provided as `host:port`, it is expanded to a default `tcp://...` URI with TLS and ALPN defaults.
 - `RSTREAM_AUTHENTICATION_TOKEN`: Override token resolution when token behavior is not fixed in SDK options.
-- `RSTREAM_MTLS_CERT_FILE`: Client certificate file for mTLS engine authentication.
-- `RSTREAM_MTLS_KEY_FILE`: Client private key file for mTLS engine authentication.
+- `RSTREAM_MTLS_CERT_FILE`: Client certificate file for mTLS agent authentication.
+- `RSTREAM_MTLS_KEY_FILE`: Client private key file for mTLS agent authentication.
 
 ### Resolution behavior
 
-In short, engine resolution starts from explicit environment overrides and then falls back to config/context resolution. Token resolution starts from explicit SDK options, then environment override, then config-derived values. Token authentication and mTLS engine authentication are mutually exclusive. When the mTLS certificate and key variables are set, config-derived tokens are not used; setting mTLS variables together with `RSTREAM_AUTHENTICATION_TOKEN` is an error.
+In short, engine resolution starts from explicit environment overrides and then falls back to config/context resolution. Token resolution starts from explicit SDK options, then environment override, then config-derived values. Token authentication and mTLS agent authentication are mutually exclusive for the control-channel connection. When the mTLS certificate and key variables are set, config-derived tokens are not used for that connection; setting mTLS variables together with `RSTREAM_AUTHENTICATION_TOKEN` is an error. Engine HTTP API requests use token authentication.
 
-Contexts can authenticate an engine connection with mTLS instead of a token:
+Contexts can authenticate an agent control-channel connection with mTLS instead of a token:
 
 ```yaml
 contexts:
