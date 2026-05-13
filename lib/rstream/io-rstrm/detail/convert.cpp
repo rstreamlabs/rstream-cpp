@@ -180,15 +180,10 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
   for (const auto& val : src.m_tls_ciphers) {
     dst.add_tls_ciphers(val);
   }
-  if (src.m_mtls) {
+  if (src.m_mtls_auth) {
     google::protobuf::BoolValue val;
-    val.set_value(*src.m_mtls);
-    dst.mutable_mtls()->CopyFrom(val);
-  }
-  if (src.m_mtls_cacert_pem) {
-    google::protobuf::StringValue val;
-    val.set_value(*src.m_mtls_cacert_pem);
-    dst.mutable_mtls_cacert_pem()->CopyFrom(val);
+    val.set_value(*src.m_mtls_auth);
+    dst.mutable_mtls_auth()->CopyFrom(val);
   }
   if (src.m_http_version) {
     google::protobuf::StringValue val;
@@ -264,11 +259,8 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
     dst.m_tls_min_version = src.tls_min_version().value();
   }
   dst.m_tls_ciphers.assign(src.tls_ciphers().begin(), src.tls_ciphers().end());
-  if (src.has_mtls()) {
-    dst.m_mtls = src.mtls().value();
-  }
-  if (src.has_mtls_cacert_pem()) {
-    dst.m_mtls_cacert_pem = src.mtls_cacert_pem().value();
+  if (src.has_mtls_auth()) {
+    dst.m_mtls_auth = src.mtls_auth().value();
   }
   if (src.has_http_version()) {
     dst.m_http_version = src.http_version().value();

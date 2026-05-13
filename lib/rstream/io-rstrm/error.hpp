@@ -20,16 +20,17 @@ class category : public boost::system::error_category {
 enum class code {
   success = 0,
   // Local/client-side errors
-  invalid_configuration = 1,
-  invalid_endpoint      = 2,
-  invalid_state         = 3,
-  no_valid_endpoint     = 4,
-  operation_aborted     = 5,
-  operation_in_progress = 6,
-  operation_timeout     = 7,
-  protocol_error        = 8,
-  server_error          = 9,
-  stream_not_found      = 10,
+  invalid_configuration   = 1,
+  invalid_endpoint        = 2,
+  invalid_state           = 3,
+  no_valid_endpoint       = 4,
+  operation_aborted       = 5,
+  operation_in_progress   = 6,
+  operation_timeout       = 7,
+  protocol_error          = 8,
+  server_error            = 9,
+  stream_not_found        = 10,
+  authentication_conflict = 11,
 
   // Server-mapped error codes
   unauthorized                  = 1000,

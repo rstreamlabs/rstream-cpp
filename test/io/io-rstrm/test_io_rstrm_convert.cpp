@@ -98,8 +98,7 @@ static void check_tunnel_properties_roundtrip()
   properties.m_tls_alpns        = {"h2", "http/1.1"};
   properties.m_tls_min_version  = "1.3";
   properties.m_tls_ciphers      = {"TLS_AES_128_GCM_SHA256"};
-  properties.m_mtls             = true;
-  properties.m_mtls_cacert_pem  = "pem";
+  properties.m_mtls_auth        = true;
   properties.m_http_version     = "2";
   properties.m_http_use_tls     = false;
   properties.m_upstream_tls     = true;

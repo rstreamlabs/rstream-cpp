@@ -18,12 +18,9 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
 
 #include <docopt.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
 
 #include <rstream/config.hpp>
 #include <rstream/core/exception.hpp>
@@ -46,7 +43,7 @@ description:
   It is based on the rstream C++ SDK and provides a simple way to create a secure tunnel to the global network.
 
 usage:
-  rstream-tunnel [<target>] [--publish|--no-publish] [--http|--tls] [--label=ARG]... [--mtls-cacert-file=ARG|--mtls-capath=ARG] [--no-token|--token=ARG] [--retry|--no-retry] [options]
+  rstream-tunnel [<target>] [--publish|--no-publish] [--http|--tls] [--label=ARG]... [--no-token|--token=ARG] [--retry|--no-retry] [options]
   rstream-tunnel (-h|--help)
   rstream-tunnel --version
 
@@ -84,9 +81,7 @@ tls options:
 publishing (terminated tunnels) options:
   --tls-min-version=ARG                 specify the minimum TLS version (tls1.2, tls1.3)
   --tls-ciphers=ARG                     specify the allowed TLS ciphers (comma separated list)
-  --mtls                                enable mutual TLS authentication
-  --mtls-cacert-file=ARG                specify the CA certificate file
-  --mtls-capath=ARG                     specify the CA certificate path
+  --mtls                                enable mTLS Tunnel access
 
 http tunnel options:
   --http-version=ARG                    specify the HTTP version (http/1.1, h2c)
@@ -116,11 +111,13 @@ other options:
 
 environment variables:
   RSTREAM_CONFIG                        path to the rstream configuration file
-  RSTREAM_API_URL                       control-plane API URL override
+  RSTREAM_API_URL                       Control plane API URL override
   RSTREAM_CONTEXT                       default context name
   RSTREAM_ENGINE                        engine host:port override
   RSTREAM_ENGINE_ADDRESS                full engine address override
   RSTREAM_AUTHENTICATION_TOKEN          authentication token override
+  RSTREAM_MTLS_CERT_FILE                client certificate file for mTLS engine authentication
+  RSTREAM_MTLS_KEY_FILE                 client private key file for mTLS engine authentication
 
 additional tips:
   - Use the `--verbose` option for troubleshooting and detailed operation logs.
@@ -145,10 +142,6 @@ static void parse_format(format& dst, const std::string& src);
 static std::vector<std::string> split(const std::string& str, char delimiter);
 
 static rstream::io::address make_target_address(const std::map<std::string, docopt::value>& args);
-
-static std::string read_cacert_file(const std::string& path);
-
-static std::string read_capath(const std::string& path);
 
 static void on_status(format format, const rstream::tunnel::status_proxy& status);
 
@@ -362,6 +355,12 @@ int run(int argc, char** argv)
         tunnel_properties.m_upstream_tls = true;
       }
     }
+    {
+      auto it = args.find("--mtls");
+      if (it != args.end() && it->second.asBool()) {
+        tunnel_properties.m_mtls_auth = true;
+      }
+    }
   }
   if (publish && is_tls_protocol) {
     {
@@ -388,26 +387,6 @@ int run(int argc, char** argv)
         tunnel_properties.m_tls_ciphers = split(it->second.asString(), ',');
       }
     }
-    {
-      auto it = args.find("--mtls");
-      if (it != args.end() && it->second.asBool()) {
-        tunnel_properties.m_mtls = true;
-      }
-    }
-    boost::optional<std::string> mtls_cacert_pem;
-    {
-      auto it = args.find("--mtls-cacert-file");
-      if (it != args.end() && it->second.operator bool()) {
-        mtls_cacert_pem = read_cacert_file(it->second.asString());
-      }
-    }
-    {
-      auto it = args.find("--mtls-capath");
-      if (it != args.end() && it->second.operator bool()) {
-        mtls_cacert_pem = read_capath(it->second.asString());
-      }
-    }
-    tunnel_properties.m_mtls_cacert_pem = mtls_cacert_pem;
     if (tunnel_properties.m_tls_mode
         && tunnel_properties.m_tls_mode.value() == rstream::io_rstrm::tls_mode::passthrough) {
       if (tunnel_properties.m_upstream_tls && tunnel_properties.m_upstream_tls.value()) {
@@ -416,8 +395,8 @@ int run(int argc, char** argv)
       if (!tunnel_properties.m_tls_alpns.empty()) {
         throw std::runtime_error("TLS passthrough cannot be combined with --tls-alpn");
       }
-      if (tunnel_properties.m_tls_min_version || (tunnel_properties.m_mtls && tunnel_properties.m_mtls.value())
-          || tunnel_properties.m_mtls_cacert_pem) {
+      if (tunnel_properties.m_tls_min_version
+          || (tunnel_properties.m_mtls_auth && tunnel_properties.m_mtls_auth.value())) {
         throw std::runtime_error("TLS passthrough cannot be combined with server-side TLS policy or mTLS");
       }
     }
@@ -608,53 +587,6 @@ rstream::io::address make_target_address(const std::map<std::string, docopt::val
   else {
     return rstream::io::address("8080");
   }
-}
-
-std::string read_cacert_file(const std::string& path)
-{
-  std::string res;
-  FILE* file = nullptr;
-  try {
-    file = fopen(path.c_str(), "r");
-    if (!file) {
-      throw std::runtime_error("failed to open file: " + path);
-    }
-    X509* cert = nullptr;
-    while ((cert = PEM_read_X509(file, nullptr, nullptr, nullptr)) != nullptr) {
-      BIO* bio = BIO_new(BIO_s_mem());
-      PEM_write_bio_X509(bio, cert);
-      char* data;
-      long length = BIO_get_mem_data(bio, &data);
-      res.append(data, length);
-      BIO_free(bio);
-      X509_free(cert);
-    }
-    if (ferror(file)) {
-      throw std::runtime_error("error reading the PEM file: " + path);
-    }
-    fclose(file);
-  }
-  catch (...) {
-    if (file) {
-      fclose(file);
-    }
-    std::rethrow_exception(std::current_exception());
-  }
-  return res;
-}
-
-std::string read_capath(const std::string& path)
-{
-  std::ostringstream str;
-  if (!boost::filesystem::is_directory(path)) {
-    throw std::runtime_error("path is not a directory: " + path);
-  }
-  for (const auto& entry : boost::filesystem::directory_iterator(path)) {
-    if (boost::filesystem::is_regular_file(entry) && entry.path().extension() == ".pem") {
-      str << read_cacert_file(entry.path().string());
-    }
-  }
-  return str.str();
 }
 
 void on_status(format format, const rstream::tunnel::status_proxy& status)

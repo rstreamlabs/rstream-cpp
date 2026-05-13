@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 
 #include <nlohmann/json.hpp>
@@ -41,6 +42,16 @@ static std::vector<std::string> split(const std::string& str, char delimiter)
     tokens.push_back(token);
   }
   return tokens;
+}
+
+static bool has_client_certificate_config(const rstream::io::address& server_address)
+{
+  for (const auto param : server_address.m_url.params()) {
+    if (param.key == "ssl.cert" || param.key == "ssl.cert_file") {
+      return true;
+    }
+  }
+  return false;
 }
 
 #define PARSE_PARAMS_VIEW_BOOLEAN(src, dst, prefix, error_code, name)               \
@@ -244,8 +255,7 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, hostname)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, tls_min_version)
   PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, tls_ciphers, ',')
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, mtls)
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, mtls_cacert_pem)
+  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, mtls_auth)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, http_version)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, http_use_tls)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, upstream_tls)
@@ -321,8 +331,21 @@ struct config_token {
   std::string value;
 };
 
+struct config_mtls {
+  config_mtls()
+      : present(false)
+  {
+  }
+  bool present;
+  std::string certificate;
+  std::string certificate_file;
+  std::string key;
+  std::string key_file;
+};
+
 struct config_auth {
   config_token token;
+  config_mtls mtls;
 };
 
 struct config_environment {
@@ -390,24 +413,42 @@ static void parse_auth_storage(const YAML::Node& node, config_auth& auth)
   }
 }
 
-static YAML::Node get_auth_storage_node(const YAML::Node& node)
+static void parse_auth_mtls(const YAML::Node& node, config_auth& auth)
 {
   if (!node || !node.IsMap()) {
-    return YAML::Node();
+    return;
   }
-  YAML::Node auth = node["auth"];
-  if (!auth || !auth.IsMap()) {
-    return YAML::Node();
+  std::string certificate      = yaml_string(node["certificate"]);
+  std::string certificate_file = yaml_string(node["certificateFile"]);
+  std::string key              = yaml_string(node["key"]);
+  std::string key_file         = yaml_string(node["keyFile"]);
+  if (certificate.empty() && certificate_file.empty() && key.empty() && key_file.empty()) {
+    return;
   }
-  YAML::Node token = auth["token"];
-  if (!token || !token.IsMap()) {
-    return YAML::Node();
+  auth.mtls.present          = true;
+  auth.mtls.certificate      = certificate;
+  auth.mtls.certificate_file = certificate_file;
+  auth.mtls.key              = key;
+  auth.mtls.key_file         = key_file;
+}
+
+static void parse_auth(const YAML::Node& node, config_auth& auth)
+{
+  if (!node || !node.IsMap()) {
+    return;
   }
-  YAML::Node storage = token["storage"];
-  if (!storage || !storage.IsMap()) {
-    return YAML::Node();
+  YAML::Node auth_node = node["auth"];
+  if (!auth_node || !auth_node.IsMap()) {
+    return;
   }
-  return storage;
+  YAML::Node token = auth_node["token"];
+  if (token && token.IsMap()) {
+    YAML::Node storage = token["storage"];
+    if (storage && storage.IsMap()) {
+      parse_auth_storage(storage, auth);
+    }
+  }
+  parse_auth_mtls(auth_node["mtls"], auth);
 }
 
 static bool parse_config_yaml(const std::string& content, config_file& cfg)
@@ -440,7 +481,7 @@ static bool parse_config_yaml(const std::string& content, config_file& cfg)
       }
       config_environment env;
       env.api_url = yaml_string(env_node["apiUrl"]);
-      parse_auth_storage(get_auth_storage_node(env_node), env.auth);
+      parse_auth(env_node, env.auth);
       cfg.environments.push_back(env);
     }
   }
@@ -454,7 +495,7 @@ static bool parse_config_yaml(const std::string& content, config_file& cfg)
       ctx.name    = yaml_string(ctx_node["name"]);
       ctx.api_url = yaml_string(ctx_node["apiUrl"]);
       ctx.engine  = yaml_string(ctx_node["engine"]);
-      parse_auth_storage(get_auth_storage_node(ctx_node), ctx.auth);
+      parse_auth(ctx_node, ctx.auth);
       cfg.contexts.push_back(ctx);
     }
   }
@@ -546,6 +587,28 @@ static boost::system::result<config_file> load_rstream_config(const boost::optio
   return cfg;
 }
 
+static void append_auth_json(nlohmann::json& json, const config_auth& auth)
+{
+  if (auth.token.present) {
+    json["auth"]["token"]["storage"]["kind"]  = auth.token.kind;
+    json["auth"]["token"]["storage"]["value"] = auth.token.value;
+  }
+  if (auth.mtls.present) {
+    if (!auth.mtls.certificate.empty()) {
+      json["auth"]["mtls"]["certificate"] = auth.mtls.certificate;
+    }
+    if (!auth.mtls.certificate_file.empty()) {
+      json["auth"]["mtls"]["certificateFile"] = auth.mtls.certificate_file;
+    }
+    if (!auth.mtls.key.empty()) {
+      json["auth"]["mtls"]["key"] = auth.mtls.key;
+    }
+    if (!auth.mtls.key_file.empty()) {
+      json["auth"]["mtls"]["keyFile"] = auth.mtls.key_file;
+    }
+  }
+}
+
 static nlohmann::json config_file_to_json(const config_file& cfg)
 {
   nlohmann::json json = nlohmann::json::object();
@@ -559,10 +622,7 @@ static nlohmann::json config_file_to_json(const config_file& cfg)
       if (!env.api_url.empty()) {
         env_json["apiUrl"] = env.api_url;
       }
-      if (env.auth.token.present) {
-        env_json["auth"]["token"]["storage"]["kind"]  = env.auth.token.kind;
-        env_json["auth"]["token"]["storage"]["value"] = env.auth.token.value;
-      }
+      append_auth_json(env_json, env.auth);
       json["environments"].push_back(env_json);
     }
   }
@@ -579,10 +639,7 @@ static nlohmann::json config_file_to_json(const config_file& cfg)
       if (!ctx.engine.empty()) {
         ctx_json["engine"] = ctx.engine;
       }
-      if (ctx.auth.token.present) {
-        ctx_json["auth"]["token"]["storage"]["kind"]  = ctx.auth.token.kind;
-        ctx_json["auth"]["token"]["storage"]["value"] = ctx.auth.token.value;
-      }
+      append_auth_json(ctx_json, ctx.auth);
       json["contexts"].push_back(ctx_json);
     }
   }
@@ -719,6 +776,83 @@ static boost::system::result<boost::optional<std::string>> resolve_engine_from_c
   return boost::optional<std::string>();
 }
 
+static boost::system::result<boost::optional<config_mtls>> resolve_mtls_from_config(const config_file& cfg, const std::string& api_url_explicit, const std::string& context_name)
+{
+  auto resolved = resolve_config_selection(cfg, api_url_explicit, context_name);
+  if (!resolved) {
+    return resolved.error();
+  }
+  if (resolved.value().context && resolved.value().context->auth.mtls.present) {
+    return resolved.value().context->auth.mtls;
+  }
+  if (resolved.value().environment && resolved.value().environment->auth.mtls.present) {
+    return resolved.value().environment->auth.mtls;
+  }
+  return boost::optional<config_mtls>();
+}
+
+static boost::optional<config_mtls> resolve_mtls_from_environment()
+{
+  config_mtls mtls;
+  mtls.certificate_file = getenv_trim("RSTREAM_MTLS_CERT_FILE");
+  mtls.key_file         = getenv_trim("RSTREAM_MTLS_KEY_FILE");
+  mtls.present          = !mtls.certificate_file.empty() || !mtls.key_file.empty();
+  if (!mtls.present) {
+    return boost::none;
+  }
+  return mtls;
+}
+
+static std::string query_escape(const std::string& value)
+{
+  std::ostringstream escaped;
+  escaped << std::uppercase << std::hex;
+  for (unsigned char c : value) {
+    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      escaped << static_cast<char>(c);
+    }
+    else {
+      escaped << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+    }
+  }
+  return escaped.str();
+}
+
+static std::string append_query_param(std::string address, const std::string& key, const std::string& value)
+{
+  address += address.find('?') == std::string::npos ? '?' : '&';
+  address += key;
+  address += '=';
+  address += query_escape(value);
+  return address;
+}
+
+static boost::system::result<std::string> append_mtls_auth_params(std::string address, const boost::optional<config_mtls>& mtls)
+{
+  if (!mtls) {
+    return address;
+  }
+  const bool has_inline_certificate = !mtls.value().certificate.empty();
+  const bool has_file_certificate   = !mtls.value().certificate_file.empty();
+  const bool has_inline_key         = !mtls.value().key.empty();
+  const bool has_file_key           = !mtls.value().key_file.empty();
+  if (has_inline_certificate == has_file_certificate || has_inline_key == has_file_key) {
+    return error::make_error_code(error::code::invalid_configuration);
+  }
+  if (has_inline_certificate != has_inline_key || has_file_certificate != has_file_key) {
+    return error::make_error_code(error::code::invalid_configuration);
+  }
+  if (has_inline_certificate) {
+    address = append_query_param(address, "ssl.cert", mtls.value().certificate);
+    address = append_query_param(address, "ssl.key", mtls.value().key);
+  }
+  else {
+    address = append_query_param(address, "ssl.cert_file", mtls.value().certificate_file);
+    address = append_query_param(address, "ssl.key_file", mtls.value().key_file);
+  }
+  return address;
+}
+
 boost::system::result<nlohmann::json> get_rstream_config_file()
 {
   auto cfg = load_rstream_config(boost::none);
@@ -739,16 +873,25 @@ boost::system::result<nlohmann::json> get_rstream_config_file(const boost::optio
 
 boost::system::result<boost::optional<std::string>> get_rstream_token(const config& config, const io::address& server_address)
 {
-  (void)server_address;
+  const bool uses_mtls_auth = has_client_certificate_config(server_address);
   if (config.m_no_token) {
     return boost::none;
   }
   if (config.m_token) {
+    if (uses_mtls_auth) {
+      return error::make_error_code(error::code::authentication_conflict);
+    }
     return config.m_token;
   }
   std::string env_token = getenv_trim("RSTREAM_AUTHENTICATION_TOKEN");
   if (!env_token.empty()) {
+    if (uses_mtls_auth) {
+      return error::make_error_code(error::code::authentication_conflict);
+    }
     return env_token;
+  }
+  if (uses_mtls_auth) {
+    return boost::none;
   }
   auto cfg = load_rstream_config(config.m_config_path);
   if (!cfg) {
@@ -806,6 +949,9 @@ boost::system::result<client_details> get_client_details(const config& config, c
 {
   auto token = get_rstream_token(config, server_address);
   if (token) {
+    if (token.value() && has_client_certificate_config(server_address)) {
+      return error::make_error_code(error::code::authentication_conflict);
+    }
     return get_client_details(token.value());
   }
   else {
@@ -822,8 +968,9 @@ boost::system::result<std::string> get_rstream_engine_address(const boost::optio
 {
   std::string engine_address = getenv_trim("RSTREAM_ENGINE_ADDRESS");
   if (!engine_address.empty()) {
-    return engine_address;
+    return append_mtls_auth_params(engine_address, resolve_mtls_from_environment());
   }
+  boost::optional<config_mtls> mtls = resolve_mtls_from_environment();
   std::string engine = getenv_trim("RSTREAM_ENGINE");
   if (engine.empty()) {
     auto cfg = load_rstream_config(config_path);
@@ -842,14 +989,21 @@ boost::system::result<std::string> get_rstream_engine_address(const boost::optio
     if (resolved_engine.value()) {
       engine = resolved_engine.value().get();
     }
+    if (!mtls) {
+      auto resolved_mtls = resolve_mtls_from_config(cfg.value(), api_url, context_name);
+      if (!resolved_mtls) {
+        return resolved_mtls.error();
+      }
+      mtls = resolved_mtls.value();
+    }
   }
   if (engine.empty()) {
     return error::make_error_code(error::code::invalid_configuration);
   }
   if (engine.find("://") != std::string::npos) {
-    return engine;
+    return append_mtls_auth_params(engine, mtls);
   }
-  return std::string("tcp://") + engine + "?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_tls_groups_query();
+  return append_mtls_auth_params(std::string("tcp://") + engine + "?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_tls_groups_query(), mtls);
 }
 
 boost::system::result<std::string> format_forwarding_address(const tunnel_properties& properties)

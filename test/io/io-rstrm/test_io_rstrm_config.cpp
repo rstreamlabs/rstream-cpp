@@ -109,7 +109,7 @@ static void check_parse_settings_rejects_invalid_boolean()
 
 static void check_parse_settings_acceptor_policy_controls()
 {
-  auto url = parse_url("rstrm://edge?rstream.retry=false&rstrm.type=bytestream&rstrm.publish=false&rstrm.protocol=http&rstrm.labels=ignored&rstrm.labels=env%3Dprod&rstrm.labels=env%3Dstaging&rstrm.labels=tier%3Dedge&rstrm.geoip=FR,US&rstrm.trusted_ips=203.0.113.0%2F24,198.51.100.12%2F32&rstrm.hostname=api.example&rstrm.host=legacy.example&rstrm.tls_mode=terminated&rstrm.tls_alpns=h2,http%2F1.1&rstrm.tls_min_version=tls1.2&rstrm.tls_ciphers=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384&rstrm.mtls&rstrm.mtls_cacert_pem=pem&rstrm.http_version=h2&rstrm.http_use_tls=false&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.upstream_tls=true");
+  auto url = parse_url("rstrm://edge?rstream.retry=false&rstrm.type=bytestream&rstrm.publish=false&rstrm.protocol=http&rstrm.labels=ignored&rstrm.labels=env%3Dprod&rstrm.labels=env%3Dstaging&rstrm.labels=tier%3Dedge&rstrm.geoip=FR,US&rstrm.trusted_ips=203.0.113.0%2F24,198.51.100.12%2F32&rstrm.hostname=api.example&rstrm.host=legacy.example&rstrm.tls_mode=terminated&rstrm.tls_alpns=h2,http%2F1.1&rstrm.tls_min_version=tls1.2&rstrm.tls_ciphers=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384&rstrm.mtls_auth&rstrm.http_version=h2&rstrm.http_use_tls=false&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.upstream_tls=true");
   rstream::io_rstrm::settings_acceptor settings;
   boost::system::error_code error_code;
   rstream::io_rstrm::parse_settings_acceptor(url, settings, error_code);
@@ -136,9 +136,8 @@ static void check_parse_settings_acceptor_policy_controls()
   assert(settings.m_tunnel_properties.m_tls_min_version);
   assert(settings.m_tunnel_properties.m_tls_min_version.value() == "tls1.2");
   assert(settings.m_tunnel_properties.m_tls_ciphers.size() == 2);
-  assert(settings.m_tunnel_properties.m_mtls);
-  assert(settings.m_tunnel_properties.m_mtls.value());
-  assert(settings.m_tunnel_properties.m_mtls_cacert_pem);
+  assert(settings.m_tunnel_properties.m_mtls_auth);
+  assert(settings.m_tunnel_properties.m_mtls_auth.value());
   assert(settings.m_tunnel_properties.m_http_version);
   assert(settings.m_tunnel_properties.m_http_version.value() == "h2");
   assert(settings.m_tunnel_properties.m_http_use_tls);
@@ -182,6 +181,9 @@ static void check_token_resolution_precedence()
       "        storage:\n"
       "          kind: inline\n"
       "          value: env-token\n"
+      "      mtls:\n"
+      "        certificateFile: /etc/rstream/env-client.pem\n"
+      "        keyFile: /etc/rstream/env-client-key.pem\n"
       "contexts:\n"
       "  - name: prod\n"
       "    apiUrl: https://rstream.io\n"
@@ -190,7 +192,16 @@ static void check_token_resolution_precedence()
       "      token:\n"
       "        storage:\n"
       "          kind: inline\n"
-      "          value: context-token\n");
+      "          value: context-token\n"
+      "      mtls:\n"
+      "        certificate: |\n"
+      "          -----BEGIN CERTIFICATE-----\n"
+      "          context-cert\n"
+      "          -----END CERTIFICATE-----\n"
+      "        key: |\n"
+      "          -----BEGIN PRIVATE KEY-----\n"
+      "          context-key\n"
+      "          -----END PRIVATE KEY-----\n");
   config_path.set(path.string());
   rstream::io_rstrm::config cfg;
   auto token_from_config = rstream::io_rstrm::get_rstream_token(cfg, rstream::io::make_address("engine.example:443"));
@@ -234,6 +245,57 @@ static void check_token_resolution_rejects_non_inline_storage()
   auto token_result = rstream::io_rstrm::get_rstream_token(cfg, rstream::io::make_address("engine.example:443"));
   assert(!token_result);
   assert(token_result.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  boost::filesystem::remove(path);
+}
+
+static void check_client_details_rejects_token_and_mtls_auth_conflict()
+{
+  rstream::io_rstrm::config cfg;
+  cfg.m_token = "token";
+  auto details = rstream::io_rstrm::get_client_details(
+      cfg,
+      rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"));
+  assert(!details);
+  assert(details.error().value() == static_cast<int>(rstream::io_rstrm::error::code::authentication_conflict));
+  assert(details.error().message() == "token and mTLS authentication cannot be used together");
+
+  cfg.m_no_token = true;
+  auto mtls_only = rstream::io_rstrm::get_client_details(
+      cfg,
+      rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"));
+  assert(mtls_only);
+  assert(!mtls_only.value().m_token);
+
+  env_guard token("RSTREAM_AUTHENTICATION_TOKEN");
+  token.set("env-token");
+  cfg.m_no_token = false;
+  cfg.m_token    = boost::none;
+  auto env_conflict = rstream::io_rstrm::get_client_details(
+      cfg,
+      rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"));
+  assert(!env_conflict);
+  assert(env_conflict.error().value() == static_cast<int>(rstream::io_rstrm::error::code::authentication_conflict));
+  assert(env_conflict.error().message() == "token and mTLS authentication cannot be used together");
+  token.unset();
+
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  context.set("prod");
+  auto path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: engine.example:443\n"
+      "    auth:\n"
+      "      token:\n"
+      "        storage:\n"
+      "          kind: inline\n"
+      "          value: stored-token\n");
+  config_path.set(path.string());
+  auto stored_token_suppressed = rstream::io_rstrm::get_client_details(
+      cfg,
+      rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"));
+  assert(stored_token_suppressed);
+  assert(!stored_token_suppressed.value().m_token);
   boost::filesystem::remove(path);
 }
 
@@ -304,6 +366,9 @@ static void check_config_file_json_includes_auth_storage_and_env_path()
       "        storage:\n"
       "          kind: inline\n"
       "          value: env-token\n"
+      "      mtls:\n"
+      "        certificateFile: /etc/rstream/env-client.pem\n"
+      "        keyFile: /etc/rstream/env-client-key.pem\n"
       "contexts:\n"
       "  - name: prod\n"
       "    apiUrl: https://rstream.io\n"
@@ -312,7 +377,16 @@ static void check_config_file_json_includes_auth_storage_and_env_path()
       "      token:\n"
       "        storage:\n"
       "          kind: inline\n"
-      "          value: context-token\n");
+      "          value: context-token\n"
+      "      mtls:\n"
+      "        certificate: |\n"
+      "          -----BEGIN CERTIFICATE-----\n"
+      "          context-cert\n"
+      "          -----END CERTIFICATE-----\n"
+      "        key: |\n"
+      "          -----BEGIN PRIVATE KEY-----\n"
+      "          context-key\n"
+      "          -----END PRIVATE KEY-----\n");
   config_path.set(path.string());
 
   auto config_dir = rstream::io_rstrm::get_rstream_config_path();
@@ -327,8 +401,12 @@ static void check_config_file_json_includes_auth_storage_and_env_path()
   const auto& json = json_result.value();
   assert(json["environments"][0]["auth"]["token"]["storage"]["kind"] == "inline");
   assert(json["environments"][0]["auth"]["token"]["storage"]["value"] == "env-token");
+  assert(json["environments"][0]["auth"]["mtls"]["certificateFile"] == "/etc/rstream/env-client.pem");
+  assert(json["environments"][0]["auth"]["mtls"]["keyFile"] == "/etc/rstream/env-client-key.pem");
   assert(json["contexts"][0]["auth"]["token"]["storage"]["kind"] == "inline");
   assert(json["contexts"][0]["auth"]["token"]["storage"]["value"] == "context-token");
+  assert(json["contexts"][0]["auth"]["mtls"]["certificate"].get<std::string>().find("context-cert") != std::string::npos);
+  assert(json["contexts"][0]["auth"]["mtls"]["key"].get<std::string>().find("context-key") != std::string::npos);
   boost::filesystem::remove(path);
 }
 
@@ -558,11 +636,15 @@ static void check_engine_resolution_from_env_and_config()
   auto path = write_config_file(
       "contexts:\n"
       "  - name: prod\n"
-      "    engine: configured.example:443\n");
+      "    engine: configured.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        certificateFile: /etc/rstream/client.pem\n"
+      "        keyFile: /etc/rstream/client-key.pem\n");
   config_path.set(path.string());
   auto from_config = rstream::io_rstrm::get_rstream_engine_address();
   assert(from_config);
-  assert(from_config.value() == "tcp://configured.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query());
+  assert(from_config.value() == "tcp://configured.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.cert_file=%2Fetc%2Frstream%2Fclient.pem&ssl.key_file=%2Fetc%2Frstream%2Fclient-key.pem");
   boost::filesystem::remove(path);
 
   engine.set("tcp://raw.example:443?ssl");
@@ -596,6 +678,57 @@ static void check_engine_resolution_from_env_and_config()
   boost::filesystem::remove(unknown_context_path);
 }
 
+static void check_engine_resolution_rejects_invalid_mtls_auth_config()
+{
+  env_guard engine_address("RSTREAM_ENGINE_ADDRESS");
+  env_guard engine("RSTREAM_ENGINE");
+  env_guard cert_file("RSTREAM_MTLS_CERT_FILE");
+  env_guard key_file("RSTREAM_MTLS_KEY_FILE");
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  env_guard api_url("RSTREAM_API_URL");
+  engine_address.unset();
+  engine.unset();
+  cert_file.unset();
+  key_file.unset();
+  api_url.unset();
+  context.set("prod");
+
+  auto missing_key_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        certificateFile: /etc/rstream/client.pem\n");
+  config_path.set(missing_key_path.string());
+  auto missing_key = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!missing_key);
+  assert(missing_key.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  boost::filesystem::remove(missing_key_path);
+
+  auto mixed_source_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        certificate: inline-cert\n"
+      "        keyFile: /etc/rstream/client-key.pem\n");
+  config_path.set(mixed_source_path.string());
+  auto mixed_source = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!mixed_source);
+  assert(mixed_source.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  boost::filesystem::remove(mixed_source_path);
+
+  engine.set("engine.example:443");
+  cert_file.set("/etc/rstream/env-client.pem");
+  key_file.set("/etc/rstream/env-client-key.pem");
+  auto from_env = rstream::io_rstrm::get_rstream_engine_address();
+  assert(from_env);
+  assert(from_env.value() == "tcp://engine.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.cert_file=%2Fetc%2Frstream%2Fenv-client.pem&ssl.key_file=%2Fetc%2Frstream%2Fenv-client-key.pem");
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -606,6 +739,7 @@ int main(int argc, char** argv)
   check_parse_settings_acceptor_policy_controls();
   check_token_resolution_precedence();
   check_token_resolution_rejects_non_inline_storage();
+  check_client_details_rejects_token_and_mtls_auth_conflict();
   check_token_resolution_uses_environment_auth_when_context_has_no_token();
   check_config_file_json_shape_and_invalid_yaml();
   check_config_file_json_includes_auth_storage_and_env_path();
@@ -614,5 +748,6 @@ int main(int argc, char** argv)
   check_config_default_paths_empty_files_and_exact_context_match();
   check_config_ignores_non_map_yaml_entries_and_malformed_auth_nodes();
   check_engine_resolution_from_env_and_config();
+  check_engine_resolution_rejects_invalid_mtls_auth_config();
   return 0;
 }
