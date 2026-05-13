@@ -88,8 +88,7 @@ struct tunnel_properties {
   // publishing options (terminated tunnels only)
   boost::optional<std::string> m_tls_min_version;
   std::vector<std::string> m_tls_ciphers;
-  boost::optional<bool> m_mtls;
-  boost::optional<std::string> m_mtls_cacert_pem;
+  boost::optional<bool> m_mtls_auth;
   // http tunnel options (http tunnels only)
   boost::optional<std::string> m_http_version;
   boost::optional<bool> m_http_use_tls;

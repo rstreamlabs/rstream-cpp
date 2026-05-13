@@ -252,6 +252,44 @@ static void check_proxy_success_response_completes()
   assert(server_called);
 }
 
+static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
+{
+  boost::asio::io_context io_context;
+  auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
+  auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
+  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  test_stream stream(*socket_a, true);
+  rstream::io_rstrm::config config;
+  config.m_token    = "agent-token";
+  config.m_zero_rtt = false;
+  bool client_called = false;
+  bool server_called = false;
+  handshake_type handshake(stream, rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"), config);
+  handshake.async_run(handshake_type::type::proxy_req, "stream-123", std::string("proxy-secret"), [&](const boost::system::error_code& error_code) {
+    client_called = true;
+    assert(!error_code);
+  });
+  boost::asio::co_spawn(io_context.get_executor(), [socket = socket_b, &server_called]() -> boost::asio::awaitable<void> {
+    payloader_type payloader(*socket);
+    auto request = rstream::core::make_buffer_allocated(4096);
+    co_await payloader.async_recv(request, boost::asio::use_awaitable);
+    protobuf::Message message;
+    assert(message.ParseFromArray(request.map().get_const_data(), request.get_size()));
+    assert(message.has_proxy_req());
+    assert(message.proxy_req().stream_id() == "stream-123");
+    assert(message.proxy_req().client_details().token().value() == "proxy-secret");
+    protobuf::Message response;
+    response.mutable_proxy_rsp();
+    auto payload = serialize_message(response);
+    co_await payloader.async_send(payload, boost::asio::use_awaitable);
+    server_called = true;
+    co_return;
+  }, boost::asio::detached);
+  io_context.run();
+  assert(client_called);
+  assert(server_called);
+}
+
 static void check_unexpected_response_type_is_rejected()
 {
   boost::asio::io_context io_context;
@@ -321,6 +359,7 @@ int main(int argc, char** argv)
   check_stream_response_error_is_mapped();
   check_stream_success_response_completes();
   check_proxy_success_response_completes();
+  check_proxy_secret_is_allowed_with_mtls_agent_auth();
   check_unexpected_response_type_is_rejected();
   check_invalid_protobuf_response_is_rejected();
   return 0;

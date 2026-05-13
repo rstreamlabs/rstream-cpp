@@ -35,8 +35,7 @@ Common keys include:
 - `rstrm.tls_alpns`
 - `rstrm.tls_min_version`
 - `rstrm.tls_ciphers`
-- `rstrm.mtls`
-- `rstrm.mtls_cacert_pem`
+- `rstrm.mtls_auth`
 - `rstrm.http_version`
 - `rstrm.upstream_tls`
 - `rstrm.http_use_tls` (deprecated HTTP-only alias)
@@ -48,7 +47,7 @@ Parsing entry point:
 
 - `lib/rstream/io-rstrm/io-rstrm.cpp` (`parse_tunnel_properties`)
 
-Serialization to control-plane protobuf:
+Serialization to rstream tunnel protobuf:
 
 - `lib/rstream/io-rstrm/detail/convert.cpp` (`convert(protobuf::TunnelProperties&, ...)`)
 
@@ -133,7 +132,7 @@ Rules:
 ### 1) Published HTTP tunnel with auth and policy controls
 
 ```text
-rstrm://?rstrm.publish=true&rstrm.protocol=http&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.trusted_ips=203.0.113.0/24,198.51.100.12/32&rstrm.geoip=FR,US&rstrm.labels=env%3Dprod
+rstrm://?rstrm.publish=true&rstrm.protocol=http&rstrm.token_auth=true&rstrm.challenge_mode=true&rstrm.trusted_ips=203.0.113.0/24,198.51.100.12/32&rstrm.geoip=FR,US&rstrm.labels=env%3Dprod
 ```
 
 ### 2) TLS transport options for engine connectivity

@@ -104,11 +104,20 @@ def parse_host_port(raw, default_port):
     return value, int(default_port)
 
 
-def check_tls_echo(args):
-    host, port = parse_host_port(args.addr, args.default_port)
+def client_tls_context(args):
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
+    if bool(args.cert) != bool(args.key):
+        raise ValueError("--cert and --key must be provided together")
+    if args.cert:
+        context.load_cert_chain(certfile=args.cert, keyfile=args.key)
+    return context
+
+
+def check_tls_echo(args):
+    host, port = parse_host_port(args.addr, args.default_port)
+    context = client_tls_context(args)
     if args.alpn:
         context.set_alpn_protocols([args.alpn])
     with socket.create_connection((host, port), timeout=args.timeout) as raw:
@@ -125,9 +134,7 @@ def check_tls_echo(args):
 
 def check_https_ping(args):
     host, port = parse_host_port(args.addr, args.default_port)
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
+    context = client_tls_context(args)
     conn = http.client.HTTPSConnection(host, port, timeout=args.timeout, context=context)
     try:
         conn.request("GET", "/ping")
@@ -164,11 +171,15 @@ def main():
     tls_echo = check_subcommands.add_parser("tls-echo")
     tls_echo.add_argument("--addr", required=True)
     tls_echo.add_argument("--alpn", default="")
+    tls_echo.add_argument("--cert", default="")
+    tls_echo.add_argument("--key", default="")
     tls_echo.add_argument("--default-port", default="443")
     tls_echo.add_argument("--timeout", type=float, default=15.0)
     tls_echo.set_defaults(func=check_tls_echo)
     https_ping = check_subcommands.add_parser("https-ping")
     https_ping.add_argument("--addr", required=True)
+    https_ping.add_argument("--cert", default="")
+    https_ping.add_argument("--key", default="")
     https_ping.add_argument("--default-port", default="443")
     https_ping.add_argument("--timeout", type=float, default=15.0)
     https_ping.set_defaults(func=check_https_ping)

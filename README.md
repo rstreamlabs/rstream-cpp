@@ -160,14 +160,30 @@ For consistency with CLI flows, the following variables are the primary explicit
 
 - `RSTREAM_CONFIG`: Override the config file path. If unset, the SDK falls back to `~/.rstream/config.yaml`.
 - `RSTREAM_CONTEXT`: Select the active context during config-based resolution.
-- `RSTREAM_API_URL`: Override the control-plane API URL used by context-aware resolution paths.
+- `RSTREAM_API_URL`: Override the Control plane API URL used by context-aware resolution paths.
 - `RSTREAM_ENGINE_ADDRESS`: Highest-priority engine address override for runtime connection targets.
 - `RSTREAM_ENGINE`: Secondary engine override; when provided as `host:port`, it is expanded to a default `tcp://...` URI with TLS and ALPN defaults.
 - `RSTREAM_AUTHENTICATION_TOKEN`: Override token resolution when token behavior is not fixed in SDK options.
+- `RSTREAM_MTLS_CERT_FILE`: Client certificate file for mTLS engine authentication.
+- `RSTREAM_MTLS_KEY_FILE`: Client private key file for mTLS engine authentication.
 
 ### Resolution behavior
 
-In short, engine resolution starts from explicit environment overrides and then falls back to config/context resolution. Token resolution starts from explicit SDK options, then environment override, then config-derived values.
+In short, engine resolution starts from explicit environment overrides and then falls back to config/context resolution. Token resolution starts from explicit SDK options, then environment override, then config-derived values. Token authentication and mTLS engine authentication are mutually exclusive. When the mTLS certificate and key variables are set, config-derived tokens are not used; setting mTLS variables together with `RSTREAM_AUTHENTICATION_TOKEN` is an error.
+
+Contexts can authenticate an engine connection with mTLS instead of a token:
+
+```yaml
+contexts:
+  - name: prod-mtls
+    engine: project.cluster.example:443
+    auth:
+      mtls:
+        certificateFile: /etc/rstream/client.pem
+        keyFile: /etc/rstream/client-key.pem
+```
+
+Inline `certificate` and `key` values are also supported for generated or ephemeral configs.
 
 ## Code examples
 
@@ -365,14 +381,16 @@ rstream-tunnel 127.0.0.1:22 --tls --no-publish --name ssh-private
 To enable edge authentication and basic network policy controls on an HTTP tunnel:
 
 ```bash
-rstream-tunnel 127.0.0.1:8080 --http --token-auth --rstream-auth --challenge-mode --trusted-ips 203.0.113.0/24,198.51.100.12/32 --geoip FR,US
+rstream-tunnel 127.0.0.1:8080 --http --token-auth --challenge-mode --trusted-ips 203.0.113.0/24,198.51.100.12/32 --geoip FR,US
 ```
 
 To configure terminated TLS publication with mTLS and explicit cipher policy:
 
 ```bash
-rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1.2 --tls-ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384 --mtls --mtls-cacert-file ./ca.pem --label env=prod --label app=api
+rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1.2 --tls-ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384 --mtls --label env=prod --label app=api
 ```
+
+mTLS Tunnel access uses mTLS credentials to decide which client certificates are allowed.
 
 To publish a passthrough TLS tunnel, keep edge TLS policy options off so the upstream service owns the certificate and handshake:
 
