@@ -1,6 +1,20 @@
 #!/usr/bin/python3
-import yaml, os
-f = open('config.yml')
-yaml = yaml.safe_load(f)
-for version in yaml["versions"]:
-    os.system("conan export --user conan --channel stable --version " + version + " " + yaml["versions"][version]["folder"])
+import subprocess
+
+import yaml
+
+with open("config.yml", encoding="utf-8") as config_file:
+    config = yaml.safe_load(config_file)
+
+for version, metadata in config["versions"].items():
+    subprocess.run([
+        "conan",
+        "export",
+        "--user",
+        "conan",
+        "--channel",
+        "stable",
+        "--version",
+        version,
+        metadata["folder"],
+    ], check=True)

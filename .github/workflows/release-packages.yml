@@ -134,6 +134,7 @@ jobs:
             tar \
             xz-utils
           pipx install "conan==${CONAN_VERSION}"
+          python3 -m pip install --user PyYAML
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Install llvm-mingw
         if: ${{ matrix.target.os == 'windows' }}
@@ -274,6 +275,7 @@ jobs:
           brew list jq >/dev/null 2>&1 || brew install jq
           echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
           python3 -m pip install --user "conan==${CONAN_VERSION}"
+          python3 -m pip install --user PyYAML
           echo "$(python3 -m site --user-base)/bin" >> "${GITHUB_PATH}"
       - name: Install apple-codesign
         if: ${{ env.MACOS_CODESIGN_MODE != '' }}

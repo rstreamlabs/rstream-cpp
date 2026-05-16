@@ -51,7 +51,7 @@ COPY --from=alpine /usr/lib/libgcc_s.so.1 /usr/lib/*-linux-musl/libgcc_s.so.1
 # Install conan
 ARG CONAN_VERSION=2.26.2
 
-RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}"
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}" PyYAML
 
 RUN conan profile detect
 

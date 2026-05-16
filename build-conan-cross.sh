@@ -303,11 +303,11 @@ function export_patched_conan_recipes {
       (
         cd "${script_dir}/conan/recipes/${recipe}"
         python3 export.py
-      )
+      ) || exit 1
     fi
   done
   if [ "${use_docker}" = "on" ]; then
-    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done"
+    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done" || exit 1
   fi
   patched_conan_recipes_exported="on"
 }
