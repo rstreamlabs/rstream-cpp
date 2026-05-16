@@ -4,11 +4,16 @@ services:
     build:
       context: ./
       dockerfile: Dockerfile
+      args:
+        CONAN_VERSION: ${CONAN_VERSION:-2.26.2}
+        CONAN_REMOTE_NAME: ${CONAN_REMOTE_NAME:-rstream}
+        CONAN_REMOTE_URL: ${CONAN_REMOTE_URL:-}
+        CONAN_REMOTE_USERNAME: ${CONAN_REMOTE_USERNAME:-}
       secrets:
         - password
     volumes:
-      - conan2-cache:/root/.conan2
-      - ccache-cache:/root/.ccache
+      - ${CONAN_DOCKER_CACHE_DIR:-conan2-cache}:/root/.conan2
+      - ${CCACHE_DOCKER_CACHE_DIR:-ccache-cache}:/root/.ccache
 volumes:
   conan2-cache:
   ccache-cache:
