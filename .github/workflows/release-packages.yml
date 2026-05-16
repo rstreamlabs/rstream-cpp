@@ -60,8 +60,9 @@ jobs:
     env:
       LINUX_BUILD_SHARED: "off"
       LINUX_TCLIBCS: musl
+      LLVM_MINGW_VERSION: "20251118"
       OSS: ${{ matrix.target.os }}
-      USE_DOCKER: "on"
+      USE_DOCKER: "off"
       WINDOWS_BUILD_SHARED: "off"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -70,28 +71,16 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.x"
-      - name: Configure Docker Conan secret path
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "CONAN_PASSWORD_FILE=${RUNNER_TEMP}/conan-password" >> "${GITHUB_ENV}"
-      - name: Configure Docker Conan cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "CONAN_DOCKER_CACHE_DIR=${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/conan2" >> "${GITHUB_ENV}"
-          echo "CCACHE_DOCKER_CACHE_DIR=${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/ccache" >> "${GITHUB_ENV}"
-          mkdir -p "${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/conan2/p" "${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/ccache"
       - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        id: docker-cache
+        id: conan-cache
         with:
           path: |
-            ~/.cache/rstream-cpp/${{ matrix.target.os }}/conan2/p
-            ~/.cache/rstream-cpp/${{ matrix.target.os }}/ccache
-          key: conan2-docker-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/Dockerfile', 'conan/compose.yaml', 'CMakeLists.txt', 'cmake/**') }}
+            ~/.conan2/p
+            ~/.cache/ccache
+          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            conan2-docker-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-
-            conan2-docker-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-
+            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-
+            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-
       - name: Validate release tag
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -124,13 +113,56 @@ jobs:
           set -euo pipefail
           sudo apt update
           sudo apt-get install -y \
+            build-essential \
+            ccache \
+            cmake \
+            file \
+            git \
+            gzip \
             jq \
             libdigest-sha-perl \
+            musl-dev \
+            nasm \
+            ninja-build \
             pipx \
+            pkg-config \
             python3 \
-            python3-pip
+            python3-dev \
+            python3-pip \
+            tar \
+            xz-utils
           pipx install "conan==${CONAN_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Install llvm-mingw
+        if: ${{ matrix.target.os == 'windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host_arch="$(dpkg --print-architecture)"
+          case "${host_arch}" in
+            amd64) llvm_mingw_host_arch="x86_64" ;;
+            arm64) llvm_mingw_host_arch="aarch64" ;;
+            *) echo "unsupported host architecture for llvm-mingw: ${host_arch}" >&2; exit 1 ;;
+          esac
+          llvm_mingw_dir="/opt/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${llvm_mingw_host_arch}"
+          curl -fsSL "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${llvm_mingw_host_arch}.tar.xz" | sudo tar -xJf - -C /opt
+          sudo ln -sfn "${llvm_mingw_dir}" /opt/llvm-mingw
+          echo "/opt/llvm-mingw/bin" >> "${GITHUB_PATH}"
+      - name: Configure Conan
+        shell: bash
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          conan profile detect -f
+          conan config install conan/config
+          if [[ -n "${CONAN_REMOTE_URL}" ]]; then
+            remote_name="${CONAN_REMOTE_NAME:-rstream}"
+            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
+              conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+            fi
+          fi
       - name: Validate package version
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -141,33 +173,24 @@ jobs:
             echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
             exit 1
           fi
-      - name: Prepare Docker Conan secret
-        shell: bash
-        env:
-          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$(dirname "${CONAN_PASSWORD_FILE}")"
-          printf "%s" "${CONAN_PASSWORD:-}" > "${CONAN_PASSWORD_FILE}"
-          chmod 600 "${CONAN_PASSWORD_FILE}"
       - name: Build and export packages
         shell: bash
         run: |
           set -euo pipefail
           ./build-conan-cross.sh
-      - name: Trim Docker Conan cache
+      - name: Trim Conan cache
         if: ${{ success() }}
         shell: bash
         run: |
           set -euo pipefail
-          docker compose -f conan/compose.yaml run --rm --no-deps --entrypoint conan conan2-builder cache clean "*" --source --build --download --temp
+          conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        if: ${{ success() && steps.docker-cache.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
-            ~/.cache/rstream-cpp/${{ matrix.target.os }}/conan2/p
-            ~/.cache/rstream-cpp/${{ matrix.target.os }}/ccache
-          key: ${{ steps.docker-cache.outputs.cache-primary-key }}
+            ~/.conan2/p
+            ~/.cache/ccache
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
