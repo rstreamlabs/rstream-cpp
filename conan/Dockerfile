@@ -49,7 +49,9 @@ COPY --from=alpine /usr/lib/libstdc++.so.6 /usr/lib/*-linux-musl/libstdc++.so.6
 COPY --from=alpine /usr/lib/libgcc_s.so.1 /usr/lib/*-linux-musl/libgcc_s.so.1
 
 # Install conan
-RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade conan
+ARG CONAN_VERSION=2.26.2
+
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}"
 
 RUN conan profile detect
 
@@ -66,7 +68,7 @@ ARG CONAN_REMOTE_URL
 ARG CONAN_REMOTE_USERNAME
 
 RUN if [ -n "${CONAN_REMOTE_URL}" ]; then \
-      conan remote list | grep -q "${CONAN_REMOTE_NAME}" || conan remote add "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_URL}"; \
+      conan remote list | grep -q "^${CONAN_REMOTE_NAME}:" && conan remote update "${CONAN_REMOTE_NAME}" --url "${CONAN_REMOTE_URL}" || conan remote add "${CONAN_REMOTE_NAME}" "${CONAN_REMOTE_URL}"; \
     fi
 
 RUN --mount=type=secret,id=password if [ -n "${CONAN_REMOTE_URL}" ] && [ -n "${CONAN_REMOTE_USERNAME}" ]; then \

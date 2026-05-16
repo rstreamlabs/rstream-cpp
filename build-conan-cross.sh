@@ -448,7 +448,7 @@ function windows_run_upload {
 }
 
 function linux_run {
-  if [ "${use_docker}" != "on" ] && [ "$(uname -o)" != "GNU/Linux" ]; then
+  if [ "${use_docker}" != "on" ] && [ "$(uname -s)" != "Linux" ]; then
     echo "Linux build must be run on Linux or with docker"
     exit 1
   fi
@@ -471,7 +471,7 @@ function linux_run {
 }
 
 function macos_run {
-  if [ "$(uname -o)" != "Darwin" ]; then
+  if [ "$(uname -s)" != "Darwin" ]; then
     echo "macOS build must be run on macOS"
     exit 1
   fi
@@ -492,7 +492,7 @@ function macos_run {
 }
 
 function windows_run {
-  if [ "${use_docker}" != "on" ] && [ "$(uname -o)" != "GNU/Linux" ]; then
+  if [ "${use_docker}" != "on" ] && [ "$(uname -s)" != "Linux" ]; then
     echo "Windows build must be run on Linux or with docker"
     exit 1
   fi

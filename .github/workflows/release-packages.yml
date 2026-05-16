@@ -75,6 +75,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "CONAN_PASSWORD_FILE=${RUNNER_TEMP}/conan-password" >> "${GITHUB_ENV}"
+      - name: Configure Docker Conan cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "CONAN_DOCKER_CACHE_DIR=${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/conan2" >> "${GITHUB_ENV}"
+          echo "CCACHE_DOCKER_CACHE_DIR=${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/ccache" >> "${GITHUB_ENV}"
+          mkdir -p "${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/conan2/p" "${HOME}/.cache/rstream-cpp/${{ matrix.target.os }}/ccache"
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: docker-cache
+        with:
+          path: |
+            ~/.cache/rstream-cpp/${{ matrix.target.os }}/conan2/p
+            ~/.cache/rstream-cpp/${{ matrix.target.os }}/ccache
+          key: conan2-docker-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/Dockerfile', 'conan/compose.yaml', 'CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            conan2-docker-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-
+            conan2-docker-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-
       - name: Validate release tag
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -122,6 +139,19 @@ jobs:
         run: |
           set -euo pipefail
           ./build-conan-cross.sh
+      - name: Trim Docker Conan cache
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f conan/compose.yaml run --rm --no-deps --entrypoint conan conan2-builder cache clean "*" --source --build --download --temp
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ success() && steps.docker-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            ~/.cache/rstream-cpp/${{ matrix.target.os }}/conan2/p
+            ~/.cache/rstream-cpp/${{ matrix.target.os }}/ccache
+          key: ${{ steps.docker-cache.outputs.cache-primary-key }}
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -186,9 +216,8 @@ jobs:
           brew list bash >/dev/null 2>&1 || brew install bash
           brew list jq >/dev/null 2>&1 || brew install jq
           echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
-          python3 -m pip install --user pipx
-          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
-          "${HOME}/.local/bin/pipx" install "conan==${CONAN_VERSION}"
+          python3 -m pip install --user "conan==${CONAN_VERSION}"
+          echo "$(python3 -m site --user-base)/bin" >> "${GITHUB_PATH}"
       - name: Install apple-codesign
         if: ${{ env.MACOS_CODESIGN_MODE != '' }}
         shell: bash
