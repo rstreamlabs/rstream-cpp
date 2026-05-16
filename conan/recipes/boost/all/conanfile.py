@@ -536,7 +536,7 @@ class BoostConan(ConanFile):
 
     @property
     def _fPIC(self):
-        return self.options.get_safe("fPIC", self.default_options["fPIC"])
+        return self.options.get_safe("fPIC", False)
 
     @property
     def _shared(self):
