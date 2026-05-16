@@ -101,7 +101,23 @@ jobs:
             echo "invalid release tag: ${VERSION}" >&2
             exit 1
           fi
+          package_version="$(tr -d '[:space:]' < version.txt)"
+          if [[ "${package_version}" != "${VERSION#v}" ]]; then
+            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
+            exit 1
+          fi
           echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
+      - name: Resolve package version
+        if: ${{ github.ref_type != 'tag' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(tr -d '[:space:]' < version.txt)"
+          if [[ ! "${package_version}" =~ ^[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid package version: ${package_version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${package_version}" >> "${GITHUB_ENV}"
       - name: Install dependencies
         shell: bash
         run: |
@@ -208,7 +224,23 @@ jobs:
             echo "invalid release tag: ${VERSION}" >&2
             exit 1
           fi
+          package_version="$(tr -d '[:space:]' < version.txt)"
+          if [[ "${package_version}" != "${VERSION#v}" ]]; then
+            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
+            exit 1
+          fi
           echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
+      - name: Resolve package version
+        if: ${{ github.ref_type != 'tag' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(tr -d '[:space:]' < version.txt)"
+          if [[ ! "${package_version}" =~ ^[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid package version: ${package_version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${package_version}" >> "${GITHUB_ENV}"
       - name: Install dependencies
         shell: bash
         run: |
@@ -315,6 +347,11 @@ jobs:
           set -euo pipefail
           if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "invalid release tag: ${VERSION}" >&2
+            exit 1
+          fi
+          package_version="$(tr -d '[:space:]' < version.txt)"
+          if [[ "${package_version}" != "${VERSION#v}" ]]; then
+            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
             exit 1
           fi
           echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
