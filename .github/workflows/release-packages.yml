@@ -49,21 +49,67 @@ env:
 jobs:
   package-linux-windows:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
-    name: Package ${{ matrix.target.os }}
+    name: Package ${{ matrix.target.os }} ${{ matrix.target.arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         target:
           - os: linux
+            arch: x86_i686
+          - os: linux
+            arch: x86_core2
+          - os: linux
+            arch: x86_64
+          - os: linux
+            arch: x86_64_v2
+          - os: linux
+            arch: x86_64_v3
+          - os: linux
+            arch: x86_64_v4
+          - os: linux
+            arch: armv6
+          - os: linux
+            arch: armv6hf
+          - os: linux
+            arch: armv7
+          - os: linux
+            arch: armv7hf
+          - os: linux
+            arch: arm64
+          - os: linux
+            arch: mips
+          - os: linux
+            arch: mipsle
+          - os: linux
+            arch: mips64
+          - os: linux
+            arch: mips64le
+          - os: linux
+            arch: riscv64
           - os: windows
+            arch: x86_i686
+          - os: windows
+            arch: x86_core2
+          - os: windows
+            arch: x86_64
+          - os: windows
+            arch: x86_64_v2
+          - os: windows
+            arch: x86_64_v3
+          - os: windows
+            arch: x86_64_v4
+          - os: windows
+            arch: arm64
     env:
       LINUX_BUILD_SHARED: "off"
+      LINUX_ARCHS: ${{ matrix.target.os == 'linux' && matrix.target.arch || '' }}
       LINUX_TCLIBCS: musl
       LLVM_MINGW_VERSION: "20251118"
       OSS: ${{ matrix.target.os }}
       USE_DOCKER: "off"
       WINDOWS_BUILD_SHARED: "off"
+      WINDOWS_ARCHS: ${{ matrix.target.os == 'windows' && matrix.target.arch || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -77,10 +123,10 @@ jobs:
           path: |
             ~/.conan2/p
             ~/.cache/ccache
-          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ env.CHANNEL }}-
             conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-
+            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Validate release tag
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -136,6 +182,12 @@ jobs:
           pipx install "conan==${CONAN_VERSION}"
           python3 -m pip install --user PyYAML
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup /usr/local/lib/android /usr/share/dotnet
+          sudo docker system prune -af >/dev/null || true
       - name: Install llvm-mingw
         if: ${{ matrix.target.os == 'windows' }}
         shell: bash
@@ -180,6 +232,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          unset LD_LIBRARY_PATH
           ./build-conan-cross.sh
       - name: Trim Conan cache
         if: ${{ success() }}
@@ -197,8 +250,8 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.EXPORT_PACKAGE_NAME }}-${{ matrix.target.os }}-${{ env.CHANNEL }}
-          path: out/release/**/${{ matrix.target.os }}/**/packages/*
+          name: ${{ env.EXPORT_PACKAGE_NAME }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}
+          path: out/release/**/${{ matrix.target.os }}/${{ matrix.target.arch }}/**/packages/*
           if-no-files-found: error
           retention-days: 14
       - name: Upload packages
@@ -212,6 +265,7 @@ jobs:
             echo "RSTREAM_TOKEN is required when package upload is enabled."
             exit 1
           fi
+          unset LD_LIBRARY_PATH
           ./build-conan-cross.sh upload
   package-macos:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
@@ -410,7 +464,7 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "${remote_name}" || conan remote add -f "${remote_name}" "${CONAN_REMOTE_URL}"
+            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
           fi
       - name: Validate package version
         shell: bash
