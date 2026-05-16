@@ -246,7 +246,7 @@ function windows_package_outdir {
 }
 
 function cmd_build {
-  echo "conan create $(${OS}_conan_options) -u --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
+  echo "conan create $(${OS}_conan_options) --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
 }
 
 function linux_cmd_build {
