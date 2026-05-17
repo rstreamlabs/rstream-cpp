@@ -4,6 +4,9 @@
 
 function(generate_includes_file output_file headers_dir)
   file(GLOB HEADER_FILES "${headers_dir}/*.hpp")
+  if(DEFINED EXCLUDE_REGEX AND NOT "${EXCLUDE_REGEX}" STREQUAL "")
+    list(FILTER HEADER_FILES EXCLUDE REGEX "${EXCLUDE_REGEX}")
+  endif()
   list(SORT HEADER_FILES)
   file(WRITE ${output_file} "// Auto-generated includes.hpp\n")
   file(APPEND ${output_file} "// Do not edit manually.\n\n")
