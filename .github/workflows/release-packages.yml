@@ -43,8 +43,13 @@ env:
   CONAN_REMOTE_URL: "${{ vars.CONAN_REMOTE_URL }}"
   CONAN_REMOTE_USERNAME: "${{ vars.CONAN_REMOTE_USERNAME }}"
   EXPORT_PACKAGE_NAME: "${{ inputs.package_name || 'rstream-utils' }}"
+  LINUX_TOOLCHAIN_VERSION: "5.0.2"
+  PATCHED_BOOST_VERSION: "1.85.0"
+  PATCHED_CONAN_CHANNEL: conan/stable
+  PATCHED_NCURSES_VERSION: "6.5"
   RSTREAM_URL: "${{ inputs.rstream_url || (github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io') }}"
   UPLOAD_PACKAGES: "${{ github.ref_type == 'tag' || inputs.upload == true }}"
+  USE_PATCHED_CONAN_DEPS: "on"
   VERSION: "${{ github.ref_name }}"
 jobs:
   package-linux-windows:
@@ -120,14 +125,14 @@ jobs:
           python-version: "3.x"
       - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         id: conan-cache
+        if: ${{ matrix.target.arch == 'x86_64' || matrix.target.arch == 'arm64' }}
         with:
           path: |
             ~/.conan2/p
             ~/.cache/ccache
           key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-
-            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
+            conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-
       - name: Validate release tag
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -235,6 +240,28 @@ jobs:
           set -euo pipefail
           unset LD_LIBRARY_PATH
           ./build-conan-cross.sh
+      - name: Upload Conan binary cache
+        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
+        shell: bash
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "CONAN_REMOTE_URL, CONAN_REMOTE_USERNAME and CONAN_PASSWORD are required when Conan binary cache upload is enabled."
+            exit 1
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+          refs=("rstream/${VERSION}" "yocto-toolchain/${LINUX_TOOLCHAIN_VERSION}")
+          if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
+            refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
+          fi
+          for ref in "${refs[@]}"; do
+            if conan list "${ref}:*" --format=json | python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if any(rev.get("packages") for item in data.values() for rev in item.get("revisions", {}).values()) else 1)'; then
+              conan upload "${ref}:*" -r "${remote_name}" --check --confirm
+            fi
+          done
       - name: Trim Conan cache
         if: ${{ success() }}
         shell: bash
@@ -242,7 +269,7 @@ jobs:
           set -euo pipefail
           conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
+        if: ${{ success() && (matrix.target.arch == 'x86_64' || matrix.target.arch == 'arm64') && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
             ~/.conan2/p
@@ -291,7 +318,9 @@ jobs:
       - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: |
+            ~/.conan2/p
+            ~/.cache/ccache
           key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-
@@ -327,6 +356,7 @@ jobs:
         run: |
           set -euo pipefail
           brew list bash >/dev/null 2>&1 || brew install bash
+          brew list ccache >/dev/null 2>&1 || brew install ccache
           brew list jq >/dev/null 2>&1 || brew install jq
           echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
           python3 -m pip install --user "conan==${CONAN_VERSION}"
@@ -352,10 +382,19 @@ jobs:
           sudo install -m 0755 "${tmp_dir}/apple-codesign-${APPLE_CODESIGN_VERSION}-macos-universal/rcodesign" /usr/local/bin/rcodesign
       - name: Configure Conan
         shell: bash
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
         run: |
           set -euo pipefail
           conan profile detect -f
           conan config install conan/config
+          if [[ -n "${CONAN_REMOTE_URL}" ]]; then
+            remote_name="${CONAN_REMOTE_NAME:-rstream}"
+            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
+              conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+            fi
+          fi
       - name: Validate package version
         if: ${{ github.ref_type == 'tag' }}
         shell: bash
@@ -371,6 +410,28 @@ jobs:
         run: |
           set -euo pipefail
           ./build-conan-cross.sh
+      - name: Upload Conan binary cache
+        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
+        shell: bash
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "CONAN_REMOTE_URL, CONAN_REMOTE_USERNAME and CONAN_PASSWORD are required when Conan binary cache upload is enabled."
+            exit 1
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+          refs=("rstream/${VERSION}")
+          if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
+            refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
+          fi
+          for ref in "${refs[@]}"; do
+            if conan list "${ref}:*" --format=json | python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if any(rev.get("packages") for item in data.values() for rev in item.get("revisions", {}).values()) else 1)'; then
+              conan upload "${ref}:*" -r "${remote_name}" --check --confirm
+            fi
+          done
       - name: Trim Conan cache
         if: ${{ success() }}
         shell: bash
@@ -380,7 +441,9 @@ jobs:
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: |
+            ~/.conan2/p
+            ~/.cache/ccache
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -422,7 +485,6 @@ jobs:
           key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-stable-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-stable-
-            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Validate release tag
         shell: bash
         run: |
