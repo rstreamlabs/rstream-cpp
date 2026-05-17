@@ -65,7 +65,9 @@ if(NOT BUILD_SHARED_LIBS)
     find_library(ATOMIC NAMES atomic libatomic.so.1)
   endif()
   if(ATOMIC)
-    target_link_libraries(${PROJECT_NAME} INTERFACE ${ATOMIC}) # workaround for various missing dependencies on libatomic (mips, static linking)
+    target_link_libraries(${PROJECT_NAME} INTERFACE
+      $<BUILD_INTERFACE:${ATOMIC}>
+      $<INSTALL_INTERFACE:atomic>) # workaround for various missing dependencies on libatomic (mips, static linking)
   endif()
 endif()
 
