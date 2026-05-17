@@ -44,7 +44,6 @@ jobs:
           key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
-            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Install Conan
         shell: bash
         run: |
