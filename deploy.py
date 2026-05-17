@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 import zipfile
 
 """Conan deployer for rstream packages.
@@ -33,13 +34,24 @@ def package_file_requires_macos_signature(file_path):
     filename = os.path.basename(file_path)
     return os.access(file_path, os.X_OK) or filename.endswith(".dylib") or ".dylib." in filename or filename.endswith(".so") or ".so." in filename
 
+def run_command_with_retries(command, attempts = 3, delay = 5):
+    for attempt in range(1, attempts + 1):
+        try:
+            subprocess.run(command, check = True)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise
+            print("command failed; retrying attempt " + str(attempt + 1) + "/" + str(attempts) + "...")
+            time.sleep(delay * attempt)
+
 def sign_macos_file_with_rcodesign(file_path, mode, temp_dir):
     if mode == "adhoc":
-        subprocess.run(["rcodesign", "sign", file_path], check = True)
+        run_command_with_retries(["rcodesign", "sign", file_path])
         return
     require_env(["MACOS_CERTIFICATE_PWD"])
     certificate_file = os.environ.get("MACOS_CERTIFICATE_FILE") or write_base64_secret(temp_dir, "MACOS_CERTIFICATE", "certificate.p12")
-    subprocess.run(["rcodesign", "sign", "--p12-file", certificate_file, "--p12-password", os.environ["MACOS_CERTIFICATE_PWD"], "--code-signature-flags", "runtime", file_path], check = True)
+    run_command_with_retries(["rcodesign", "sign", "--p12-file", certificate_file, "--p12-password", os.environ["MACOS_CERTIFICATE_PWD"], "--code-signature-flags", "runtime", file_path])
 
 def sign_macos_file_with_codesign(file_path, mode, temp_dir):
     identifier = os.environ.get("MACOS_CODESIGN_IDENTIFIER", "io.rstream")
@@ -62,7 +74,7 @@ def create_macos_notarization_archive(deploy_dir, temp_dir):
 def notarize_macos_payload_with_rcodesign(deploy_dir, temp_dir):
     api_key_file = os.environ.get("MACOS_APP_STORE_API_KEY_FILE") or write_base64_secret(temp_dir, "MACOS_APP_STORE_API_KEY", "app-store-api-key.json")
     archive_path = create_macos_notarization_archive(deploy_dir, temp_dir)
-    subprocess.run(["rcodesign", "notary-submit", "-v", "--api-key-file", api_key_file, "--wait", archive_path], check = True)
+    run_command_with_retries(["rcodesign", "notary-submit", "-v", "--api-key-file", api_key_file, "--wait", archive_path])
 
 def notarize_macos_payload_with_codesign(deploy_dir, temp_dir):
     require_env(["MACOS_NOTARIZATION_APPLE_ID", "MACOS_NOTARIZATION_TEAM_ID", "MACOS_NOTARIZATION_PWD"])
