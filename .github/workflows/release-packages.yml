@@ -480,7 +480,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --user conan --channel stable -pr:b default -pr:h default .
+          conan create --build=missing -pr:b default -pr:h default .
       - name: Trim Conan cache
         if: ${{ success() }}
         shell: bash
@@ -505,4 +505,4 @@ jobs:
           fi
           remote_name="${CONAN_REMOTE_NAME:-rstream}"
           conan remote login "${remote_name}" "${CONAN_LOGIN_USERNAME}" -p "${CONAN_PASSWORD}"
-          conan upload "rstream/${VERSION}@conan/stable" --only-recipe -r "${remote_name}" --check --confirm
+          conan upload "rstream/${VERSION}" --only-recipe -r "${remote_name}" --check --confirm
