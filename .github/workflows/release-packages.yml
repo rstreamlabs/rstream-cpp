@@ -257,9 +257,26 @@ jobs:
           if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
             refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
           fi
+          has_packages=$(cat <<'PY'
+          import json
+          import sys
+          def has_packages(value):
+              if isinstance(value, dict):
+                  packages = value.get("packages")
+                  if isinstance(packages, dict) and packages:
+                      return True
+                  return any(has_packages(child) for child in value.values())
+              if isinstance(value, list):
+                  return any(has_packages(child) for child in value)
+              return False
+          sys.exit(0 if has_packages(json.load(sys.stdin)) else 1)
+          PY
+          )
           for ref in "${refs[@]}"; do
-            if conan list "${ref}:*" --format=json | python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if any(rev.get("packages") for item in data.values() for rev in item.get("revisions", {}).values()) else 1)'; then
+            if conan list "${ref}:*" --format=json | python3 -c "${has_packages}"; then
               conan upload "${ref}:*" -r "${remote_name}" --check --confirm
+            else
+              echo "no local Conan packages to upload for ${ref}"
             fi
           done
       - name: Trim Conan cache
@@ -427,9 +444,26 @@ jobs:
           if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
             refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
           fi
+          has_packages=$(cat <<'PY'
+          import json
+          import sys
+          def has_packages(value):
+              if isinstance(value, dict):
+                  packages = value.get("packages")
+                  if isinstance(packages, dict) and packages:
+                      return True
+                  return any(has_packages(child) for child in value.values())
+              if isinstance(value, list):
+                  return any(has_packages(child) for child in value)
+              return False
+          sys.exit(0 if has_packages(json.load(sys.stdin)) else 1)
+          PY
+          )
           for ref in "${refs[@]}"; do
-            if conan list "${ref}:*" --format=json | python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if any(rev.get("packages") for item in data.values() for rev in item.get("revisions", {}).values()) else 1)'; then
+            if conan list "${ref}:*" --format=json | python3 -c "${has_packages}"; then
               conan upload "${ref}:*" -r "${remote_name}" --check --confirm
+            else
+              echo "no local Conan packages to upload for ${ref}"
             fi
           done
       - name: Trim Conan cache
@@ -478,13 +512,6 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.x"
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        id: conan-cache
-        with:
-          path: ~/.conan2/p
-          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-stable-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
-          restore-keys: |
-            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-stable-
       - name: Validate release tag
         shell: bash
         run: |
@@ -505,25 +532,13 @@ jobs:
           set -euo pipefail
           sudo apt update
           sudo apt-get install -y \
-            build-essential \
-            ccache \
-            cmake \
-            file \
-            git \
-            gzip \
-            jq \
-            ninja-build \
-            pipx \
-            pkg-config \
-            tar \
-            xz-utils
+            pipx
           pipx install "conan==${CONAN_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Configure Conan
         shell: bash
         run: |
           set -euo pipefail
-          conan profile detect -f
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
@@ -538,22 +553,6 @@ jobs:
             echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
             exit 1
           fi
-      - name: Validate Conan package from source
-        shell: bash
-        run: |
-          set -euo pipefail
-          conan create --build=missing -pr:b default -pr:h default .
-      - name: Trim Conan cache
-        if: ${{ success() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          conan cache clean "*" --source --build --download --temp
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
-        with:
-          path: ~/.conan2/p
-          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - name: Upload Conan source package
         shell: bash
         env:
