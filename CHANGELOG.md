@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.3](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.2...1.7.3) (2026-05-17)
+
+
+### Bug Fixes
+
+* retry macos code signing timestamp ([f7baba3](https://github.com/rstreamlabs/rstream-cpp/commit/f7baba36ac3d2cc230c0379e7b05c31add8aaba7))
+
 ## [1.7.2](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.1...1.7.2) (2026-05-17)
 
 
