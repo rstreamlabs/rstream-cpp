@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.4](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.3...1.7.4) (2026-05-17)
+
+
+### Bug Fixes
+
+* keep disabled geoip header out of aggregate include ([0e2806d](https://github.com/rstreamlabs/rstream-cpp/commit/0e2806d7f3f55da4fb9cc36cf526f229d49cf6a7))
+
 ## [1.7.3](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.2...1.7.3) (2026-05-17)
 
 
