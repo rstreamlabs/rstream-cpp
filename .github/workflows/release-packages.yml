@@ -553,6 +553,11 @@ jobs:
             echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
             exit 1
           fi
+      - name: Export Conan recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan export .
       - name: Upload Conan source package
         shell: bash
         env:
