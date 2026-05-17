@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.0...1.7.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* restore cpp release automation ([3227c5f](https://github.com/rstreamlabs/rstream-cpp/commit/3227c5fc9d49d37ce38339d7b04e1bde598aac47))
+
 ## [1.7.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.6.0...1.7.0) (2026-05-13)
 
 
