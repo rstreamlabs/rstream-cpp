@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.2](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.1...1.7.2) (2026-05-17)
+
+
+### Bug Fixes
+
+* publish public conan recipe without channel ([50e0a6b](https://github.com/rstreamlabs/rstream-cpp/commit/50e0a6b57a4aebbc0fab1f49658dee7b89735ba4))
+
 ## [1.7.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.0...1.7.1) (2026-05-17)
 
 
