@@ -91,6 +91,9 @@ boost::optional<ssl::config> parse_ssl_config(const boost::urls::url& url, boost
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, sni)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, alpn_protos)
       PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, engine)
+      PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, pkcs11_module)
+      PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, pkcs11_pin_env)
+      PARSE_PARAMS_VIEW_STRING(params, config, "ssl.", error_code, pkcs11_provider)
       PARSE_PARAMS_VIEW_ULONG(params, config, "ssl.", error_code, max_ongoing_upstream_ops)
       PARSE_PARAMS_VIEW_ULONG(params, config, "ssl.", error_code, async_shutdown_timeout_ms)
       if (!error_code) {

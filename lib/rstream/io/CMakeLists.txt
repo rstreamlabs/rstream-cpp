@@ -92,6 +92,13 @@ if(WITH_IO_STREAMS)
     -DRSTREAM_WITH_IO_STREAMS)
 endif()
 
+if(RSTREAM_WITH_PKCS11)
+  target_compile_definitions(
+    ${LIBRARY_NAME}
+    PUBLIC
+    -DRSTREAM_WITH_PKCS11)
+endif()
+
 if(ENABLE_STATIC_PLUGINS)
   if(BUILD_SHARED_LIBS)
     target_link_libraries(

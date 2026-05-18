@@ -331,6 +331,31 @@ struct config_token {
   std::string value;
 };
 
+struct config_mtls_storage {
+  config_mtls_storage()
+      : present(false),
+        max_sessions(0)
+  {
+  }
+  bool present;
+  std::string kind;
+  std::string provider;
+  std::string module;
+  std::string openssl_provider;
+  std::string token_label;
+  std::string token_serial;
+  boost::optional<int> slot;
+  std::string key_label;
+  std::string key_id_hex;
+  std::string certificate;
+  std::string certificate_file;
+  std::string certificate_label;
+  std::string certificate_id_hex;
+  std::string certificate_sha256;
+  std::string pin_env;
+  int max_sessions;
+};
+
 struct config_mtls {
   config_mtls()
       : present(false)
@@ -341,6 +366,7 @@ struct config_mtls {
   std::string certificate_file;
   std::string key;
   std::string key_file;
+  config_mtls_storage storage;
 };
 
 struct config_auth {
@@ -397,7 +423,20 @@ static std::string yaml_string(const YAML::Node& node)
   return trim(node.as<std::string>());
 }
 
-static void parse_auth_storage(const YAML::Node& node, config_auth& auth)
+static boost::optional<int> yaml_int(const YAML::Node& node)
+{
+  if (!node || !node.IsScalar()) {
+    return boost::none;
+  }
+  try {
+    return node.as<int>();
+  }
+  catch (const YAML::Exception&) {
+    return boost::none;
+  }
+}
+
+static void parse_auth_token_storage(const YAML::Node& node, config_auth& auth)
 {
   if (!node || !node.IsMap()) {
     return;
@@ -413,6 +452,32 @@ static void parse_auth_storage(const YAML::Node& node, config_auth& auth)
   }
 }
 
+static void parse_auth_mtls_storage(const YAML::Node& node, config_mtls_storage& storage)
+{
+  if (!node || !node.IsMap()) {
+    return;
+  }
+  storage.present            = true;
+  storage.kind               = yaml_string(node["kind"]);
+  storage.provider           = yaml_string(node["provider"]);
+  storage.module             = yaml_string(node["module"]);
+  storage.openssl_provider   = yaml_string(node["opensslProvider"]);
+  storage.token_label        = yaml_string(node["tokenLabel"]);
+  storage.token_serial       = yaml_string(node["tokenSerial"]);
+  storage.slot               = yaml_int(node["slot"]);
+  storage.key_label          = yaml_string(node["keyLabel"]);
+  storage.key_id_hex         = yaml_string(node["keyIdHex"]);
+  storage.certificate        = yaml_string(node["certificate"]);
+  storage.certificate_file   = yaml_string(node["certificateFile"]);
+  storage.certificate_label  = yaml_string(node["certificateLabel"]);
+  storage.certificate_id_hex = yaml_string(node["certificateIdHex"]);
+  storage.certificate_sha256 = yaml_string(node["certificateSHA256"]);
+  storage.pin_env            = yaml_string(node["pinEnv"]);
+  if (auto max_sessions = yaml_int(node["maxSessions"])) {
+    storage.max_sessions = max_sessions.get();
+  }
+}
+
 static void parse_auth_mtls(const YAML::Node& node, config_auth& auth)
 {
   if (!node || !node.IsMap()) {
@@ -422,7 +487,9 @@ static void parse_auth_mtls(const YAML::Node& node, config_auth& auth)
   std::string certificate_file = yaml_string(node["certificateFile"]);
   std::string key              = yaml_string(node["key"]);
   std::string key_file         = yaml_string(node["keyFile"]);
-  if (certificate.empty() && certificate_file.empty() && key.empty() && key_file.empty()) {
+  config_mtls_storage storage;
+  parse_auth_mtls_storage(node["storage"], storage);
+  if (certificate.empty() && certificate_file.empty() && key.empty() && key_file.empty() && !storage.present) {
     return;
   }
   auth.mtls.present          = true;
@@ -430,6 +497,7 @@ static void parse_auth_mtls(const YAML::Node& node, config_auth& auth)
   auth.mtls.certificate_file = certificate_file;
   auth.mtls.key              = key;
   auth.mtls.key_file         = key_file;
+  auth.mtls.storage          = storage;
 }
 
 static void parse_auth(const YAML::Node& node, config_auth& auth)
@@ -445,7 +513,7 @@ static void parse_auth(const YAML::Node& node, config_auth& auth)
   if (token && token.IsMap()) {
     YAML::Node storage = token["storage"];
     if (storage && storage.IsMap()) {
-      parse_auth_storage(storage, auth);
+      parse_auth_token_storage(storage, auth);
     }
   }
   parse_auth_mtls(auth_node["mtls"], auth);
@@ -605,6 +673,54 @@ static void append_auth_json(nlohmann::json& json, const config_auth& auth)
     }
     if (!auth.mtls.key_file.empty()) {
       json["auth"]["mtls"]["keyFile"] = auth.mtls.key_file;
+    }
+    if (auth.mtls.storage.present) {
+      json["auth"]["mtls"]["storage"]["kind"] = auth.mtls.storage.kind;
+      if (!auth.mtls.storage.provider.empty()) {
+        json["auth"]["mtls"]["storage"]["provider"] = auth.mtls.storage.provider;
+      }
+      if (!auth.mtls.storage.module.empty()) {
+        json["auth"]["mtls"]["storage"]["module"] = auth.mtls.storage.module;
+      }
+      if (!auth.mtls.storage.openssl_provider.empty()) {
+        json["auth"]["mtls"]["storage"]["opensslProvider"] = auth.mtls.storage.openssl_provider;
+      }
+      if (!auth.mtls.storage.token_label.empty()) {
+        json["auth"]["mtls"]["storage"]["tokenLabel"] = auth.mtls.storage.token_label;
+      }
+      if (!auth.mtls.storage.token_serial.empty()) {
+        json["auth"]["mtls"]["storage"]["tokenSerial"] = auth.mtls.storage.token_serial;
+      }
+      if (auth.mtls.storage.slot) {
+        json["auth"]["mtls"]["storage"]["slot"] = auth.mtls.storage.slot.get();
+      }
+      if (!auth.mtls.storage.key_label.empty()) {
+        json["auth"]["mtls"]["storage"]["keyLabel"] = auth.mtls.storage.key_label;
+      }
+      if (!auth.mtls.storage.key_id_hex.empty()) {
+        json["auth"]["mtls"]["storage"]["keyIdHex"] = auth.mtls.storage.key_id_hex;
+      }
+      if (!auth.mtls.storage.certificate.empty()) {
+        json["auth"]["mtls"]["storage"]["certificate"] = auth.mtls.storage.certificate;
+      }
+      if (!auth.mtls.storage.certificate_file.empty()) {
+        json["auth"]["mtls"]["storage"]["certificateFile"] = auth.mtls.storage.certificate_file;
+      }
+      if (!auth.mtls.storage.certificate_label.empty()) {
+        json["auth"]["mtls"]["storage"]["certificateLabel"] = auth.mtls.storage.certificate_label;
+      }
+      if (!auth.mtls.storage.certificate_id_hex.empty()) {
+        json["auth"]["mtls"]["storage"]["certificateIdHex"] = auth.mtls.storage.certificate_id_hex;
+      }
+      if (!auth.mtls.storage.certificate_sha256.empty()) {
+        json["auth"]["mtls"]["storage"]["certificateSHA256"] = auth.mtls.storage.certificate_sha256;
+      }
+      if (!auth.mtls.storage.pin_env.empty()) {
+        json["auth"]["mtls"]["storage"]["pinEnv"] = auth.mtls.storage.pin_env;
+      }
+      if (auth.mtls.storage.max_sessions != 0) {
+        json["auth"]["mtls"]["storage"]["maxSessions"] = auth.mtls.storage.max_sessions;
+      }
     }
   }
 }
@@ -827,6 +943,82 @@ static std::string append_query_param(std::string address, const std::string& ke
   return address;
 }
 
+static int count_non_empty(const std::string& first, const std::string& second)
+{
+  int count = 0;
+  if (!first.empty()) {
+    count++;
+  }
+  if (!second.empty()) {
+    count++;
+  }
+  return count;
+}
+
+static std::string pkcs11_uri_escape(const std::string& value)
+{
+  std::ostringstream escaped;
+  escaped << std::uppercase << std::hex;
+  for (unsigned char c : value) {
+    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      escaped << static_cast<char>(c);
+    }
+    else {
+      escaped << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+    }
+  }
+  return escaped.str();
+}
+
+static bool is_hex_string(const std::string& value)
+{
+  if (value.empty() || value.size() % 2 != 0) {
+    return false;
+  }
+  for (unsigned char c : value) {
+    if (!std::isxdigit(c)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static boost::system::result<std::string> pkcs11_uri_id_from_hex(const std::string& value)
+{
+  if (!is_hex_string(value)) {
+    return error::make_error_code(error::code::invalid_configuration);
+  }
+  std::ostringstream escaped;
+  escaped << std::uppercase;
+  for (size_t i = 0; i < value.size(); i += 2) {
+    escaped << '%' << value[i] << value[i + 1];
+  }
+  return escaped.str();
+}
+
+static boost::system::result<std::string> pkcs11_uri_for_object(const config_mtls_storage& storage, const std::string& label, const std::string& id_hex, const std::string& type)
+{
+  std::string uri = "pkcs11:";
+  if (!storage.token_label.empty()) {
+    uri += "token=" + pkcs11_uri_escape(storage.token_label) + ";";
+  }
+  if (!storage.token_serial.empty()) {
+    uri += "serial=" + pkcs11_uri_escape(storage.token_serial) + ";";
+  }
+  if (!label.empty()) {
+    uri += "object=" + pkcs11_uri_escape(label) + ";";
+  }
+  else {
+    auto id = pkcs11_uri_id_from_hex(id_hex);
+    if (!id) {
+      return id.error();
+    }
+    uri += "id=" + id.value() + ";";
+  }
+  uri += "type=" + type;
+  return uri;
+}
+
 static boost::system::result<std::string> append_mtls_auth_params(std::string address, const boost::optional<config_mtls>& mtls)
 {
   if (!mtls) {
@@ -836,6 +1028,68 @@ static boost::system::result<std::string> append_mtls_auth_params(std::string ad
   const bool has_file_certificate   = !mtls.value().certificate_file.empty();
   const bool has_inline_key         = !mtls.value().key.empty();
   const bool has_file_key           = !mtls.value().key_file.empty();
+  if (mtls.value().storage.present) {
+    if (has_inline_certificate || has_file_certificate || has_inline_key || has_file_key) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    const auto& storage = mtls.value().storage;
+    if (storage.kind == "keychain") {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    if (storage.kind != "pkcs11") {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+#ifndef RSTREAM_WITH_PKCS11
+    return error::make_error_code(error::code::invalid_configuration);
+#else
+    if (!storage.provider.empty() || storage.module.empty() || storage.pin_env.empty()) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    if (storage.slot || storage.max_sessions != 0 || !storage.certificate_sha256.empty()) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    if (count_non_empty(storage.token_label, storage.token_serial) != 1) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    if (count_non_empty(storage.key_label, storage.key_id_hex) != 1) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    const bool has_pem_certificate   = !storage.certificate.empty() || !storage.certificate_file.empty();
+    const bool has_token_certificate = !storage.certificate_label.empty() || !storage.certificate_id_hex.empty();
+    if (count_non_empty(storage.certificate, storage.certificate_file) > 1 || count_non_empty(storage.certificate_label, storage.certificate_id_hex) > 1) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    if (has_pem_certificate == has_token_certificate) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    auto key_uri = pkcs11_uri_for_object(storage, storage.key_label, storage.key_id_hex, "private");
+    if (!key_uri) {
+      return key_uri.error();
+    }
+    address = append_query_param(address, "ssl.pkcs11_module", storage.module);
+    if (!storage.openssl_provider.empty()) {
+      address = append_query_param(address, "ssl.pkcs11_provider", storage.openssl_provider);
+    }
+    address = append_query_param(address, "ssl.pkcs11_pin_env", storage.pin_env);
+    address = append_query_param(address, "ssl.key", key_uri.value());
+    address = append_query_param(address, "ssl.key_type", "pkcs11");
+    if (!storage.certificate.empty()) {
+      address = append_query_param(address, "ssl.cert", storage.certificate);
+    }
+    else if (!storage.certificate_file.empty()) {
+      address = append_query_param(address, "ssl.cert_file", storage.certificate_file);
+    }
+    else {
+      auto certificate_uri = pkcs11_uri_for_object(storage, storage.certificate_label, storage.certificate_id_hex, "cert");
+      if (!certificate_uri) {
+        return certificate_uri.error();
+      }
+      address = append_query_param(address, "ssl.cert", certificate_uri.value());
+      address = append_query_param(address, "ssl.cert_type", "pkcs11");
+    }
+    return address;
+#endif
+  }
   if (has_inline_certificate == has_file_certificate || has_inline_key == has_file_key) {
     return error::make_error_code(error::code::invalid_configuration);
   }

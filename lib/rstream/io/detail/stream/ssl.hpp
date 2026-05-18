@@ -47,6 +47,9 @@ struct config {
   boost::optional<std::string> m_sni;
   boost::optional<std::string> m_alpn_protos;
   boost::optional<std::string> m_engine;
+  boost::optional<std::string> m_pkcs11_module;
+  boost::optional<std::string> m_pkcs11_pin_env;
+  boost::optional<std::string> m_pkcs11_provider;
   boost::optional<unsigned long> m_max_ongoing_upstream_ops;   // for acceptor only, 0 means no limit
   boost::optional<unsigned long> m_async_shutdown_timeout_ms;  // 0 means no limit
 };
