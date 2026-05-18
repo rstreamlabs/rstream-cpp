@@ -30,5 +30,6 @@ cmake_dependent_option_strict(BUILD_BINDING_PYTHON "Build Python binding" OFF "T
 cmake_dependent_option_strict(ENABLE_STATIC_PLUGINS "Use static linking for plugins" ON "${ENABLE_STATIC_PLUGINS_CONDITION}" OFF)
 cmake_dependent_option_strict(PYTHON_INSTALL_DEPENDENCIES "Install python dependencies" ON "${BUILD_BINDING_PYTHON}" OFF)
 cmake_dependent_option_strict(PYTHON_INSTALL_STDLIB "Install python standard library" OFF "${BUILD_BINDING_PYTHON}" OFF)
+cmake_dependent_option_strict(RSTREAM_WITH_PKCS11 "Build with PKCS#11 credential storage support" ON "SSL_PROVIDER STREQUAL openssl" OFF)
 cmake_dependent_option_strict(WITH_MAXMINDDB "Build with maxminddb library support" ON "TARGET maxminddb::maxminddb" OFF)
 cmake_dependent_option_strict(WITH_NCURSES "Build with ncurses library support" ON "TARGET Curses::Curses" OFF)

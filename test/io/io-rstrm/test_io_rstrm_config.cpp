@@ -410,6 +410,35 @@ static void check_config_file_json_includes_auth_storage_and_env_path()
   boost::filesystem::remove(path);
 }
 
+static void check_config_file_json_includes_mtls_storage()
+{
+  auto path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: engine.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        storage:\n"
+      "          kind: pkcs11\n"
+      "          module: /opt/pkcs11.so\n"
+      "          opensslProvider: pkcs11\n"
+      "          tokenLabel: RSTREAM\n"
+      "          keyLabel: client-key\n"
+      "          certificateFile: /etc/rstream/client.crt\n"
+      "          pinEnv: RSTREAM_PKCS11_PIN\n");
+  auto json_result = rstream::io_rstrm::get_rstream_config_file(path.string());
+  assert(json_result);
+  const auto& storage = json_result.value()["contexts"][0]["auth"]["mtls"]["storage"];
+  assert(storage["kind"] == "pkcs11");
+  assert(storage["module"] == "/opt/pkcs11.so");
+  assert(storage["opensslProvider"] == "pkcs11");
+  assert(storage["tokenLabel"] == "RSTREAM");
+  assert(storage["keyLabel"] == "client-key");
+  assert(storage["certificateFile"] == "/etc/rstream/client.crt");
+  assert(storage["pinEnv"] == "RSTREAM_PKCS11_PIN");
+  boost::filesystem::remove(path);
+}
+
 static void check_config_rejects_ambiguous_context()
 {
   env_guard token("RSTREAM_AUTHENTICATION_TOKEN");
@@ -729,6 +758,94 @@ static void check_engine_resolution_rejects_invalid_mtls_auth_config()
   assert(from_env.value() == "tcp://engine.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.cert_file=%2Fetc%2Frstream%2Fenv-client.pem&ssl.key_file=%2Fetc%2Frstream%2Fenv-client-key.pem");
 }
 
+static void check_engine_resolution_from_pkcs11_mtls_auth_config()
+{
+  env_guard engine_address("RSTREAM_ENGINE_ADDRESS");
+  env_guard engine("RSTREAM_ENGINE");
+  env_guard cert_file("RSTREAM_MTLS_CERT_FILE");
+  env_guard key_file("RSTREAM_MTLS_KEY_FILE");
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  env_guard api_url("RSTREAM_API_URL");
+  engine_address.unset();
+  engine.unset();
+  cert_file.unset();
+  key_file.unset();
+  api_url.unset();
+  context.set("prod");
+  auto path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        storage:\n"
+      "          kind: pkcs11\n"
+      "          module: /opt/pkcs11.so\n"
+      "          opensslProvider: pkcs11\n"
+      "          tokenLabel: RSTREAM\n"
+      "          keyLabel: client-key\n"
+      "          certificateFile: /etc/rstream/client.crt\n"
+      "          pinEnv: RSTREAM_PKCS11_PIN\n");
+  config_path.set(path.string());
+  auto result = rstream::io_rstrm::get_rstream_engine_address();
+#ifdef RSTREAM_WITH_PKCS11
+  assert(result);
+  assert(result.value() == "tcp://configured.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.pkcs11_module=%2Fopt%2Fpkcs11.so&ssl.pkcs11_provider=pkcs11&ssl.pkcs11_pin_env=RSTREAM_PKCS11_PIN&ssl.key=pkcs11%3Atoken%3DRSTREAM%3Bobject%3Dclient-key%3Btype%3Dprivate&ssl.key_type=pkcs11&ssl.cert_file=%2Fetc%2Frstream%2Fclient.crt");
+#else
+  assert(!result);
+  assert(result.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+#endif
+  boost::filesystem::remove(path);
+}
+
+static void check_engine_resolution_rejects_unsupported_mtls_storage()
+{
+  env_guard engine_address("RSTREAM_ENGINE_ADDRESS");
+  env_guard engine("RSTREAM_ENGINE");
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  env_guard api_url("RSTREAM_API_URL");
+  engine_address.unset();
+  engine.unset();
+  api_url.unset();
+  context.set("prod");
+  auto keychain_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        storage:\n"
+      "          kind: keychain\n"
+      "          provider: macos\n"
+      "          certificateSHA256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n");
+  config_path.set(keychain_path.string());
+  auto keychain = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!keychain);
+  assert(keychain.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  boost::filesystem::remove(keychain_path);
+  auto mixed_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    auth:\n"
+      "      mtls:\n"
+      "        certificateFile: /etc/rstream/client.crt\n"
+      "        storage:\n"
+      "          kind: pkcs11\n"
+      "          module: /opt/pkcs11.so\n"
+      "          tokenLabel: RSTREAM\n"
+      "          keyLabel: client-key\n"
+      "          certificateFile: /etc/rstream/client.crt\n"
+      "          pinEnv: RSTREAM_PKCS11_PIN\n");
+  config_path.set(mixed_path.string());
+  auto mixed = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!mixed);
+  assert(mixed.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  boost::filesystem::remove(mixed_path);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -743,11 +860,14 @@ int main(int argc, char** argv)
   check_token_resolution_uses_environment_auth_when_context_has_no_token();
   check_config_file_json_shape_and_invalid_yaml();
   check_config_file_json_includes_auth_storage_and_env_path();
+  check_config_file_json_includes_mtls_storage();
   check_config_rejects_ambiguous_context();
   check_config_context_api_url_selection_edges();
   check_config_default_paths_empty_files_and_exact_context_match();
   check_config_ignores_non_map_yaml_entries_and_malformed_auth_nodes();
   check_engine_resolution_from_env_and_config();
   check_engine_resolution_rejects_invalid_mtls_auth_config();
+  check_engine_resolution_from_pkcs11_mtls_auth_config();
+  check_engine_resolution_rejects_unsupported_mtls_storage();
   return 0;
 }

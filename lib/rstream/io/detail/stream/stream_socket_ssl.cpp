@@ -2,16 +2,34 @@
 
 #include "stream_socket_ssl.hpp"
 
+#include <cstdlib>
+
 #include <openssl/opensslv.h>
+
+#include <rstream/config.hpp>
 
 #define SSL_STREAM_PRINT_PEER_PKEY    1
 #define SSL_STREAM_USE_OPENSSL_ENGINE 1
-#define SSL_STREAM_USE_RPK            OPENSSL_VERSION_NUMBER >= 0x30200000L
-#define SSL_STREAM_USE_STRAND         1
+#ifdef RSTREAM_WITH_PKCS11
+#define SSL_STREAM_USE_PKCS11 1
+#else
+#define SSL_STREAM_USE_PKCS11 0
+#endif
+#if SSL_STREAM_USE_PKCS11 == 1 && OPENSSL_VERSION_NUMBER >= 0x30000000L
+#define SSL_STREAM_USE_OPENSSL_PROVIDER 1
+#else
+#define SSL_STREAM_USE_OPENSSL_PROVIDER 0
+#endif
+#define SSL_STREAM_USE_RPK    OPENSSL_VERSION_NUMBER >= 0x30200000L
+#define SSL_STREAM_USE_STRAND 1
 
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
 #include <openssl/engine.h>
 #include <openssl/ui.h>
+#endif
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+#include <openssl/provider.h>
+#include <openssl/store.h>
 #endif
 
 #include <boost/asio/bind_executor.hpp>
@@ -22,7 +40,6 @@
 #include <fmt/ranges.h>
 #include <openssl/x509_vfy.h>
 
-#include <rstream/config.hpp>
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/log.hpp>
@@ -132,7 +149,17 @@ class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_
   boost::asio::ssl::context make_ssl_context();
 
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
-  void init_engine(const std::string& engine, boost::system::error_code& error_code);
+  void init_engine(const std::string& engine, const boost::optional<std::string>& module, const boost::optional<std::string>& pin, boost::system::error_code& error_code);
+#endif
+
+#if SSL_STREAM_USE_PKCS11 == 1
+  boost::optional<std::string> get_pkcs11_pin(boost::system::error_code& error_code) const;
+  X509* load_pkcs11_certificate(const std::string& uri, boost::system::error_code& error_code);
+  EVP_PKEY* load_pkcs11_private_key(const std::string& uri, boost::system::error_code& error_code);
+#endif
+
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  void init_pkcs11_provider(const boost::optional<std::string>& pin, boost::system::error_code& error_code);
 #endif
 
   using ssl_stream_type = boost::asio::ssl::stream<stream_socket_interface&>;
@@ -161,6 +188,10 @@ class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_
 
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
   ENGINE* m_engine;
+#endif
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  OSSL_PROVIDER* m_default_provider;
+  OSSL_PROVIDER* m_pkcs11_provider;
 #endif
 
   boost::asio::ssl::context m_ssl_context;
@@ -315,6 +346,10 @@ stream_socket_ssl::impl::impl(stream_socket_ptr next_layer, const ssl::config& c
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
       m_engine(nullptr),
 #endif
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+      m_default_provider(nullptr),
+      m_pkcs11_provider(nullptr),
+#endif
       m_ssl_context(make_ssl_context()),
       m_ssl_stream(*next_layer, m_ssl_context)
 {
@@ -327,6 +362,16 @@ stream_socket_ssl::impl::~impl()
     ::ENGINE_finish(m_engine);
     ::ENGINE_free(m_engine);
     m_engine = nullptr;
+  }
+#endif
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  if (m_pkcs11_provider) {
+    ::OSSL_PROVIDER_unload(m_pkcs11_provider);
+    m_pkcs11_provider = nullptr;
+  }
+  if (m_default_provider) {
+    ::OSSL_PROVIDER_unload(m_default_provider);
+    m_default_provider = nullptr;
   }
 #endif
 }
@@ -631,6 +676,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     }
     boost::optional<boost::asio::ssl::context::file_format> file_format;
     boost::optional<std::string> engine;
+    boost::optional<std::string> pkcs11;
     if (m_config.m_cert_type) {
       if (m_config.m_cert_type.get() == "pem") {
         file_format = boost::asio::ssl::context::pem;
@@ -654,6 +700,15 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #endif
           throw boost::system::system_error(error::code::ssl_configuration_error);
         }
+      }
+      else if (m_config.m_cert_type.get() == "pkcs11") {
+        if (m_config.m_cert_file) {
+#ifdef DEBUG_BUILD
+          m_logger->warn("cannot pass SSL certificate as file when using PKCS#11 storage");
+#endif
+          throw boost::system::system_error(error::code::ssl_configuration_error);
+        }
+        pkcs11 = m_config.m_cert.get();
       }
       else {
 #ifdef DEBUG_BUILD
@@ -688,7 +743,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     else if (engine) {
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
 #ifdef ENGINE_CTRL_GET_CMD_FROM_NAME
-      init_engine(engine.get(), error_code);
+      init_engine(engine.get(), boost::none, boost::none, error_code);
       if (error_code) {
         throw boost::system::system_error(error_code);
       }
@@ -748,6 +803,43 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
       throw boost::system::system_error(error::code::ssl_configuration_error);
 #endif
     }
+    else if (pkcs11) {
+#if SSL_STREAM_USE_PKCS11 == 1
+      X509* certificate = load_pkcs11_certificate(pkcs11.get(), error_code);
+      if (error_code) {
+#ifdef DEBUG_BUILD
+        m_logger->warn("failed to load SSL certificate from PKCS#11 [error_code: {}]", error_code.message());
+#endif
+        throw boost::system::system_error(error_code);
+      }
+      if (!certificate) {
+#ifdef DEBUG_BUILD
+        m_logger->warn("PKCS#11 did not return a certificate");
+#endif
+        throw boost::system::system_error(error::code::ssl_configuration_error);
+      }
+      if (SSL_CTX_use_certificate(ssl_context.native_handle(), certificate) != 1) {
+        error_code = translate_error(::ERR_get_error());
+      }
+      else {
+#ifdef DEBUG_BUILD
+        m_logger->trace("SSL certificate successfully loaded from PKCS#11");
+#endif
+      }
+      X509_free(certificate);
+      if (error_code) {
+#ifdef DEBUG_BUILD
+        m_logger->warn("failed to set SSL certificate from PKCS#11 [error_code: {}]", error_code.message());
+#endif
+        throw boost::system::system_error(error_code);
+      }
+#else
+#ifdef DEBUG_BUILD
+      m_logger->warn("PKCS#11 SSL certificate storage is not supported in this build");
+#endif
+      throw boost::system::system_error(error::code::ssl_configuration_error);
+#endif
+    }
   }
   else if (m_config.m_cert_type) {
 #ifdef DEBUG_BUILD
@@ -770,6 +862,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     }
     boost::optional<boost::asio::ssl::context::file_format> file_format;
     boost::optional<std::string> engine;
+    boost::optional<std::string> pkcs11;
     if (m_config.m_key_type) {
       if (m_config.m_key_type.get() == "pem") {
         file_format = boost::asio::ssl::context::pem;
@@ -793,6 +886,21 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #endif
           throw boost::system::system_error(error::code::ssl_configuration_error);
         }
+      }
+      else if (m_config.m_key_type.get() == "pkcs11") {
+        if (m_config.m_key_file) {
+#ifdef DEBUG_BUILD
+          m_logger->warn("cannot pass SSL key as file when using PKCS#11 storage");
+#endif
+          throw boost::system::system_error(error::code::ssl_configuration_error);
+        }
+        if (m_config.m_passphrase) {
+#ifdef DEBUG_BUILD
+          m_logger->warn("SSL passphrase is not supported with PKCS#11 storage; use ssl.pkcs11_pin_env");
+#endif
+          throw boost::system::system_error(error::code::ssl_configuration_error);
+        }
+        pkcs11 = m_config.m_key.get();
       }
       else {
 #ifdef DEBUG_BUILD
@@ -849,7 +957,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     }
     else if (engine) {
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
-      init_engine(engine.get(), error_code);
+      init_engine(engine.get(), boost::none, boost::none, error_code);
       if (error_code) {
         throw boost::system::system_error(error_code);
       }
@@ -899,6 +1007,43 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #else
 #ifdef DEBUG_BUILD
       m_logger->warn("SSL engine is not supported");
+#endif
+      throw boost::system::system_error(error::code::ssl_configuration_error);
+#endif
+    }
+    else if (pkcs11) {
+#if SSL_STREAM_USE_PKCS11 == 1
+      EVP_PKEY* private_key = load_pkcs11_private_key(pkcs11.get(), error_code);
+      if (error_code) {
+#ifdef DEBUG_BUILD
+        m_logger->warn("failed to load SSL private key from PKCS#11 [error_code: {}]", error_code.message());
+#endif
+        throw boost::system::system_error(error_code);
+      }
+      if (!private_key) {
+#ifdef DEBUG_BUILD
+        m_logger->warn("PKCS#11 did not return a private key");
+#endif
+        throw boost::system::system_error(error::code::ssl_configuration_error);
+      }
+      if (SSL_CTX_use_PrivateKey(ssl_context.native_handle(), private_key) != 1) {
+        error_code = translate_error(::ERR_get_error());
+      }
+      else {
+#ifdef DEBUG_BUILD
+        m_logger->trace("SSL private key successfully loaded from PKCS#11");
+#endif
+      }
+      EVP_PKEY_free(private_key);
+      if (error_code) {
+#ifdef DEBUG_BUILD
+        m_logger->warn("failed to set SSL private key from PKCS#11 [error_code: {}]", error_code.message());
+#endif
+        throw boost::system::system_error(error_code);
+      }
+#else
+#ifdef DEBUG_BUILD
+      m_logger->warn("PKCS#11 SSL key storage is not supported in this build");
 #endif
       throw boost::system::system_error(error::code::ssl_configuration_error);
 #endif
@@ -1154,7 +1299,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 }
 
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
-void stream_socket_ssl::impl::init_engine(const std::string& engine, boost::system::error_code& error_code)
+void stream_socket_ssl::impl::init_engine(const std::string& engine, const boost::optional<std::string>& module, const boost::optional<std::string>& pin, boost::system::error_code& error_code)
 {
   if (m_engine) {
     return;
@@ -1170,6 +1315,30 @@ void stream_socket_ssl::impl::init_engine(const std::string& engine, boost::syst
 #endif
     return;
   }
+  if (module && !module.get().empty()) {
+    if (::ENGINE_ctrl_cmd(native_engine, "MODULE_PATH", 0, (void*)module.get().c_str(), NULL, 1) != 1) {
+      error_code = translate_error(::ERR_get_error());
+    }
+    if (error_code) {
+#ifdef DEBUG_BUILD
+      m_logger->warn("failed to configure SSL engine PKCS#11 module [error_code: {}]", error_code.message());
+#endif
+      ::ENGINE_free(native_engine);
+      return;
+    }
+  }
+  if (pin && !pin.get().empty()) {
+    if (::ENGINE_ctrl_cmd(native_engine, "PIN", 0, (void*)pin.get().c_str(), NULL, 1) != 1) {
+      error_code = translate_error(::ERR_get_error());
+    }
+    if (error_code) {
+#ifdef DEBUG_BUILD
+      m_logger->warn("failed to configure SSL engine PKCS#11 PIN [error_code: {}]", error_code.message());
+#endif
+      ::ENGINE_free(native_engine);
+      return;
+    }
+  }
   if (::ENGINE_init(native_engine) != 1) {
     ENGINE_free(native_engine);
     error_code = translate_error(::ERR_get_error());
@@ -1181,6 +1350,276 @@ void stream_socket_ssl::impl::init_engine(const std::string& engine, boost::syst
     return;
   }
   m_engine = native_engine;
+}
+#endif
+
+#if SSL_STREAM_USE_PKCS11 == 1
+boost::optional<std::string> stream_socket_ssl::impl::get_pkcs11_pin(boost::system::error_code& error_code) const
+{
+  if (!m_config.m_pkcs11_pin_env || m_config.m_pkcs11_pin_env.get().empty()) {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+    return boost::none;
+  }
+  const char* value = std::getenv(m_config.m_pkcs11_pin_env.get().c_str());
+  if (!value || value[0] == '\0') {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+    return boost::none;
+  }
+  return std::string(value);
+}
+
+X509* stream_socket_ssl::impl::load_pkcs11_certificate(const std::string& uri, boost::system::error_code& error_code)
+{
+  auto pin = get_pkcs11_pin(error_code);
+  if (error_code) {
+    return nullptr;
+  }
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  init_pkcs11_provider(pin, error_code);
+  if (!error_code) {
+    ::ERR_clear_error();
+    OSSL_STORE_CTX* store = ::OSSL_STORE_open(uri.c_str(), nullptr, nullptr, nullptr, nullptr);
+    if (!store) {
+      error_code = translate_error(::ERR_get_error());
+      if (!error_code) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
+    }
+    else {
+      while (!::OSSL_STORE_eof(store)) {
+        OSSL_STORE_INFO* info = ::OSSL_STORE_load(store);
+        if (!info) {
+          if (::OSSL_STORE_error(store)) {
+            error_code = translate_error(::ERR_get_error());
+            if (!error_code) {
+              error_code = error::make_error_code(error::code::ssl_configuration_error);
+            }
+          }
+          break;
+        }
+        if (::OSSL_STORE_INFO_get_type(info) == OSSL_STORE_INFO_CERT) {
+          X509* certificate = ::OSSL_STORE_INFO_get1_CERT(info);
+          ::OSSL_STORE_INFO_free(info);
+          ::OSSL_STORE_close(store);
+          return certificate;
+        }
+        ::OSSL_STORE_INFO_free(info);
+      }
+      ::OSSL_STORE_close(store);
+    }
+  }
+  if (!error_code) {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+    return nullptr;
+  }
+  boost::system::error_code provider_error = error_code;
+  error_code.clear();
+#endif
+#if SSL_STREAM_USE_OPENSSL_ENGINE == 1
+  init_engine("pkcs11", m_config.m_pkcs11_module, pin, error_code);
+  if (error_code) {
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+    if (provider_error) {
+      error_code = provider_error;
+    }
+#endif
+    return nullptr;
+  }
+#ifdef ENGINE_CTRL_GET_CMD_FROM_NAME
+  const char* cmd_name = "LOAD_CERT_CTRL";
+  if (!ENGINE_ctrl(m_engine, ENGINE_CTRL_GET_CMD_FROM_NAME, 0, (void*)cmd_name, NULL)) {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+    return nullptr;
+  }
+  struct {
+    const char* cert_id;
+    X509* cert;
+  } params;
+  params.cert_id = uri.c_str();
+  params.cert    = nullptr;
+  if (!ENGINE_ctrl_cmd(m_engine, cmd_name, 0, &params, NULL, 1)) {
+    error_code = translate_error(::ERR_get_error());
+    if (!error_code) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+    }
+  }
+  return params.cert;
+#else
+  error_code = error::make_error_code(error::code::ssl_configuration_error);
+  return nullptr;
+#endif
+#else
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  error_code = provider_error;
+#else
+  error_code = error::make_error_code(error::code::ssl_configuration_error);
+#endif
+  return nullptr;
+#endif
+}
+
+EVP_PKEY* stream_socket_ssl::impl::load_pkcs11_private_key(const std::string& uri, boost::system::error_code& error_code)
+{
+  auto pin = get_pkcs11_pin(error_code);
+  if (error_code) {
+    return nullptr;
+  }
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  init_pkcs11_provider(pin, error_code);
+  if (!error_code) {
+    ::ERR_clear_error();
+    OSSL_STORE_CTX* store = ::OSSL_STORE_open(uri.c_str(), nullptr, nullptr, nullptr, nullptr);
+    if (!store) {
+      error_code = translate_error(::ERR_get_error());
+      if (!error_code) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
+    }
+    else {
+      while (!::OSSL_STORE_eof(store)) {
+        OSSL_STORE_INFO* info = ::OSSL_STORE_load(store);
+        if (!info) {
+          if (::OSSL_STORE_error(store)) {
+            error_code = translate_error(::ERR_get_error());
+            if (!error_code) {
+              error_code = error::make_error_code(error::code::ssl_configuration_error);
+            }
+          }
+          break;
+        }
+        if (::OSSL_STORE_INFO_get_type(info) == OSSL_STORE_INFO_PKEY) {
+          EVP_PKEY* private_key = ::OSSL_STORE_INFO_get1_PKEY(info);
+          ::OSSL_STORE_INFO_free(info);
+          ::OSSL_STORE_close(store);
+          return private_key;
+        }
+        ::OSSL_STORE_INFO_free(info);
+      }
+      ::OSSL_STORE_close(store);
+    }
+  }
+  if (!error_code) {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+    return nullptr;
+  }
+  boost::system::error_code provider_error = error_code;
+  error_code.clear();
+#endif
+#if SSL_STREAM_USE_OPENSSL_ENGINE == 1
+  init_engine("pkcs11", m_config.m_pkcs11_module, pin, error_code);
+  if (error_code) {
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+    if (provider_error) {
+      error_code = provider_error;
+    }
+#endif
+    return nullptr;
+  }
+  EVP_PKEY* private_key = ::ENGINE_load_private_key(m_engine, uri.c_str(), nullptr, nullptr);
+  if (!private_key) {
+    error_code = translate_error(::ERR_get_error());
+    if (!error_code) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+    }
+  }
+  return private_key;
+#else
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+  error_code = provider_error;
+#else
+  error_code = error::make_error_code(error::code::ssl_configuration_error);
+#endif
+  return nullptr;
+#endif
+}
+#endif
+
+#if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::string>& pin, boost::system::error_code& error_code)
+{
+  if (!m_config.m_pkcs11_module || m_config.m_pkcs11_module.get().empty()) {
+    error_code = error::make_error_code(error::code::ssl_configuration_error);
+    return;
+  }
+  if (!m_default_provider) {
+    ::ERR_clear_error();
+    m_default_provider = ::OSSL_PROVIDER_try_load(nullptr, "default", 1);
+    if (!m_default_provider) {
+      error_code = translate_error(::ERR_get_error());
+      if (!error_code) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
+      return;
+    }
+  }
+  std::string provider = m_config.m_pkcs11_provider && !m_config.m_pkcs11_provider.get().empty()
+      ? m_config.m_pkcs11_provider.get()
+      : std::string("pkcs11prov");
+  if (!m_pkcs11_provider) {
+    ::ERR_clear_error();
+    m_pkcs11_provider = ::OSSL_PROVIDER_load(nullptr, provider.c_str());
+    if (!m_pkcs11_provider) {
+      error_code = translate_error(::ERR_get_error());
+      if (!error_code) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
+      return;
+    }
+  }
+#if OPENSSL_VERSION_NUMBER >= 0x30500000L
+  const bool has_pin = pin && !pin.get().empty();
+  if (provider == "pkcs11") {
+    if (::OSSL_PROVIDER_add_conf_parameter(
+            m_pkcs11_provider,
+            "pkcs11-module-path",
+            m_config.m_pkcs11_module.get().c_str()) != 1) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+      return;
+    }
+    if (has_pin &&
+        ::OSSL_PROVIDER_add_conf_parameter(
+            m_pkcs11_provider,
+            "pkcs11-module-token-pin",
+            pin.get().c_str()) != 1) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+      return;
+    }
+    if (::OSSL_PROVIDER_add_conf_parameter(
+            m_pkcs11_provider,
+            "pkcs11-module-login-behavior",
+            "always") != 1) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+      return;
+    }
+  }
+  else {
+    if (::OSSL_PROVIDER_add_conf_parameter(
+            m_pkcs11_provider,
+            "pkcs11_module",
+            m_config.m_pkcs11_module.get().c_str()) != 1) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+      return;
+    }
+    if (has_pin &&
+        ::OSSL_PROVIDER_add_conf_parameter(
+            m_pkcs11_provider,
+            "pin",
+            pin.get().c_str()) != 1) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+      return;
+    }
+    if (::OSSL_PROVIDER_add_conf_parameter(
+            m_pkcs11_provider,
+            "force_login",
+            "1") != 1) {
+      error_code = error::make_error_code(error::code::ssl_configuration_error);
+      return;
+    }
+  }
+#else
+  (void)provider;
+  (void)pin;
+#endif
 }
 #endif
 
