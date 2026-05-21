@@ -171,6 +171,8 @@ For consistency with CLI flows, the following variables are the primary explicit
 
 In short, engine resolution starts from explicit environment overrides and then falls back to config/context resolution. Token resolution starts from explicit SDK options, then environment override, then config-derived values. Token authentication and mTLS agent authentication are mutually exclusive for the control-channel connection. When the mTLS certificate and key variables are set, config-derived tokens are not used for that connection; setting mTLS variables together with `RSTREAM_AUTHENTICATION_TOKEN` is an error. Engine HTTP API requests use token authentication.
 
+The shared YAML schema includes `transport.proxy` for SDKs that can proxy their engine connection. `rstream-cpp` parses that block so configuration files keep the same shape across SDKs, but it does not currently implement HTTP CONNECT, SOCKS5, or environment-derived proxying for the `io-rstrm` engine connection. A selected context or environment that requests a proxy fails during configuration resolution instead of being ignored.
+
 Contexts can authenticate an agent control-channel connection with mTLS instead of a token:
 
 ```yaml

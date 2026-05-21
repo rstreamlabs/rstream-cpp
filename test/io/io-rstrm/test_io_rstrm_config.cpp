@@ -846,6 +846,49 @@ static void check_engine_resolution_rejects_unsupported_mtls_storage()
   boost::filesystem::remove(mixed_path);
 }
 
+static void check_config_rejects_unsupported_transport_proxy()
+{
+  env_guard engine_address("RSTREAM_ENGINE_ADDRESS");
+  env_guard engine("RSTREAM_ENGINE");
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  env_guard api_url("RSTREAM_API_URL");
+  engine_address.unset();
+  engine.unset();
+  api_url.unset();
+  context.set("prod");
+  auto context_proxy_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    transport:\n"
+      "      proxy:\n"
+      "        socks5: socks5://proxy.example:1080\n");
+  config_path.set(context_proxy_path.string());
+  auto context_proxy = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!context_proxy);
+  assert(context_proxy.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  auto json_result = rstream::io_rstrm::get_rstream_config_file(context_proxy_path.string());
+  assert(json_result);
+  assert(json_result.value()["contexts"][0]["transport"]["proxy"]["socks5"] == "socks5://proxy.example:1080");
+  boost::filesystem::remove(context_proxy_path);
+  auto env_proxy_path = write_config_file(
+      "environments:\n"
+      "  - apiUrl: https://rstream.io\n"
+      "    transport:\n"
+      "      proxy:\n"
+      "        fromEnvironment: true\n"
+      "contexts:\n"
+      "  - name: prod\n"
+      "    apiUrl: https://rstream.io\n"
+      "    engine: configured.example:443\n");
+  config_path.set(env_proxy_path.string());
+  auto env_proxy = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!env_proxy);
+  assert(env_proxy.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  boost::filesystem::remove(env_proxy_path);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -869,5 +912,6 @@ int main(int argc, char** argv)
   check_engine_resolution_rejects_invalid_mtls_auth_config();
   check_engine_resolution_from_pkcs11_mtls_auth_config();
   check_engine_resolution_rejects_unsupported_mtls_storage();
+  check_config_rejects_unsupported_transport_proxy();
   return 0;
 }
