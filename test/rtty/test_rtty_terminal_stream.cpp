@@ -1,6 +1,7 @@
 // See LICENSE file in the project root for license information.
 
 #include <cassert>
+#include <stdexcept>
 #include <system_error>
 
 #include <boost/asio/io_context.hpp>
@@ -23,6 +24,13 @@
 namespace stream = rstream::rtty::stream;
 
 #ifndef _WIN32
+static void require_posix(bool condition, const char* message)
+{
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
+}
+
 class fd_guard {
  public:
   fd_guard() = default;
@@ -53,7 +61,7 @@ class fd_guard {
 static void check_non_tty_file_descriptor_is_rejected()
 {
   int pipe_fds[2] = {-1, -1};
-  assert(pipe(pipe_fds) == 0);
+  require_posix(pipe(pipe_fds) == 0, "pipe failed");
   fd_guard read_end(pipe_fds[0]);
   fd_guard write_end(pipe_fds[1]);
 
@@ -73,7 +81,7 @@ static void check_terminal_resize_and_reset_on_pty()
 {
   int master_fd = -1;
   int slave_fd  = -1;
-  assert(openpty(&master_fd, &slave_fd, nullptr, nullptr, nullptr) == 0);
+  require_posix(openpty(&master_fd, &slave_fd, nullptr, nullptr, nullptr) == 0, "openpty failed");
   fd_guard master(master_fd);
   fd_guard slave(slave_fd);
 

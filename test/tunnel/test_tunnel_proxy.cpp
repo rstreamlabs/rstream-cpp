@@ -1,7 +1,5 @@
 // See LICENSE file in the project root for license information.
 
-#include <arpa/inet.h>
-
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -24,6 +22,8 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/write.hpp>
+
+#include <arpa/inet.h>
 
 #include <rstream/io-rstrm/protobuf/messages.pb.h>
 #include <rstream/tunnel/error.hpp>
@@ -129,6 +129,20 @@ static protobuf::Message proxy_response()
   protobuf::Message response;
   response.mutable_proxy_rsp();
   return response;
+}
+
+static bool is_zero_rtt_proxy_request(const protobuf::Message& message)
+{
+  check(message.has_proxy_req(), "expected proxy stream handshake");
+  const auto& request = message.proxy_req();
+  return request.has_zero_rtt() && request.zero_rtt().value();
+}
+
+static void write_proxy_response_if_needed(tcp::socket& socket, const protobuf::Message& request)
+{
+  if (!is_zero_rtt_proxy_request(request)) {
+    write_message(socket, proxy_response());
+  }
 }
 
 static protobuf::Message close_control_response()
@@ -249,7 +263,7 @@ class fake_engine {
         check(handshake.has_proxy_req(), "expected proxy stream handshake");
         check(handshake.proxy_req().stream_id() == "stream-1", "unexpected proxy stream id");
         check(!handshake.proxy_req().client_details().has_token(), "test proxy stream must not send a token");
-        write_message(stream, proxy_response());
+        write_proxy_response_if_needed(stream, handshake);
 
         auto proxy_ack = read_message(control);
         check(proxy_ack.has_proxy_conn_rsp(), "expected proxy connection response");
@@ -310,9 +324,9 @@ static void check_proxy_forwards_engine_stream_to_upstream_and_back()
 
   boost::asio::io_context io_context;
   rstream::tunnel::proxy::config config;
-  config.m_local_endpoint.m_id_name        = "api";
-  config.m_local_endpoint.m_server_address = rstream::io::make_address(engine.address());
-  config.m_target_address                  = rstream::io::make_address("tcp://" + upstream.address());
+  config.m_local_endpoint.m_id_name                           = "api";
+  config.m_local_endpoint.m_server_address                    = rstream::io::make_address(engine.address());
+  config.m_target_address                                     = rstream::io::make_address("tcp://" + upstream.address());
   config.m_settings_acceptor.m_config.m_no_token              = true;
   config.m_settings_acceptor.m_config.m_hearbeat              = false;
   config.m_settings_acceptor.m_config.m_connection_timeout_ms = 10000;
@@ -380,9 +394,9 @@ static void check_proxy_rejects_second_run_while_active()
 
   boost::asio::io_context io_context;
   rstream::tunnel::proxy::config config;
-  config.m_local_endpoint.m_id_name        = "api";
-  config.m_local_endpoint.m_server_address = rstream::io::make_address(engine.address());
-  config.m_target_address                  = rstream::io::make_address("tcp://" + upstream.address());
+  config.m_local_endpoint.m_id_name                           = "api";
+  config.m_local_endpoint.m_server_address                    = rstream::io::make_address(engine.address());
+  config.m_target_address                                     = rstream::io::make_address("tcp://" + upstream.address());
   config.m_settings_acceptor.m_config.m_no_token              = true;
   config.m_settings_acceptor.m_config.m_hearbeat              = false;
   config.m_settings_acceptor.m_config.m_connection_timeout_ms = 10000;
@@ -444,9 +458,9 @@ static void check_proxy_default_tunnel_request_leaves_public_policy_to_server()
 
   boost::asio::io_context io_context;
   rstream::tunnel::proxy::config config;
-  config.m_local_endpoint.m_id_name        = "api";
-  config.m_local_endpoint.m_server_address = rstream::io::make_address(engine.address());
-  config.m_target_address                  = rstream::io::make_address("tcp://127.0.0.1:9");
+  config.m_local_endpoint.m_id_name                           = "api";
+  config.m_local_endpoint.m_server_address                    = rstream::io::make_address(engine.address());
+  config.m_target_address                                     = rstream::io::make_address("tcp://127.0.0.1:9");
   config.m_settings_acceptor.m_config.m_no_token              = true;
   config.m_settings_acceptor.m_config.m_hearbeat              = false;
   config.m_settings_acceptor.m_config.m_connection_timeout_ms = 10000;

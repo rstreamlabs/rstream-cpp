@@ -1,13 +1,12 @@
 // See LICENSE file in the project root for license information.
 
-#include <arpa/inet.h>
-
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -24,6 +23,8 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
 
+#include <arpa/inet.h>
+
 #include <rstream/io-rstrm/acceptor.hpp>
 #include <rstream/io-rstrm/client.hpp>
 #include <rstream/io-rstrm/error.hpp>
@@ -35,18 +36,31 @@ using tcp          = boost::asio::ip::tcp;
 static constexpr unsigned int kControlChannelTimeoutMs = 10000;
 static constexpr unsigned int kWatchdogTimeoutSeconds  = 30;
 
+[[noreturn]] static void fail(const std::string& message)
+{
+  std::cerr << message << std::endl;
+  std::abort();
+}
+
+static void check(bool condition, const std::string& message)
+{
+  if (!condition) {
+    fail(message);
+  }
+}
+
 static protobuf::Message read_message(tcp::socket& socket)
 {
   std::uint32_t network_size = 0;
   boost::asio::read(socket, boost::asio::buffer(&network_size, sizeof(network_size)));
   const auto size = ntohl(network_size);
-  assert(size <= 1024 * 1024);
+  check(size <= 1024 * 1024, "framed protobuf message is too large");
   std::vector<char> payload(size);
   if (size > 0) {
     boost::asio::read(socket, boost::asio::buffer(payload));
   }
   protobuf::Message message;
-  assert(message.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+  check(message.ParseFromArray(payload.data(), static_cast<int>(payload.size())), "failed to parse protobuf message");
   return message;
 }
 
@@ -112,7 +126,7 @@ static protobuf::Message stream_response(const std::string& stream_id)
 
 class fake_engine {
  public:
-  using script_type = std::function<void(tcp::socket&)>;
+  using script_type       = std::function<void(tcp::socket&)>;
   using multi_script_type = std::function<void(tcp::acceptor&)>;
 
   fake_engine()
@@ -250,10 +264,10 @@ static void check_client_can_create_and_close_tunnel()
 
   boost::asio::io_context io_context;
   rstream::io_rstrm::config_client config;
-  config.m_no_token                = true;
-  config.m_hearbeat                = false;
-  config.m_connection_timeout_ms   = kControlChannelTimeoutMs;
-  config.m_heartbeat_interval_ms   = 0;
+  config.m_no_token              = true;
+  config.m_hearbeat              = false;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  config.m_heartbeat_interval_ms = 0;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
 
   bool saw_connected     = false;
@@ -361,10 +375,10 @@ static void check_client_rejects_invalid_operations_after_connection()
   config.m_connection_timeout_ms = kControlChannelTimeoutMs;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
 
-  bool connected                 = false;
-  bool callbacks_rejected        = false;
-  bool second_connect_rejected   = false;
-  bool invalid_tunnel_rejected   = false;
+  bool connected               = false;
+  bool callbacks_rejected      = false;
+  bool second_connect_rejected = false;
+  bool invalid_tunnel_rejected = false;
   watchdog test_watchdog(io_context);
 
   client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
@@ -550,7 +564,7 @@ static protobuf::Message tunnel_response_with_unknown_request_id(const protobuf:
 
 static void check_client_rejects_malformed_tunnel_responses()
 {
-  using response_factory = protobuf::Message (*)(const protobuf::OpenTunnelReq&);
+  using response_factory                                                                 = protobuf::Message (*)(const protobuf::OpenTunnelReq&);
   const std::array<std::pair<response_factory, rstream::io_rstrm::error::code>, 5> cases = {{
       {tunnel_response_with_missing_id, rstream::io_rstrm::error::code::protocol_error},
       {tunnel_response_with_invalid_type, rstream::io_rstrm::error::code::invalid_configuration},
@@ -667,6 +681,20 @@ static protobuf::Message proxy_response()
   return response;
 }
 
+static bool is_zero_rtt_proxy_request(const protobuf::Message& message)
+{
+  check(message.has_proxy_req(), "expected proxy stream handshake");
+  const auto& request = message.proxy_req();
+  return request.has_zero_rtt() && request.zero_rtt().value();
+}
+
+static void write_proxy_response_if_needed(tcp::socket& socket, const protobuf::Message& request)
+{
+  if (!is_zero_rtt_proxy_request(request)) {
+    write_message(socket, proxy_response());
+  }
+}
+
 static void wait_until_proxy_stream_is_ready(boost::asio::io_context& io_context, std::shared_ptr<boost::asio::steady_timer> timer, std::atomic_bool& ready, std::function<void()> callback)
 {
   if (ready.load()) {
@@ -703,7 +731,7 @@ static void check_client_accepts_delayed_proxy_stream_and_rejects_max_streams()
     assert(handshake.has_proxy_req());
     assert(handshake.proxy_req().stream_id() == "stream-1");
     assert(!handshake.proxy_req().client_details().has_token());
-    write_message(stream, proxy_response());
+    write_proxy_response_if_needed(stream, handshake);
 
     auto proxy_ack = read_message(control);
     assert(proxy_ack.has_proxy_conn_rsp());
@@ -717,7 +745,7 @@ static void check_client_accepts_delayed_proxy_stream_and_rejects_max_streams()
     assert(proxy_rejection.proxy_conn_rsp().has_error());
     assert(proxy_rejection.proxy_conn_rsp().error().code() == static_cast<protobuf::ErrorCode>(rstream::io_rstrm::error::make_error_code(rstream::io_rstrm::error::code::operation_aborted).value()));
 
-    first_stream_ready = true;
+    first_stream_ready        = true;
     const std::string inbound = "hello";
     boost::asio::write(stream, boost::asio::buffer(inbound));
     std::array<char, 5> reply = {};
@@ -731,11 +759,11 @@ static void check_client_accepts_delayed_proxy_stream_and_rejects_max_streams()
 
   boost::asio::io_context io_context;
   rstream::io_rstrm::config_client config;
-  config.m_no_token                = true;
-  config.m_hearbeat                = false;
-  config.m_connection_timeout_ms   = kControlChannelTimeoutMs;
-  config.m_max_ongoing_streams     = 1;
-  config.m_async_stream_operation  = true;
+  config.m_no_token               = true;
+  config.m_hearbeat               = false;
+  config.m_connection_timeout_ms  = kControlChannelTimeoutMs;
+  config.m_max_ongoing_streams    = 1;
+  config.m_async_stream_operation = true;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
 
   bool accepted_delayed_stream = false;
@@ -769,7 +797,7 @@ static void check_client_accepts_delayed_proxy_stream_and_rejects_max_streams()
             assert(read == read_buffer->size());
             assert(std::string(read_buffer->data(), read_buffer->size()) == "hello");
             read_stream_payload = true;
-            auto reply = std::make_shared<std::string>("world");
+            auto reply          = std::make_shared<std::string>("world");
             accepted_peer->async_write_some(boost::asio::buffer(*reply), [&, reply](const boost::system::error_code& write_error, std::size_t written) {
               assert(!write_error);
               assert(written == reply->size());
@@ -853,7 +881,7 @@ static void check_socket_rejects_invalid_state_operations()
   });
 
   const std::string payload = "hello";
-  bool write_rejected = false;
+  bool write_rejected       = false;
   socket.async_write_some(boost::asio::buffer(payload), [&](const boost::system::error_code& error_code, std::size_t size) {
     assert(error_code == rstream::io_rstrm::error::code::invalid_state);
     assert(size == 0);

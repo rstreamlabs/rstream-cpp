@@ -1,14 +1,13 @@
 // See LICENSE file in the project root for license information.
 
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <array>
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -19,11 +18,21 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
 
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include <rstream/ncat/client.hpp>
 #include <rstream/ncat/error.hpp>
 #include <rstream/ncat/server.hpp>
 
 using tcp = boost::asio::ip::tcp;
+
+static void require_posix(bool condition, const char* message)
+{
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
+}
 
 static unsigned short unused_tcp_port()
 {
@@ -106,12 +115,12 @@ class fd_capture {
       : m_target(target)
   {
     int fds[2] = {-1, -1};
-    assert(pipe(fds) == 0);
+    require_posix(pipe(fds) == 0, "pipe failed");
     m_read.reset(fds[0]);
     fd_guard write(fds[1]);
     m_saved.reset(dup(target));
-    assert(m_saved.get() != -1);
-    assert(dup2(write.get(), target) != -1);
+    require_posix(m_saved.get() != -1, "dup failed");
+    require_posix(dup2(write.get(), target) != -1, "dup2 failed");
   }
 
   ~fd_capture()
@@ -124,7 +133,9 @@ class fd_capture {
     if (m_saved.get() == -1) {
       return;
     }
-    assert(dup2(m_saved.get(), m_target) != -1);
+    if (dup2(m_saved.get(), m_target) == -1) {
+      std::abort();
+    }
     m_saved.reset();
   }
 
@@ -155,18 +166,18 @@ class stdin_data {
   explicit stdin_data(const std::string& data)
   {
     int fds[2] = {-1, -1};
-    assert(pipe(fds) == 0);
+    require_posix(pipe(fds) == 0, "pipe failed");
     m_read.reset(fds[0]);
     fd_guard write(fds[1]);
     std::size_t offset = 0;
     while (offset < data.size()) {
       auto n = ::write(write.get(), data.data() + offset, data.size() - offset);
-      assert(n > 0);
+      require_posix(n > 0, "write failed");
       offset += static_cast<std::size_t>(n);
     }
     m_saved.reset(dup(STDIN_FILENO));
-    assert(m_saved.get() != -1);
-    assert(dup2(m_read.get(), STDIN_FILENO) != -1);
+    require_posix(m_saved.get() != -1, "dup failed");
+    require_posix(dup2(m_read.get(), STDIN_FILENO) != -1, "dup2 failed");
   }
 
   ~stdin_data()
@@ -179,7 +190,9 @@ class stdin_data {
     if (m_saved.get() == -1) {
       return;
     }
-    assert(dup2(m_saved.get(), STDIN_FILENO) != -1);
+    if (dup2(m_saved.get(), STDIN_FILENO) == -1) {
+      std::abort();
+    }
     m_saved.reset();
   }
 
@@ -429,7 +442,7 @@ static void check_error_category()
 
 static void check_exec_server_pipes_downstream_to_child()
 {
-  const auto port = unused_tcp_port();
+  const auto port                      = unused_tcp_port();
   rstream::ncat::server::config config = {
       .m_local  = rstream::io::address(std::string("127.0.0.1:") + std::to_string(port)),
       .m_remote = rstream::ncat::server::exec{.m_shell = false, .m_cmd = "/bin/cat"},
@@ -451,7 +464,7 @@ static void check_proxy_server_pipes_downstream_to_upstream()
   echo_upstream upstream;
   upstream.start();
 
-  const auto port = unused_tcp_port();
+  const auto port                      = unused_tcp_port();
   rstream::ncat::server::config config = {
       .m_local  = rstream::io::address(std::string("127.0.0.1:") + std::to_string(port)),
       .m_remote = rstream::io::address(std::string("127.0.0.1:") + std::to_string(upstream.port())),
@@ -485,9 +498,9 @@ static void check_client_pipes_stdin_to_socket_and_socket_to_stdout()
       .m_non_interactive = false,
   };
   rstream::ncat::settings_client settings = {
-      .m_common                         = {},
-      .m_read_socket_buffer_size_bytes  = 64 * 1024,
-      .m_read_std_in_buffer_size_bytes  = 64 * 1024,
+      .m_common                        = {},
+      .m_read_socket_buffer_size_bytes = 64 * 1024,
+      .m_read_std_in_buffer_size_bytes = 64 * 1024,
   };
   boost::system::error_code result;
   bool done      = false;
@@ -529,9 +542,9 @@ static void check_client_cancel_closes_pending_socket_read()
       .m_non_interactive = true,
   };
   rstream::ncat::settings_client settings = {
-      .m_common                         = {},
-      .m_read_socket_buffer_size_bytes  = 64 * 1024,
-      .m_read_std_in_buffer_size_bytes  = 64 * 1024,
+      .m_common                        = {},
+      .m_read_socket_buffer_size_bytes = 64 * 1024,
+      .m_read_std_in_buffer_size_bytes = 64 * 1024,
   };
   rstream::ncat::client client(io_context.get_executor(), config, settings);
   boost::system::error_code result;

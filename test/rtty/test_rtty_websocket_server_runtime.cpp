@@ -1,12 +1,12 @@
 // See LICENSE file in the project root for license information.
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <exception>
 #include <iostream>
 #include <memory>
-#include <array>
 #include <optional>
 #include <string>
 #include <thread>
@@ -224,8 +224,8 @@ static std::optional<protobuf::Message> read_message(tcp::socket& socket)
   while (true) {
     std::array<unsigned char, 2> header{};
     read_exact(socket, header.data(), header.size());
-    const auto opcode = header[0] & 0x0f;
-    bool masked       = (header[1] & 0x80) != 0;
+    const auto opcode  = header[0] & 0x0f;
+    bool masked        = (header[1] & 0x80) != 0;
     std::uint64_t size = header[1] & 0x7f;
     if (size == 126) {
       std::array<unsigned char, 2> extended{};
@@ -261,7 +261,8 @@ static std::optional<protobuf::Message> read_message(tcp::socket& socket)
       continue;
     }
     protobuf::Message message;
-    assert(message.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+    const auto parsed = message.ParseFromArray(payload.data(), static_cast<int>(payload.size()));
+    assert(parsed);
     return message;
   }
 }
