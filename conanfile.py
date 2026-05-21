@@ -20,6 +20,7 @@ class ConanPackage(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     options = {
         "boost_ref": [None, "ANY"],
+        "build_bins": [True, False],
         "build_arch": [None, "ANY"],
         "build_channel": [None, "ANY"],
         "build_os": [None, "ANY"],
@@ -37,6 +38,7 @@ class ConanPackage(ConanFile):
     }
     default_options = {
         "boost_ref": None,
+        "build_bins": True,
         "build_arch": None,
         "build_channel": None,
         "build_os": None,
@@ -72,6 +74,7 @@ class ConanPackage(ConanFile):
     @property
     def cmake_options(self):
         return {
+            "build_bins": "BUILD_BINS",
             "deploy_python_dependencies": "PYTHON_INSTALL_DEPENDENCIES",
             "enable_testing": "ENABLE_TESTING",
             "static_libstdcxx": "STATIC_LIBSTDCXX",
