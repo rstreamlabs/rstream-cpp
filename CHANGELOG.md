@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.8.1...1.9.0) (2026-05-21)
+
+
+### Features
+
+* parse proxy TLS configuration ([2eb2190](https://github.com/rstreamlabs/rstream-cpp/commit/2eb2190baa6ddf39de8d908d4e0c7b6fad06946f))
+
 ## [1.8.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.8.0...1.8.1) (2026-05-21)
 
 
