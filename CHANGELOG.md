@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.4...1.8.0) (2026-05-21)
+
+
+### Features
+
+* support PKCS[#11](https://github.com/rstreamlabs/rstream-cpp/issues/11) credential storage ([c7e141c](https://github.com/rstreamlabs/rstream-cpp/commit/c7e141c09a668e2bea08013d6c9cf0bc3fdf9508))
+
+
+### Bug Fixes
+
+* export libatomic link dependency portably ([4dad5f9](https://github.com/rstreamlabs/rstream-cpp/commit/4dad5f9edae2fa68e3931a96ed4da541d1a36c2a))
+* reject unsupported engine proxy config ([ab0e46c](https://github.com/rstreamlabs/rstream-cpp/commit/ab0e46c99cb718c5645c3d8126eefe409fa76620))
+
 ## [1.7.4](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.3...1.7.4) (2026-05-17)
 
 
