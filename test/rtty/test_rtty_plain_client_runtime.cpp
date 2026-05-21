@@ -1,15 +1,13 @@
 // See LICENSE file in the project root for license information.
 
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <future>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +17,10 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
 
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include <rstream/rtty/client.hpp>
 #include <rstream/rtty/error.hpp>
 #include <rstream/rtty/protobuf/messages.pb.h>
@@ -26,6 +28,13 @@
 
 namespace protobuf = rstream::rtty::protobuf;
 using tcp          = boost::asio::ip::tcp;
+
+static void require_posix(bool condition, const char* message)
+{
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
+}
 
 class fd_guard {
  public:
@@ -69,12 +78,12 @@ class fd_capture {
       : m_target(target)
   {
     int fds[2] = {-1, -1};
-    assert(pipe(fds) == 0);
+    require_posix(pipe(fds) == 0, "pipe failed");
     m_read.reset(fds[0]);
     fd_guard write(fds[1]);
     m_saved.reset(dup(target));
-    assert(m_saved.get() != -1);
-    assert(dup2(write.get(), target) != -1);
+    require_posix(m_saved.get() != -1, "dup failed");
+    require_posix(dup2(write.get(), target) != -1, "dup2 failed");
   }
 
   ~fd_capture()
@@ -87,7 +96,9 @@ class fd_capture {
     if (m_saved.get() == -1) {
       return;
     }
-    assert(dup2(m_saved.get(), m_target) != -1);
+    if (dup2(m_saved.get(), m_target) == -1) {
+      std::abort();
+    }
     m_saved.reset();
   }
 
@@ -147,7 +158,8 @@ static protobuf::Message read_message(tcp::socket& socket)
     read_exact(socket, payload.data(), payload.size());
   }
   protobuf::Message message;
-  assert(message.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+  const auto parsed = message.ParseFromArray(payload.data(), static_cast<int>(payload.size()));
+  assert(parsed);
   return message;
 }
 
@@ -416,10 +428,10 @@ static rstream::rtty::client::config plain_client_config(unsigned short port)
       .m_protocol_config  = {
            .m_protocol_type = rstream::rtty::protocol::type::plain,
            .m_options       = {
-                 .m_interactive    = false,
-                 .m_allocate_tty   = false,
-                 .m_send_heartbeat = false,
-           },
+                     .m_interactive    = false,
+                     .m_allocate_tty   = false,
+                     .m_send_heartbeat = false,
+          },
            .m_env_vars = {},
            .m_cmd_args = {"/bin/sh", "-c", "unused"},
            .m_workdir  = {},
@@ -458,10 +470,10 @@ static void check_plain_client_processes_server_messages()
       .m_protocol_config  = {
            .m_protocol_type = rstream::rtty::protocol::type::plain,
            .m_options       = {
-                 .m_interactive    = false,
-                 .m_allocate_tty   = false,
-                 .m_send_heartbeat = false,
-           },
+                     .m_interactive    = false,
+                     .m_allocate_tty   = false,
+                     .m_send_heartbeat = false,
+          },
            .m_env_vars = {},
            .m_cmd_args = {"/bin/sh", "-c", "unused"},
            .m_workdir  = {},

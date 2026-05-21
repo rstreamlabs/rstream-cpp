@@ -47,6 +47,7 @@ class test_stream {
   {
     return m_socket.async_read_some(buffers, std::forward<handler_type>(handler));
   }
+
  private:
   socket_type& m_socket;
   bool m_secure;
@@ -96,8 +97,8 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, true);
   rstream::io_rstrm::config config;
-  config.m_token    = "secret-token";
-  config.m_zero_rtt = true;
+  config.m_token     = "secret-token";
+  config.m_zero_rtt  = true;
   bool client_called = false;
   bool server_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
@@ -110,7 +111,8 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
     auto buffer = rstream::core::make_buffer_allocated(4096);
     co_await payloader.async_recv(buffer, boost::asio::use_awaitable);
     protobuf::Message message;
-    assert(message.ParseFromArray(buffer.map().get_const_data(), buffer.get_size()));
+    const auto parsed = message.ParseFromArray(buffer.map().get_const_data(), buffer.get_size());
+    assert(parsed);
     assert(message.has_stream_req());
     assert(message.stream_req().tunnel_id_name() == "api");
     assert(message.stream_req().has_zero_rtt());
@@ -119,8 +121,7 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
     assert(message.stream_req().client_details().token().value() == "secret-token");
     server_called = true;
     socket->close();
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
   assert(server_called);
@@ -134,8 +135,8 @@ static void check_stream_response_must_have_payload()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
-  config.m_no_token = true;
-  config.m_zero_rtt = false;
+  config.m_no_token  = true;
+  config.m_zero_rtt  = false;
   bool client_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
   handshake.async_run(handshake_type::type::stream_req, "api", boost::none, [&](const boost::system::error_code& error_code) {
@@ -148,8 +149,7 @@ static void check_stream_response_must_have_payload()
     co_await payloader.async_recv(request, boost::asio::use_awaitable);
     rstream::core::buffer empty_response;
     co_await payloader.async_send(empty_response, boost::asio::use_awaitable);
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
 }
@@ -162,8 +162,8 @@ static void check_stream_response_error_is_mapped()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
-  config.m_no_token = true;
-  config.m_zero_rtt = false;
+  config.m_no_token  = true;
+  config.m_zero_rtt  = false;
   bool client_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
   handshake.async_run(handshake_type::type::stream_req, "api", boost::none, [&](const boost::system::error_code& error_code) {
@@ -178,8 +178,7 @@ static void check_stream_response_error_is_mapped()
     response.mutable_stream_rsp()->mutable_error()->set_code(protobuf::ERROR_CODE_UNAUTHORIZED);
     auto payload = serialize_message(response);
     co_await payloader.async_send(payload, boost::asio::use_awaitable);
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
 }
@@ -192,8 +191,8 @@ static void check_stream_success_response_completes()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
-  config.m_no_token = true;
-  config.m_zero_rtt = false;
+  config.m_no_token  = true;
+  config.m_zero_rtt  = false;
   bool client_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
   handshake.async_run(handshake_type::type::stream_req, "api", boost::none, [&](const boost::system::error_code& error_code) {
@@ -208,8 +207,7 @@ static void check_stream_success_response_completes()
     response.mutable_stream_rsp()->set_stream_id("stream-123");
     auto payload = serialize_message(response);
     co_await payloader.async_send(payload, boost::asio::use_awaitable);
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
 }
@@ -222,8 +220,8 @@ static void check_proxy_success_response_completes()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
-  config.m_no_token = true;
-  config.m_zero_rtt = false;
+  config.m_no_token  = true;
+  config.m_zero_rtt  = false;
   bool client_called = false;
   bool server_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
@@ -236,7 +234,8 @@ static void check_proxy_success_response_completes()
     auto request = rstream::core::make_buffer_allocated(4096);
     co_await payloader.async_recv(request, boost::asio::use_awaitable);
     protobuf::Message message;
-    assert(message.ParseFromArray(request.map().get_const_data(), request.get_size()));
+    const auto parsed = message.ParseFromArray(request.map().get_const_data(), request.get_size());
+    assert(parsed);
     assert(message.has_proxy_req());
     assert(message.proxy_req().stream_id() == "stream-123");
     assert(!message.proxy_req().has_zero_rtt());
@@ -245,8 +244,7 @@ static void check_proxy_success_response_completes()
     auto payload = serialize_message(response);
     co_await payloader.async_send(payload, boost::asio::use_awaitable);
     server_called = true;
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
   assert(server_called);
@@ -260,8 +258,8 @@ static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, true);
   rstream::io_rstrm::config config;
-  config.m_token    = "agent-token";
-  config.m_zero_rtt = false;
+  config.m_token     = "agent-token";
+  config.m_zero_rtt  = false;
   bool client_called = false;
   bool server_called = false;
   handshake_type handshake(stream, rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"), config);
@@ -274,7 +272,8 @@ static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
     auto request = rstream::core::make_buffer_allocated(4096);
     co_await payloader.async_recv(request, boost::asio::use_awaitable);
     protobuf::Message message;
-    assert(message.ParseFromArray(request.map().get_const_data(), request.get_size()));
+    const auto parsed = message.ParseFromArray(request.map().get_const_data(), request.get_size());
+    assert(parsed);
     assert(message.has_proxy_req());
     assert(message.proxy_req().stream_id() == "stream-123");
     assert(message.proxy_req().client_details().token().value() == "proxy-secret");
@@ -283,8 +282,7 @@ static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
     auto payload = serialize_message(response);
     co_await payloader.async_send(payload, boost::asio::use_awaitable);
     server_called = true;
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
   assert(server_called);
@@ -298,8 +296,8 @@ static void check_unexpected_response_type_is_rejected()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
-  config.m_no_token = true;
-  config.m_zero_rtt = false;
+  config.m_no_token  = true;
+  config.m_zero_rtt  = false;
   bool client_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
   handshake.async_run(handshake_type::type::stream_req, "api", boost::none, [&](const boost::system::error_code& error_code) {
@@ -314,8 +312,7 @@ static void check_unexpected_response_type_is_rejected()
     response.mutable_proxy_rsp();
     auto payload = serialize_message(response);
     co_await payloader.async_send(payload, boost::asio::use_awaitable);
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
 }
@@ -328,8 +325,8 @@ static void check_invalid_protobuf_response_is_rejected()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
-  config.m_no_token = true;
-  config.m_zero_rtt = false;
+  config.m_no_token  = true;
+  config.m_zero_rtt  = false;
   bool client_called = false;
   handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
   handshake.async_run(handshake_type::type::stream_req, "api", boost::none, [&](const boost::system::error_code& error_code) {
@@ -343,8 +340,7 @@ static void check_invalid_protobuf_response_is_rejected()
     auto invalid = rstream::core::make_buffer_allocated(1);
     static_cast<std::uint8_t*>(invalid.map().get_data())[0] = 0xff;
     co_await payloader.async_send(invalid, boost::asio::use_awaitable);
-    co_return;
-  }, boost::asio::detached);
+    co_return; }, boost::asio::detached);
   io_context.run();
   assert(client_called);
 }

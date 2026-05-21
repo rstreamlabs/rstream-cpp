@@ -1,13 +1,11 @@
 // See LICENSE file in the project root for license information.
 
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -21,6 +19,10 @@
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/websocket.hpp>
 
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #include <rstream/rtty/client.hpp>
 #include <rstream/rtty/protobuf/messages.pb.h>
 #include <rstream/rtty/rtty.hpp>
@@ -29,6 +31,13 @@ namespace http      = boost::beast::http;
 namespace websocket = boost::beast::websocket;
 namespace protobuf  = rstream::rtty::protobuf;
 using tcp           = boost::asio::ip::tcp;
+
+static void require_posix(bool condition, const char* message)
+{
+  if (!condition) {
+    throw std::runtime_error(message);
+  }
+}
 
 class fd_guard {
  public:
@@ -64,18 +73,18 @@ class stdin_data {
   explicit stdin_data(const std::string& data)
   {
     int fds[2] = {-1, -1};
-    assert(pipe(fds) == 0);
+    require_posix(pipe(fds) == 0, "pipe failed");
     m_read.reset(fds[0]);
     fd_guard write_fd(fds[1]);
     std::size_t offset = 0;
     while (offset < data.size()) {
       auto n = write(write_fd.get(), data.data() + offset, data.size() - offset);
-      assert(n > 0);
+      require_posix(n > 0, "write failed");
       offset += static_cast<std::size_t>(n);
     }
     m_saved.reset(dup(STDIN_FILENO));
-    assert(m_saved.get() != -1);
-    assert(dup2(m_read.get(), STDIN_FILENO) != -1);
+    require_posix(m_saved.get() != -1, "dup failed");
+    require_posix(dup2(m_read.get(), STDIN_FILENO) != -1, "dup2 failed");
   }
 
   ~stdin_data()
@@ -88,7 +97,9 @@ class stdin_data {
     if (m_saved.get() == -1) {
       return;
     }
-    assert(dup2(m_saved.get(), STDIN_FILENO) != -1);
+    if (dup2(m_saved.get(), STDIN_FILENO) == -1) {
+      std::abort();
+    }
     m_saved.reset();
   }
 
@@ -102,23 +113,23 @@ class terminal_stdin {
   terminal_stdin()
       : m_master(posix_openpt(O_RDWR | O_NOCTTY))
   {
-    assert(m_master.get() != -1);
-    assert(grantpt(m_master.get()) == 0);
-    assert(unlockpt(m_master.get()) == 0);
+    require_posix(m_master.get() != -1, "posix_openpt failed");
+    require_posix(grantpt(m_master.get()) == 0, "grantpt failed");
+    require_posix(unlockpt(m_master.get()) == 0, "unlockpt failed");
     const char* slave_name = ptsname(m_master.get());
-    assert(slave_name != nullptr);
+    require_posix(slave_name != nullptr, "ptsname failed");
     m_slave.reset(open(slave_name, O_RDWR | O_NOCTTY));
-    assert(m_slave.get() != -1);
+    require_posix(m_slave.get() != -1, "open pty slave failed");
     winsize size = {
         .ws_row    = 24,
         .ws_col    = 80,
         .ws_xpixel = 640,
         .ws_ypixel = 480,
     };
-    assert(ioctl(m_slave.get(), TIOCSWINSZ, &size) == 0);
+    require_posix(ioctl(m_slave.get(), TIOCSWINSZ, &size) == 0, "ioctl TIOCSWINSZ failed");
     m_saved.reset(dup(STDIN_FILENO));
-    assert(m_saved.get() != -1);
-    assert(dup2(m_slave.get(), STDIN_FILENO) != -1);
+    require_posix(m_saved.get() != -1, "dup failed");
+    require_posix(dup2(m_slave.get(), STDIN_FILENO) != -1, "dup2 failed");
   }
 
   ~terminal_stdin()
@@ -131,7 +142,9 @@ class terminal_stdin {
     if (m_saved.get() == -1) {
       return;
     }
-    assert(dup2(m_saved.get(), STDIN_FILENO) != -1);
+    if (dup2(m_saved.get(), STDIN_FILENO) == -1) {
+      std::abort();
+    }
     m_saved.reset();
   }
 
@@ -162,7 +175,8 @@ static protobuf::Message read_message(websocket::stream<tcp::socket>& ws)
   ws.read(buffer);
   auto payload = boost::beast::buffers_to_string(buffer.data());
   protobuf::Message message;
-  assert(message.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+  const auto parsed = message.ParseFromArray(payload.data(), static_cast<int>(payload.size()));
+  assert(parsed);
   return message;
 }
 
@@ -359,10 +373,10 @@ static void check_websocket_client_sends_open_stdin_eos_and_heartbeat()
       .m_protocol_config  = {
            .m_protocol_type = rstream::rtty::protocol::type::websocket,
            .m_options       = {
-                 .m_interactive    = true,
-                 .m_allocate_tty   = false,
-                 .m_send_heartbeat = true,
-           },
+                     .m_interactive    = true,
+                     .m_allocate_tty   = false,
+                     .m_send_heartbeat = true,
+          },
            .m_env_vars = {},
            .m_cmd_args = {"/bin/sh", "-c", "unused"},
            .m_workdir  = {},
@@ -424,10 +438,10 @@ static void check_websocket_client_sends_terminal_size_when_tty_allocated()
       .m_protocol_config  = {
            .m_protocol_type = rstream::rtty::protocol::type::websocket,
            .m_options       = {
-                 .m_interactive    = false,
-                 .m_allocate_tty   = true,
-                 .m_send_heartbeat = false,
-           },
+                     .m_interactive    = false,
+                     .m_allocate_tty   = true,
+                     .m_send_heartbeat = false,
+          },
            .m_env_vars = {},
            .m_cmd_args = {"/bin/sh", "-c", "unused"},
            .m_workdir  = {},

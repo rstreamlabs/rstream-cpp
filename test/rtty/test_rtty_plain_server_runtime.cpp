@@ -1,8 +1,5 @@
 // See LICENSE file in the project root for license information.
 
-#include <arpa/inet.h>
-#include <sys/socket.h>
-
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -18,6 +15,9 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
+
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #include <rstream/rtty/protobuf/messages.pb.h>
 #include <rstream/rtty/rtty.hpp>
@@ -82,7 +82,8 @@ static protobuf::Message read_message(tcp::socket& socket)
     read_exact(socket, payload.data(), payload.size());
   }
   protobuf::Message message;
-  assert(message.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+  const auto parsed = message.ParseFromArray(payload.data(), static_cast<int>(payload.size()));
+  assert(parsed);
   return message;
 }
 

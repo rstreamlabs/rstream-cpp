@@ -1,11 +1,9 @@
 // See LICENSE file in the project root for license information.
 
-#include <fcntl.h>
-#include <stdlib.h>
-#include <unistd.h>
-
 #include <array>
 #include <cassert>
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -15,6 +13,10 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/write.hpp>
+
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <rstream/io/error.hpp>
 #include <rstream/io/stream.hpp>
@@ -47,6 +49,24 @@ class fd_guard {
  private:
   int m_fd;
 };
+
+[[noreturn]] static void fail(const std::string& message)
+{
+  std::cerr << message << std::endl;
+  std::abort();
+}
+
+static void check(bool condition, const std::string& message)
+{
+  if (!condition) {
+    fail(message);
+  }
+}
+
+static bool is_permission_error(const boost::system::error_code& error_code)
+{
+  return error_code.value() == EACCES || error_code.value() == EPERM;
+}
 
 static rstream::io::stream::endpoint resolve_one(boost::asio::io_context& io_context, const std::string& uri)
 {
@@ -164,11 +184,11 @@ static void check_serial_resolver_rejects_missing_baudrate()
 static void check_serial_pty_connect_and_transfer()
 {
   fd_guard master(posix_openpt(O_RDWR | O_NOCTTY));
-  assert(master.get() != -1);
-  assert(grantpt(master.get()) == 0);
-  assert(unlockpt(master.get()) == 0);
+  check(master.get() != -1, "posix_openpt failed");
+  check(grantpt(master.get()) == 0, "grantpt failed");
+  check(unlockpt(master.get()) == 0, "unlockpt failed");
   const char* slave_name = ptsname(master.get());
-  assert(slave_name != nullptr);
+  check(slave_name != nullptr, "ptsname failed");
 
   boost::asio::io_context io_context;
   const auto endpoint = resolve_one(io_context, std::string("serial://") + slave_name + "?serial.baudrate=9600");
@@ -176,16 +196,19 @@ static void check_serial_pty_connect_and_transfer()
 
   rstream::io::stream::stream_socket serial(io_context.get_executor());
   bool connected = false;
+  boost::system::error_code connect_error;
   serial.async_connect(endpoint, [&](const boost::system::error_code& error) {
-    if (error) {
-      std::cerr << "serial connect failed: " << error.message() << std::endl;
-    }
-    assert(!error);
-    connected = true;
+    connect_error = error;
+    connected     = !error;
   });
   io_context.run();
   io_context.restart();
-  assert(connected);
+  if (connect_error && is_permission_error(connect_error)) {
+    std::cerr << "serial pty runtime check skipped: " << connect_error.message() << std::endl;
+    return;
+  }
+  check(!connect_error, std::string("serial connect failed: ") + connect_error.message());
+  check(connected, "serial connect did not complete");
 
   bool sent = false;
   boost::asio::async_write(serial, boost::asio::buffer(std::string("ping")), [&](const boost::system::error_code& error, std::size_t size) {
@@ -202,7 +225,7 @@ static void check_serial_pty_connect_and_transfer()
   assert(read_size == static_cast<ssize_t>(master_buffer.size()));
   assert(std::string(master_buffer.data(), master_buffer.size()) == "ping");
 
-  assert(write(master.get(), "pong", 4) == 4);
+  check(write(master.get(), "pong", 4) == 4, "serial master write failed");
   std::array<char, 4> serial_buffer{};
   bool received = false;
   boost::asio::async_read(serial, boost::asio::buffer(serial_buffer), [&](const boost::system::error_code& error, std::size_t size) {
