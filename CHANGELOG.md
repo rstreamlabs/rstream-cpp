@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.8.0...1.8.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* let Conan consumers skip SDK binaries ([77c3702](https://github.com/rstreamlabs/rstream-cpp/commit/77c3702057f14e30a513c4d03769760c9d932f13))
+* make C++ runtime tests release-safe ([e128783](https://github.com/rstreamlabs/rstream-cpp/commit/e1287830f5bfb341f15516383d1677b559ee80c2))
+
 ## [1.8.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.7.4...1.8.0) (2026-05-21)
 
 
