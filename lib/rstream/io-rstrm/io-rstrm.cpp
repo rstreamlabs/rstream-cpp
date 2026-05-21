@@ -375,6 +375,13 @@ struct config_auth {
 };
 
 struct config_proxy {
+  struct tls_config {
+    bool present                  = false;
+    bool insecure_skip_verify_set = false;
+    bool insecure_skip_verify     = false;
+    std::string ca_file;
+    std::string server_name;
+  };
   bool present                  = false;
   bool from_environment_present = false;
   bool from_environment         = false;
@@ -383,6 +390,7 @@ struct config_proxy {
   std::string username;
   std::string password;
   std::map<std::string, std::string> headers;
+  tls_config tls;
 };
 
 struct config_transport {
@@ -562,6 +570,16 @@ static void parse_transport_proxy(const YAML::Node& node, config_transport& tran
   if (auto from_environment = yaml_bool(node["fromEnvironment"])) {
     transport.proxy.from_environment_present = true;
     transport.proxy.from_environment         = from_environment.get();
+  }
+  YAML::Node tls = node["tls"];
+  if (tls && tls.IsMap()) {
+    transport.proxy.tls.present     = true;
+    transport.proxy.tls.ca_file     = yaml_string(tls["caFile"]);
+    transport.proxy.tls.server_name = yaml_string(tls["serverName"]);
+    if (auto insecure_skip_verify = yaml_bool(tls["insecureSkipVerify"])) {
+      transport.proxy.tls.insecure_skip_verify_set = true;
+      transport.proxy.tls.insecure_skip_verify     = insecure_skip_verify.get();
+    }
   }
   YAML::Node headers = node["headers"];
   if (headers && headers.IsMap()) {
@@ -793,7 +811,7 @@ static void append_auth_json(nlohmann::json& json, const config_auth& auth)
 
 static bool transport_proxy_requested(const config_proxy& proxy)
 {
-  return !proxy.http.empty() || !proxy.socks5.empty() || !proxy.username.empty() || !proxy.password.empty() || proxy.from_environment || !proxy.headers.empty();
+  return !proxy.http.empty() || !proxy.socks5.empty() || !proxy.username.empty() || !proxy.password.empty() || proxy.from_environment || !proxy.headers.empty() || proxy.tls.present;
 }
 
 static void append_transport_json(nlohmann::json& json, const config_transport& transport)
@@ -818,6 +836,17 @@ static void append_transport_json(nlohmann::json& json, const config_transport& 
   }
   for (const auto& header : transport.proxy.headers) {
     json["transport"]["proxy"]["headers"][header.first] = header.second;
+  }
+  if (transport.proxy.tls.present) {
+    if (!transport.proxy.tls.ca_file.empty()) {
+      json["transport"]["proxy"]["tls"]["caFile"] = transport.proxy.tls.ca_file;
+    }
+    if (!transport.proxy.tls.server_name.empty()) {
+      json["transport"]["proxy"]["tls"]["serverName"] = transport.proxy.tls.server_name;
+    }
+    if (transport.proxy.tls.insecure_skip_verify_set) {
+      json["transport"]["proxy"]["tls"]["insecureSkipVerify"] = transport.proxy.tls.insecure_skip_verify;
+    }
   }
 }
 

@@ -872,6 +872,27 @@ static void check_config_rejects_unsupported_transport_proxy()
   assert(json_result);
   assert(json_result.value()["contexts"][0]["transport"]["proxy"]["socks5"] == "socks5://proxy.example:1080");
   boost::filesystem::remove(context_proxy_path);
+  auto proxy_tls_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    transport:\n"
+      "      proxy:\n"
+      "        http: https://proxy.example:8443\n"
+      "        tls:\n"
+      "          caFile: /etc/rstream/proxy-ca.pem\n"
+      "          serverName: proxy.example\n"
+      "          insecureSkipVerify: true\n");
+  config_path.set(proxy_tls_path.string());
+  auto proxy_tls = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!proxy_tls);
+  assert(proxy_tls.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  auto proxy_tls_json = rstream::io_rstrm::get_rstream_config_file(proxy_tls_path.string());
+  assert(proxy_tls_json);
+  assert(proxy_tls_json.value()["contexts"][0]["transport"]["proxy"]["tls"]["caFile"] == "/etc/rstream/proxy-ca.pem");
+  assert(proxy_tls_json.value()["contexts"][0]["transport"]["proxy"]["tls"]["serverName"] == "proxy.example");
+  assert(proxy_tls_json.value()["contexts"][0]["transport"]["proxy"]["tls"]["insecureSkipVerify"] == true);
+  boost::filesystem::remove(proxy_tls_path);
   auto env_proxy_path = write_config_file(
       "environments:\n"
       "  - apiUrl: https://rstream.io\n"
