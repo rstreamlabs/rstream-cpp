@@ -374,9 +374,25 @@ struct config_auth {
   config_mtls mtls;
 };
 
+struct config_proxy {
+  bool present                  = false;
+  bool from_environment_present = false;
+  bool from_environment         = false;
+  std::string http;
+  std::string socks5;
+  std::string username;
+  std::string password;
+  std::map<std::string, std::string> headers;
+};
+
+struct config_transport {
+  config_proxy proxy;
+};
+
 struct config_environment {
   std::string api_url;
   config_auth auth;
+  config_transport transport;
 };
 
 struct config_context {
@@ -384,6 +400,7 @@ struct config_context {
   std::string api_url;
   std::string engine;
   config_auth auth;
+  config_transport transport;
 };
 
 struct config_file {
@@ -430,6 +447,19 @@ static boost::optional<int> yaml_int(const YAML::Node& node)
   }
   try {
     return node.as<int>();
+  }
+  catch (const YAML::Exception&) {
+    return boost::none;
+  }
+}
+
+static boost::optional<bool> yaml_bool(const YAML::Node& node)
+{
+  if (!node || !node.IsScalar()) {
+    return boost::none;
+  }
+  try {
+    return node.as<bool>();
   }
   catch (const YAML::Exception&) {
     return boost::none;
@@ -519,6 +549,40 @@ static void parse_auth(const YAML::Node& node, config_auth& auth)
   parse_auth_mtls(auth_node["mtls"], auth);
 }
 
+static void parse_transport_proxy(const YAML::Node& node, config_transport& transport)
+{
+  if (!node || !node.IsMap()) {
+    return;
+  }
+  transport.proxy.present  = true;
+  transport.proxy.http     = yaml_string(node["http"]);
+  transport.proxy.socks5   = yaml_string(node["socks5"]);
+  transport.proxy.username = yaml_string(node["username"]);
+  transport.proxy.password = yaml_string(node["password"]);
+  if (auto from_environment = yaml_bool(node["fromEnvironment"])) {
+    transport.proxy.from_environment_present = true;
+    transport.proxy.from_environment         = from_environment.get();
+  }
+  YAML::Node headers = node["headers"];
+  if (headers && headers.IsMap()) {
+    for (const auto& entry : headers) {
+      std::string key   = yaml_string(entry.first);
+      std::string value = yaml_string(entry.second);
+      if (!key.empty() && !value.empty()) {
+        transport.proxy.headers[key] = value;
+      }
+    }
+  }
+}
+
+static void parse_transport(const YAML::Node& node, config_transport& transport)
+{
+  if (!node || !node.IsMap()) {
+    return;
+  }
+  parse_transport_proxy(node["proxy"], transport);
+}
+
 static bool parse_config_yaml(const std::string& content, config_file& cfg)
 {
   if (trim(content).empty()) {
@@ -550,6 +614,7 @@ static bool parse_config_yaml(const std::string& content, config_file& cfg)
       config_environment env;
       env.api_url = yaml_string(env_node["apiUrl"]);
       parse_auth(env_node, env.auth);
+      parse_transport(env_node["transport"], env.transport);
       cfg.environments.push_back(env);
     }
   }
@@ -564,6 +629,7 @@ static bool parse_config_yaml(const std::string& content, config_file& cfg)
       ctx.api_url = yaml_string(ctx_node["apiUrl"]);
       ctx.engine  = yaml_string(ctx_node["engine"]);
       parse_auth(ctx_node, ctx.auth);
+      parse_transport(ctx_node["transport"], ctx.transport);
       cfg.contexts.push_back(ctx);
     }
   }
@@ -725,6 +791,36 @@ static void append_auth_json(nlohmann::json& json, const config_auth& auth)
   }
 }
 
+static bool transport_proxy_requested(const config_proxy& proxy)
+{
+  return !proxy.http.empty() || !proxy.socks5.empty() || !proxy.username.empty() || !proxy.password.empty() || proxy.from_environment || !proxy.headers.empty();
+}
+
+static void append_transport_json(nlohmann::json& json, const config_transport& transport)
+{
+  if (!transport.proxy.present) {
+    return;
+  }
+  if (!transport.proxy.http.empty()) {
+    json["transport"]["proxy"]["http"] = transport.proxy.http;
+  }
+  if (!transport.proxy.socks5.empty()) {
+    json["transport"]["proxy"]["socks5"] = transport.proxy.socks5;
+  }
+  if (!transport.proxy.username.empty()) {
+    json["transport"]["proxy"]["username"] = transport.proxy.username;
+  }
+  if (!transport.proxy.password.empty()) {
+    json["transport"]["proxy"]["password"] = transport.proxy.password;
+  }
+  if (transport.proxy.from_environment_present) {
+    json["transport"]["proxy"]["fromEnvironment"] = transport.proxy.from_environment;
+  }
+  for (const auto& header : transport.proxy.headers) {
+    json["transport"]["proxy"]["headers"][header.first] = header.second;
+  }
+}
+
 static nlohmann::json config_file_to_json(const config_file& cfg)
 {
   nlohmann::json json = nlohmann::json::object();
@@ -739,6 +835,7 @@ static nlohmann::json config_file_to_json(const config_file& cfg)
         env_json["apiUrl"] = env.api_url;
       }
       append_auth_json(env_json, env.auth);
+      append_transport_json(env_json, env.transport);
       json["environments"].push_back(env_json);
     }
   }
@@ -756,6 +853,7 @@ static nlohmann::json config_file_to_json(const config_file& cfg)
         ctx_json["engine"] = ctx.engine;
       }
       append_auth_json(ctx_json, ctx.auth);
+      append_transport_json(ctx_json, ctx.transport);
       json["contexts"].push_back(ctx_json);
     }
   }
@@ -837,6 +935,9 @@ static boost::system::result<resolved_config> resolve_config_selection(const con
   }
   if (ctx && ctx->api_url.empty()) {
     env = nullptr;
+  }
+  if ((ctx && transport_proxy_requested(ctx->transport.proxy)) || (env && transport_proxy_requested(env->transport.proxy))) {
+    return error::make_error_code(error::code::invalid_configuration);
   }
   return resolved_config{api_url, env, ctx};
 }
