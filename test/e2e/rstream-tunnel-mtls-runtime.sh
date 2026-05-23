@@ -34,26 +34,22 @@ trap cleanup EXIT
 
 find_rstream_tunnel() {
   local candidate
-
   if [ -n "${RSTREAM_TUNNEL_BIN:-}" ]; then
     printf "%s\n" "$RSTREAM_TUNNEL_BIN"
     return
   fi
-
   while IFS= read -r candidate; do
     if [ -x "$candidate" ]; then
       printf "%s\n" "$candidate"
       return
     fi
   done < <(find "$ROOT/out" -type f -name rstream-tunnel 2>/dev/null | sort)
-
   while IFS= read -r candidate; do
     if [ -x "$candidate" ]; then
       printf "%s\n" "$candidate"
       return
     fi
   done < <(find "$ROOT/build" -type f -name rstream-tunnel 2>/dev/null | sort)
-
   if command -v rstream-tunnel >/dev/null 2>&1; then
     command -v rstream-tunnel
   fi
@@ -138,8 +134,9 @@ def setup():
                     "tunnels.resources.read-only",
                 ],
             },
+            "turn": {"mode": "none", "permissions": []},
         },
-        "tunnelsGrants": {"projects": [pro["id"]]},
+        "resources": {"tunnels": {"projects": [pro["id"]]}},
     })
     print(json.dumps({"credentialId": credential["id"], "pro": pro, "basic": basic}))
 
@@ -163,7 +160,6 @@ json_get() {
   "$PYTHON" - "$1" "$2" <<'PY'
 import json
 import sys
-
 with open(sys.argv[1], encoding="utf-8") as stream:
     value = json.load(stream)
 for part in sys.argv[2].split("."):
@@ -212,7 +208,6 @@ extract_forwarding() {
   "$PYTHON" - "$1" <<'PY'
 import json
 import sys
-
 with open(sys.argv[1], encoding="utf-8") as stream:
     for line in stream:
         try:

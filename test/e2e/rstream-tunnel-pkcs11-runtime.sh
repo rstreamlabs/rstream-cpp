@@ -64,10 +64,34 @@ first_existing_dir() {
   return 1
 }
 
+find_openssl() {
+  local candidate
+  if [ -n "${RSTREAM_RUNTIME_OPENSSL_BIN:-}" ]; then
+    printf "%s\n" "$RSTREAM_RUNTIME_OPENSSL_BIN"
+    return
+  fi
+  for candidate in \
+    /opt/homebrew/opt/openssl@3/bin/openssl \
+    /usr/local/opt/openssl@3/bin/openssl \
+    /opt/homebrew/bin/openssl \
+    /usr/local/bin/openssl; do
+    if [ -x "$candidate" ] && "$candidate" list -providers >/dev/null 2>&1; then
+      printf "%s\n" "$candidate"
+      return
+    fi
+  done
+  if command -v openssl >/dev/null 2>&1; then
+    candidate=$(command -v openssl)
+    if "$candidate" list -providers >/dev/null 2>&1; then
+      printf "%s\n" "$candidate"
+    fi
+  fi
+}
+
 first_working_openssl_provider() {
   local candidate
   for candidate in "$@"; do
-    if openssl list -providers -provider default -provider "$candidate" >/dev/null 2>&1; then
+    if "$OPENSSL_BIN" list -providers -provider default -provider "$candidate" >/dev/null 2>&1; then
       printf "%s\n" "$candidate"
       return 0
     fi
@@ -77,26 +101,22 @@ first_working_openssl_provider() {
 
 find_rstream_tunnel() {
   local candidate
-
   if [ -n "${RSTREAM_TUNNEL_BIN:-}" ]; then
     printf "%s\n" "$RSTREAM_TUNNEL_BIN"
     return
   fi
-
   while IFS= read -r candidate; do
     if [ -x "$candidate" ]; then
       printf "%s\n" "$candidate"
       return
     fi
   done < <(find "$ROOT/out" -type f -name rstream-tunnel 2>/dev/null | sort)
-
   while IFS= read -r candidate; do
     if [ -x "$candidate" ]; then
       printf "%s\n" "$candidate"
       return
     fi
   done < <(find "$ROOT/build" -type f -name rstream-tunnel 2>/dev/null | sort)
-
   if command -v rstream-tunnel >/dev/null 2>&1; then
     command -v rstream-tunnel
   fi
@@ -111,7 +131,13 @@ if [ -z "$CONTROL_TOKEN" ]; then
   printf "ERROR set RSTREAM_RUNTIME_CONTROL_TOKEN to a PAT with credential and project read permissions\n" >&2
   exit 2
 fi
-for command in openssl pkcs11-tool softhsm2-util; do
+OPENSSL_BIN=$(find_openssl || true)
+if [ -z "$OPENSSL_BIN" ] || [ ! -x "$OPENSSL_BIN" ]; then
+  printf "ERROR missing OpenSSL 3 binary with provider support; set RSTREAM_RUNTIME_OPENSSL_BIN\n" >&2
+  exit 2
+fi
+
+for command in pkcs11-tool softhsm2-util; do
   if ! command -v "$command" >/dev/null 2>&1; then
     printf "ERROR missing command: %s\n" "$command" >&2
     exit 2
@@ -221,8 +247,9 @@ def setup():
                     "tunnels.resources.read-only",
                 ],
             },
+            "turn": {"mode": "none", "permissions": []},
         },
-        "tunnelsGrants": {"projects": [pro["id"]]},
+        "resources": {"tunnels": {"projects": [pro["id"]]}},
     })
     print(json.dumps({"credentialId": credential["id"], "pro": pro}))
 
@@ -246,7 +273,6 @@ json_get() {
   "$PYTHON" - "$1" "$2" <<'PY'
 import json
 import sys
-
 with open(sys.argv[1], encoding="utf-8") as stream:
     value = json.load(stream)
 for part in sys.argv[2].split("."):
@@ -288,7 +314,6 @@ extract_forwarding() {
   "$PYTHON" - "$1" <<'PY'
 import json
 import sys
-
 with open(sys.argv[1], encoding="utf-8") as stream:
     for line in stream:
         try:
@@ -322,7 +347,7 @@ start_pkcs11_tunnel() {
       tail -60 "$TUNNEL_LOG" >&2 || true
       return 1
     fi
-    if grep -Eiq "invalid request|a fatal error occurred|tunnel creation failed|Unauthorized|Forbidden|PKCS#11|pkcs11" "$TUNNEL_LOG"; then
+    if grep -Eiq "invalid request|a fatal error occurred|tunnel creation failed|Unauthorized|Forbidden" "$TUNNEL_LOG"; then
       tail -60 "$TUNNEL_LOG" >&2 || true
       return 1
     fi
@@ -375,7 +400,7 @@ EOF
 else
   OPENSSL_PKCS11_ARGS=(-provider "$OPENSSL_PKCS11_PROVIDER" -provider default)
 fi
-openssl req \
+"$OPENSSL_BIN" req \
   -new \
   -x509 \
   "${OPENSSL_PKCS11_ARGS[@]}" \
