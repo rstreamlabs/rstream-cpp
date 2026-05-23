@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.9.0...1.9.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* align runtime credential e2e tests ([de72d8b](https://github.com/rstreamlabs/rstream-cpp/commit/de72d8b504532e7564f2d05e33968ba29caad847))
+
 ## [1.9.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.8.1...1.9.0) (2026-05-21)
 
 
