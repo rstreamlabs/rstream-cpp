@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.9.1...1.10.0) (2026-05-24)
+
+
+### Features
+
+* advertise WebTTY capability metadata ([819105e](https://github.com/rstreamlabs/rstream-cpp/commit/819105e11b5e30a92d2c48ec6ec40ded14494d4b))
+
 ## [1.9.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.9.0...1.9.1) (2026-05-23)
 
 
