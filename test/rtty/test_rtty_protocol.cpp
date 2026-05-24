@@ -211,6 +211,8 @@ static void check_webtty_uri_is_publishable_and_labelled()
     }
   }
   assert(labels.count("application-protocol=rstream.webtty") == 1);
+  assert(labels.count("rstream.webtty.capabilities=exec") == 1);
+  assert(labels.count("rstream.webtty.exec.path=/") == 1);
   bool has_os_family = false;
   for (const auto& label : labels) {
     if (label.find("rstream.webtty.os_family=") == 0 && label.size() > std::string("rstream.webtty.os_family=").size()) {

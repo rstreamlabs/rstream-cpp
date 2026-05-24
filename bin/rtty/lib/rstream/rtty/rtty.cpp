@@ -613,6 +613,8 @@ std::string build_webtty_uri()
     uri.append(pct_encode(label));
   };
   append_label("application-protocol", "rstream.webtty");
+  append_label("rstream.webtty.capabilities", "exec");
+  append_label("rstream.webtty.exec.path", "/");
   append_label("rstream.webtty.os_family", runtime_identity.m_os);
   append_label("rstream.webtty.arch", runtime_identity.m_arch);
   append_label("rstream.webtty.os_id", details.id);
