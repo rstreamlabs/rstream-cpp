@@ -361,6 +361,8 @@ This repository also builds native tools that reuse the same transport and tunne
 
 `rstream-rtty-client` and `rstream-rtty-server` implement **rstream WebTTY** in C++.
 
+`rstream-rtty-server --uri` builds a published WebTTY tunnel URI with the standard discovery labels, including `application-protocol=rstream.webtty`, `rstream.webtty.capabilities=exec`, and `rstream.webtty.exec.path=/`.
+
 `rstream-runpy` and `rstream-gping` are available when Python bindings are enabled, and `rstream-inspect` is built in Debug configurations.
 
 ## rstream-tunnel command examples
