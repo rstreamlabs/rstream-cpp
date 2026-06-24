@@ -12,7 +12,7 @@ PRODUCT_OBJECT_ROOTS=(
   "$BUILD_DIR/lib"
   "$BUILD_DIR/plugin"
   "$BUILD_DIR/bin/tunnel/lib"
-  "$BUILD_DIR/bin/rtty/lib"
+  "$BUILD_DIR/bin/webtty/lib"
   "$BUILD_DIR/bin/ncat/lib"
   "$BUILD_DIR/bin/nperf/lib/cpp"
 )
@@ -20,7 +20,7 @@ PRODUCT_SOURCE_ROOTS=(
   "$ROOT/lib"
   "$ROOT/plugin"
   "$ROOT/bin/tunnel/lib"
-  "$ROOT/bin/rtty/lib"
+  "$ROOT/bin/webtty/lib"
   "$ROOT/bin/ncat/lib"
   "$ROOT/bin/nperf/lib/cpp"
 )
@@ -92,34 +92,34 @@ done
 "$LLVM_COV" export "${objects[0]}" "${object_args[@]}" \
   -instr-profile="$PROFILE_DIR/coverage.profdata" \
   -ignore-filename-regex="$IGNORE_REGEX" \
-  > "$PROFILE_DIR/coverage-product-objects.json"
+  >"$PROFILE_DIR/coverage-product-objects.json"
 
-jq -r '.data[0].files[].filename' "$PROFILE_DIR/coverage-product-objects.json" \
-  | sed "s#^$ROOT/##" \
-  | sort > "$PROFILE_DIR/measured-files.txt"
+jq -r '.data[0].files[].filename' "$PROFILE_DIR/coverage-product-objects.json" |
+  sed "s#^$ROOT/##" |
+  sort >"$PROFILE_DIR/measured-files.txt"
 
-find "${PRODUCT_SOURCE_ROOTS[@]}" -type f \( -name '*.cpp' -o -name '*.hpp' \) \
-  | sed "s#^$ROOT/##" \
-  | sort > "$PROFILE_DIR/sdk-files.txt"
+find "${PRODUCT_SOURCE_ROOTS[@]}" -type f \( -name '*.cpp' -o -name '*.hpp' \) |
+  sed "s#^$ROOT/##" |
+  sort >"$PROFILE_DIR/sdk-files.txt"
 
-find "${PRODUCT_SOURCE_ROOTS[@]}" -type f -name '*.cpp' \
-  | sed "s#^$ROOT/##" \
-  | sort > "$PROFILE_DIR/sdk-cpp-files.txt"
+find "${PRODUCT_SOURCE_ROOTS[@]}" -type f -name '*.cpp' |
+  sed "s#^$ROOT/##" |
+  sort >"$PROFILE_DIR/sdk-cpp-files.txt"
 
-grep -E '\.cpp$' "$PROFILE_DIR/measured-files.txt" > "$PROFILE_DIR/measured-cpp-files.txt" || true
-comm -23 "$PROFILE_DIR/sdk-files.txt" "$PROFILE_DIR/measured-files.txt" > "$PROFILE_DIR/unmeasured-sdk-files.txt"
-comm -23 "$PROFILE_DIR/sdk-cpp-files.txt" "$PROFILE_DIR/measured-cpp-files.txt" > "$PROFILE_DIR/unmeasured-sdk-cpp-files.txt"
+grep -E '\.cpp$' "$PROFILE_DIR/measured-files.txt" >"$PROFILE_DIR/measured-cpp-files.txt" || true
+comm -23 "$PROFILE_DIR/sdk-files.txt" "$PROFILE_DIR/measured-files.txt" >"$PROFILE_DIR/unmeasured-sdk-files.txt"
+comm -23 "$PROFILE_DIR/sdk-cpp-files.txt" "$PROFILE_DIR/measured-cpp-files.txt" >"$PROFILE_DIR/unmeasured-sdk-cpp-files.txt"
 
 read_json_number() {
   jq -r "$1" "$PROFILE_DIR/coverage-product-objects.json"
 }
 
-measured_files=$(wc -l < "$PROFILE_DIR/measured-files.txt" | tr -d ' ')
-sdk_files=$(wc -l < "$PROFILE_DIR/sdk-files.txt" | tr -d ' ')
-unmeasured_files=$(wc -l < "$PROFILE_DIR/unmeasured-sdk-files.txt" | tr -d ' ')
-measured_cpp_files=$(wc -l < "$PROFILE_DIR/measured-cpp-files.txt" | tr -d ' ')
-sdk_cpp_files=$(wc -l < "$PROFILE_DIR/sdk-cpp-files.txt" | tr -d ' ')
-unmeasured_cpp_files=$(wc -l < "$PROFILE_DIR/unmeasured-sdk-cpp-files.txt" | tr -d ' ')
+measured_files=$(wc -l <"$PROFILE_DIR/measured-files.txt" | tr -d ' ')
+sdk_files=$(wc -l <"$PROFILE_DIR/sdk-files.txt" | tr -d ' ')
+unmeasured_files=$(wc -l <"$PROFILE_DIR/unmeasured-sdk-files.txt" | tr -d ' ')
+measured_cpp_files=$(wc -l <"$PROFILE_DIR/measured-cpp-files.txt" | tr -d ' ')
+sdk_cpp_files=$(wc -l <"$PROFILE_DIR/sdk-cpp-files.txt" | tr -d ' ')
+unmeasured_cpp_files=$(wc -l <"$PROFILE_DIR/unmeasured-sdk-cpp-files.txt" | tr -d ' ')
 
 printf "\nCoverage report written under %s\n" "$PROFILE_DIR"
 printf "\nProduct object denominator coverage:\n"

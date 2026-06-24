@@ -128,8 +128,8 @@ def get_packages(graph, conan_dependencies):
         "rstream-utils" : [
             { "rstream": lambda conanfile: get_files(graph, conanfile, "*") }
         ],
-        "rstream-rtty" : [
-            { "rstream": lambda conanfile: get_files(graph, conanfile, "rstream-rtty-*") }
+        "rstream-webtty" : [
+            { "rstream": lambda conanfile: get_files(graph, conanfile, "rstream-webtty-*") }
         ]
     }
     result = { }

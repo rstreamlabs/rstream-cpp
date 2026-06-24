@@ -11,8 +11,8 @@
 #include <thread>
 #include <vector>
 
-#include <rstream/core/detail/metrics/common.hpp>
 #include <rstream/config.hpp>
+#include <rstream/core/detail/metrics/common.hpp>
 #include <rstream/core/metrics.hpp>
 
 namespace metrics = rstream::core::detail::metrics;
@@ -24,15 +24,15 @@ class static_collectable : public rstream::core::metrics::collectable {
   void collect(metrics::metrics& out) override
   {
     out.push_back((metrics::metric){
-        .m_name = "rstream_test_collectable",
-        .m_help = "collectable help",
-        .m_type = metrics::metric::type::gauge,
+        .m_name    = "rstream_test_collectable",
+        .m_help    = "collectable help",
+        .m_type    = metrics::metric::type::gauge,
         .m_samples = {
             (metrics::sample){
-                .m_value = 12.5,
-                .m_labels = {{"source", "custom"}},
+                .m_value     = 12.5,
+                .m_labels    = {{"source", "custom"}},
                 .m_timestamp = std::chrono::system_clock::now(),
-                .m_examplar = {},
+                .m_examplar  = {},
             },
         },
     });
@@ -237,7 +237,7 @@ void test_collectable_and_system_registry()
 
   auto system_collector = rstream::core::metrics::system_collector();
   compare(system_collector != nullptr, true);
-  auto system_metrics = system_collector->collect();
+  auto system_metrics  = system_collector->collect();
   bool saw_system_info = false;
   for (const auto& metric : system_metrics) {
     if (metric.m_name == "system_info") {

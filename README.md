@@ -105,6 +105,8 @@ Release packaging is handled separately by the `Release Packages` workflow. Manu
 EXPORT_PACKAGE_NAME="rstream-utils" LINUX_TCLIBCS="musl" LINUX_BUILD_SHARED="off" MACOS_BUILD_SHARED="on" WINDOWS_BUILD_SHARED="off" ./build-conan-cross.sh
 ```
 
+Linux release binaries use the musl static package path for broad distribution compatibility. glibc exports are tied to the configured Yocto toolchain baseline and carry that libc version in package metadata; only publish them when that baseline is intentionally part of the target environment.
+
 The workflow runs macOS packaging on a macOS runner and Linux/Windows packaging on Ubuntu runners. Manual runs upload only when the `upload` input is enabled; release tags upload automatically to the stable channel after the tag and Conan package version have been checked. Package upload requires the `RSTREAM_TOKEN` repository secret.
 
 macOS binaries are signed inside `deploy.py` before the release archive is compressed. Signing is enabled for release tags and manual upload runs through `MACOS_CODESIGN_MODE=certificate`, `MACOS_CODESIGN_TOOL=rcodesign`, `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, and `MACOS_APP_STORE_API_KEY`. Leave `MACOS_CODESIGN_MODE` unset for local, unsigned packaging.
@@ -148,7 +150,7 @@ rstream project use <project-endpoint> --default
 
 `rstream-cpp` consumes the same configuration file and context model as the `rstream` CLI (default path: `~/.rstream/config.yaml`).
 
-For advanced authentication modes and context workflows, see the Go CLI workflow documentation:
+For advanced authentication modes and context workflows, see the rstream CLI workflow documentation:
 
 - https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
 
@@ -359,9 +361,15 @@ This repository also builds native tools that reuse the same transport and tunne
 
 `rstream-nperf-client` and `rstream-nperf-server` provide network performance testing utilities.
 
-`rstream-rtty-client` and `rstream-rtty-server` implement **rstream WebTTY** in C++.
+`rstream-webtty-client` and `rstream-webtty-server` implement **rstream WebTTY** in C++.
 
-`rstream-rtty-server --uri` builds a published WebTTY tunnel URI with the standard discovery labels, including `application-protocol=rstream.webtty`, `rstream.webtty.capabilities=exec`, and `rstream.webtty.exec.path=/`.
+`rstream-webtty-server -v --rstream` serves WebTTY through an rstream tunnel URI with the standard discovery labels, including `application-protocol=rstream.webtty`, `rstream.webtty.capabilities=exec`, and `rstream.webtty.exec.path=/`. Use `--uri` for a direct local listener. The C++ tools expose the SDK URI model in their command line, so the same argument can describe a TCP listener or an `rstrm://` endpoint; the higher-level `rstream webtty` workflow separates listener selection and registered-server resolution.
+
+The WebTTY protobuf contract includes endpoint identities and payload crypto metadata for encrypted sessions. The C++ SDK exposes E2E payload crypto helpers for the nominal suite: AES-256-GCM for stdin/stdout/stderr payloads with a fresh 96-bit nonce per WebTTY data message, and HPKE Base with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, and AES-256-GCM for wrapping per-session payload keys. Endpoint-authenticated sessions also use ECDSA P-256 with SHA-256 for `ServerHello` and `ClientProof` transcripts. The protobuf enum reserves ChaCha20-Poly1305 identifiers for future negotiation. Current C++ helpers do not accept those suites and fail closed if they are requested.
+
+Managed attach and control transfer are engine-coordinated capabilities. The
+C++ WebTTY server accepts direct `Open` sessions and rejects `Attach` handshakes
+with a clear protocol error instead of attempting local multi-user routing.
 
 `rstream-runpy` and `rstream-gping` are available when Python bindings are enabled, and `rstream-inspect` is built in Debug configurations.
 
