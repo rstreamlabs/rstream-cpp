@@ -151,7 +151,7 @@ class ConanPackage(ConanFile):
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
         self.requires("yaml-cpp/[>=0.8.0]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "openssl":
-            self.requires("openssl/[>=3.1.2]", transitive_headers=True, transitive_libs=True)
+            self.requires("openssl/[>=3.1.2 <4]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "libressl":
             self.requires("libressl/[>=3.9.1]", transitive_headers=True, transitive_libs=True)
         protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
