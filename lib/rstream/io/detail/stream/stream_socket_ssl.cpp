@@ -9,7 +9,11 @@
 #include <rstream/config.hpp>
 
 #define SSL_STREAM_PRINT_PEER_PKEY    1
+#ifdef RSTREAM_WITH_OPENSSL_ENGINE
 #define SSL_STREAM_USE_OPENSSL_ENGINE 1
+#else
+#define SSL_STREAM_USE_OPENSSL_ENGINE 0
+#endif
 #ifdef RSTREAM_WITH_PKCS11
 #define SSL_STREAM_USE_PKCS11 1
 #else

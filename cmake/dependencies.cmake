@@ -54,6 +54,25 @@ if(SSL_PROVIDER STREQUAL "openssl")
   endif()
   find_package(OpenSSL REQUIRED)
   set(SSL_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
+  include(CheckCXXSourceCompiles)
+  set(CMAKE_REQUIRED_INCLUDES_SAVED "${CMAKE_REQUIRED_INCLUDES}")
+  set(CMAKE_REQUIRED_LIBRARIES_SAVED "${CMAKE_REQUIRED_LIBRARIES}")
+  set(CMAKE_REQUIRED_INCLUDES "${OPENSSL_INCLUDE_DIR}")
+  set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_CRYPTO_LIBRARY}")
+  check_cxx_source_compiles(
+    "#include <openssl/engine.h>
+int main()
+{
+  ENGINE* engine = ENGINE_by_id(\"dynamic\");
+  if (engine) {
+    ENGINE_free(engine);
+  }
+  return 0;
+}
+"
+    RSTREAM_OPENSSL_ENGINE_FOUND)
+  set(CMAKE_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES_SAVED}")
+  set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES_SAVED}")
 elseif(SSL_PROVIDER STREQUAL "libressl")
   find_package(LibreSSL REQUIRED)
   set(SSL_LIBRARIES LibreSSL::SSL LibreSSL::Crypto)
