@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.11.0...1.11.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* constrain OpenSSL package range ([#27](https://github.com/rstreamlabs/rstream-cpp/issues/27)) ([815a8fa](https://github.com/rstreamlabs/rstream-cpp/commit/815a8faabc23709170802a464d33ec865fced73c))
+
 ## [1.11.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.10.0...1.11.0) (2026-06-24)
 
 
