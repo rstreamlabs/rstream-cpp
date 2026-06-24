@@ -73,9 +73,10 @@ static test_certificate generate_test_certificate()
   X509_gmtime_adj(X509_get_notAfter(cert.get()), 24 * 60 * 60);
   X509_set_pubkey(cert.get(), key.get());
 
-  X509_NAME* name = X509_get_subject_name(cert.get());
-  if (!name || X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("localhost"), -1, -1, 0) <= 0
-      || X509_set_issuer_name(cert.get(), name) <= 0 || X509_sign(cert.get(), key.get(), EVP_sha256()) <= 0) {
+  openssl_ptr<X509_NAME, decltype(&X509_NAME_free)> name(X509_NAME_new(), X509_NAME_free);
+  if (!name || X509_NAME_add_entry_by_txt(name.get(), "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("localhost"), -1, -1, 0) <= 0
+      || X509_set_subject_name(cert.get(), name.get()) <= 0 || X509_set_issuer_name(cert.get(), name.get()) <= 0
+      || X509_sign(cert.get(), key.get(), EVP_sha256()) <= 0) {
     throw std::runtime_error("failed to sign test certificate");
   }
 
