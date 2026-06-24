@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.10.0...1.11.0) (2026-06-24)
+
+
+### Features
+
+* add authenticated WebTTY runtime ([#23](https://github.com/rstreamlabs/rstream-cpp/issues/23)) ([bf64d85](https://github.com/rstreamlabs/rstream-cpp/commit/bf64d85bad09355468f5838f5d1bc5ec9deee71a))
+
 ## [1.10.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.9.1...1.10.0) (2026-05-26)
 
 
