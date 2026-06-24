@@ -2,8 +2,8 @@
 
 #include <array>
 #include <cassert>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -18,6 +18,7 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/write.hpp>
+
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
@@ -26,8 +27,8 @@
 #include <openssl/x509.h>
 
 #include <rstream/core/completion_handler.hpp>
-#include <rstream/io/detail/stream/stream_socket_ssl.hpp>
 #include <rstream/io/detail/stream/error.hpp>
+#include <rstream/io/detail/stream/stream_socket_ssl.hpp>
 #include <rstream/io/stream.hpp>
 
 using tcp = boost::asio::ip::tcp;
@@ -201,12 +202,12 @@ class fake_stream_socket : public rstream::io::detail::stream::stream_socket_int
 static rstream::io::detail::stream::ssl::config base_ssl_config()
 {
   rstream::io::detail::stream::ssl::config config = {};
-  config.m_tlsv12            = false;
-  config.m_tlsv13            = false;
-  config.m_peer_verification = false;
-  config.m_request_peer_cert = false;
-  config.m_client_rpk        = false;
-  config.m_server_rpk        = false;
+  config.m_tlsv12                                 = false;
+  config.m_tlsv13                                 = false;
+  config.m_peer_verification                      = false;
+  config.m_request_peer_cert                      = false;
+  config.m_client_rpk                             = false;
+  config.m_server_rpk                             = false;
   return config;
 }
 
@@ -270,8 +271,8 @@ static void assert_direct_ssl_config_succeeds(const rstream::io::detail::stream:
 static void check_direct_tls_shutdown_path()
 {
   boost::asio::io_context io_context;
-  auto next_layer = std::make_shared<fake_stream_socket>(io_context.get_executor());
-  auto config = base_ssl_config();
+  auto next_layer                    = std::make_shared<fake_stream_socket>(io_context.get_executor());
+  auto config                        = base_ssl_config();
   config.m_async_shutdown_timeout_ms = 0;
   rstream::io::detail::stream::stream_socket_ssl socket(next_layer, config, rstream::io::detail::stream::stream_socket_ssl::type::client);
 
@@ -308,8 +309,8 @@ class certificate_files {
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     m_dir             = std::filesystem::temp_directory_path() / ("rstream-cpp-tls-" + suffix);
     std::filesystem::create_directories(m_dir);
-    m_cert_file = m_dir / "cert.pem";
-    m_key_file  = m_dir / "key.pem";
+    m_cert_file             = m_dir / "cert.pem";
+    m_key_file              = m_dir / "key.pem";
     const auto& certificate = test_certificate_pem();
     std::ofstream(m_cert_file) << certificate.cert;
     std::ofstream(m_key_file) << certificate.key;
@@ -365,135 +366,135 @@ static void check_tls_config_errors()
 static void check_direct_tls_context_configuration()
 {
   {
-    auto config = base_ssl_config();
+    auto config     = base_ssl_config();
     config.m_tlsv12 = true;
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::server);
   }
   {
-    auto config = base_ssl_config();
+    auto config     = base_ssl_config();
     config.m_tlsv13 = true;
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::server);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_cert       = certificate.cert;
-    config.m_cert_type  = "pem";
-    config.m_key        = certificate.key;
-    config.m_key_type   = "pem";
-    config.m_passphrase = "unused";
+    auto config             = base_ssl_config();
+    config.m_cert           = certificate.cert;
+    config.m_cert_type      = "pem";
+    config.m_key            = certificate.key;
+    config.m_key_type       = "pem";
+    config.m_passphrase     = "unused";
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::server);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_cert      = certificate.cert;
-    config.m_cert_type = "asn1";
+    auto config             = base_ssl_config();
+    config.m_cert           = certificate.cert;
+    config.m_cert_type      = "asn1";
     assert_direct_ssl_config_fails(config);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_cert      = certificate.cert;
-    config.m_cert_type = "unsupported";
+    auto config             = base_ssl_config();
+    config.m_cert           = certificate.cert;
+    config.m_cert_type      = "unsupported";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config        = base_ssl_config();
     config.m_cert_type = "pem";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config         = base_ssl_config();
     config.m_passphrase = "unused";
     assert_direct_ssl_config_fails(config);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_key      = certificate.key;
-    config.m_key_file = "/missing/key.pem";
+    auto config             = base_ssl_config();
+    config.m_key            = certificate.key;
+    config.m_key_file       = "/missing/key.pem";
     assert_direct_ssl_config_fails(config);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_key      = certificate.key;
-    config.m_key_type = "unsupported";
+    auto config             = base_ssl_config();
+    config.m_key            = certificate.key;
+    config.m_key_type       = "unsupported";
     assert_direct_ssl_config_fails(config);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_key      = certificate.key;
-    config.m_key_type = "engine";
+    auto config             = base_ssl_config();
+    config.m_key            = certificate.key;
+    config.m_key_type       = "engine";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config       = base_ssl_config();
     config.m_key_type = "pem";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config                 = base_ssl_config();
     config.m_tmp_dh_params      = "bad-dh";
     config.m_tmp_dh_params_file = "/missing/dh.pem";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config            = base_ssl_config();
     config.m_tmp_dh_params = "bad-dh";
     assert_direct_ssl_config_fails(config);
   }
   {
     const auto& certificate = test_certificate_pem();
-    auto config = base_ssl_config();
-    config.m_cacert      = certificate.cert;
-    config.m_cacert_file = "/missing/ca.pem";
+    auto config             = base_ssl_config();
+    config.m_cacert         = certificate.cert;
+    config.m_cacert_file    = "/missing/ca.pem";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config     = base_ssl_config();
     config.m_cacert = "not-a-ca";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config          = base_ssl_config();
     config.m_cacert_file = "/missing/ca.pem";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config     = base_ssl_config();
     config.m_capath = "/missing/ca-dir";
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
   }
   {
-    auto config = base_ssl_config();
+    auto config      = base_ssl_config();
     config.m_ciphers = "not-a-cipher";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config = base_ssl_config();
+    auto config             = base_ssl_config();
     config.m_ciphers_tlsv13 = "not-a-tls13-cipher";
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config          = base_ssl_config();
-    config.m_ciphers     = "DEFAULT";
-    config.m_groups      = "X25519:secp256r1";
-    config.m_client_rpk  = true;
-    config.m_server_rpk  = true;
+    auto config         = base_ssl_config();
+    config.m_ciphers    = "DEFAULT";
+    config.m_groups     = "X25519:secp256r1";
+    config.m_client_rpk = true;
+    config.m_server_rpk = true;
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
   }
   {
-    auto config = base_ssl_config();
+    auto config                = base_ssl_config();
     config.m_request_peer_cert = true;
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::server);
   }
   {
-    auto config = base_ssl_config();
+    auto config                = base_ssl_config();
     config.m_peer_verification = true;
     config.m_request_peer_cert = true;
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::server);
@@ -505,7 +506,7 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
 {
   certificate_files files;
   boost::asio::io_context io_context;
-  const auto port = unused_tcp_port();
+  const auto port            = unused_tcp_port();
   const auto server_endpoint = resolve_one(
       io_context,
       "tcp://127.0.0.1:" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()
@@ -581,8 +582,8 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   assert(server_sent);
 
   std::array<char, 5> server_sequence_buffer{};
-  const std::string first_part = "he";
-  const std::string second_part = "llo";
+  const std::string first_part                          = "he";
+  const std::string second_part                         = "llo";
   std::vector<boost::asio::const_buffer> client_buffers = {
       boost::asio::buffer(first_part),
       boost::asio::buffer(second_part),
@@ -632,7 +633,7 @@ static boost::system::error_code run_verified_tls_connect(const std::string& sni
 {
   certificate_files files;
   boost::asio::io_context io_context;
-  const auto port = unused_tcp_port();
+  const auto port            = unused_tcp_port();
   const auto server_endpoint = resolve_one(
       io_context,
       "tcp://127.0.0.1:" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()

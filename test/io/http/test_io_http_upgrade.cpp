@@ -102,7 +102,7 @@ static void check_accept_rejects_non_upgrade_request()
   });
 
   bool client_called = false;
-  auto request = std::make_shared<std::string>("GET / HTTP/1.1\r\nHost: host\r\n\r\n");
+  auto request       = std::make_shared<std::string>("GET / HTTP/1.1\r\nHost: host\r\n\r\n");
   boost::asio::async_write(*socket_a, boost::asio::buffer(*request), [request](const boost::system::error_code& error_code, std::size_t) {
     assert(!error_code);
   });

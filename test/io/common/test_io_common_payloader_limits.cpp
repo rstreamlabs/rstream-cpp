@@ -22,9 +22,9 @@ static void check_payload_larger_than_buffer_is_rejected()
   boost::asio::local::connect_pair(*socket_a, *socket_b);
   payloader_type sender(*socket_a);
   payloader_type receiver(*socket_b);
-  auto send_buffer = rstream::core::make_buffer_allocated(16);
-  auto recv_buffer = rstream::core::make_buffer_allocated(4);
-  bool sender_called = false;
+  auto send_buffer     = rstream::core::make_buffer_allocated(16);
+  auto recv_buffer     = rstream::core::make_buffer_allocated(4);
+  bool sender_called   = false;
   bool receiver_called = false;
   sender.async_send(send_buffer, [&](const boost::system::error_code& error_code) {
     sender_called = true;

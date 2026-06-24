@@ -1553,8 +1553,8 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
     }
   }
   std::string provider = m_config.m_pkcs11_provider && !m_config.m_pkcs11_provider.get().empty()
-      ? m_config.m_pkcs11_provider.get()
-      : std::string("pkcs11prov");
+                             ? m_config.m_pkcs11_provider.get()
+                             : std::string("pkcs11prov");
   if (!m_pkcs11_provider) {
     ::ERR_clear_error();
     m_pkcs11_provider = ::OSSL_PROVIDER_load(nullptr, provider.c_str());
@@ -1572,22 +1572,20 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
     if (::OSSL_PROVIDER_add_conf_parameter(
             m_pkcs11_provider,
             "pkcs11-module-path",
-            m_config.m_pkcs11_module.get().c_str()) != 1) {
+            m_config.m_pkcs11_module.get().c_str())
+        != 1) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
       return;
     }
-    if (has_pin &&
-        ::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11-module-token-pin",
-            pin.get().c_str()) != 1) {
+    if (has_pin && ::OSSL_PROVIDER_add_conf_parameter(m_pkcs11_provider, "pkcs11-module-token-pin", pin.get().c_str()) != 1) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
       return;
     }
     if (::OSSL_PROVIDER_add_conf_parameter(
             m_pkcs11_provider,
             "pkcs11-module-login-behavior",
-            "always") != 1) {
+            "always")
+        != 1) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
       return;
     }
@@ -1596,22 +1594,20 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
     if (::OSSL_PROVIDER_add_conf_parameter(
             m_pkcs11_provider,
             "pkcs11_module",
-            m_config.m_pkcs11_module.get().c_str()) != 1) {
+            m_config.m_pkcs11_module.get().c_str())
+        != 1) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
       return;
     }
-    if (has_pin &&
-        ::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pin",
-            pin.get().c_str()) != 1) {
+    if (has_pin && ::OSSL_PROVIDER_add_conf_parameter(m_pkcs11_provider, "pin", pin.get().c_str()) != 1) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
       return;
     }
     if (::OSSL_PROVIDER_add_conf_parameter(
             m_pkcs11_provider,
             "force_login",
-            "1") != 1) {
+            "1")
+        != 1) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
       return;
     }

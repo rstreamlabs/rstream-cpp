@@ -83,7 +83,7 @@ static void check_wrapped_memory_rejects_invalid_bounds()
 
 static void check_memory_copy_share_and_bounds()
 {
-  auto memory = rstream::core::make_memory_allocated(8);
+  auto memory       = rstream::core::make_memory_allocated(8);
   const char data[] = "abcdefgh";
   std::memcpy(memory.get_data(), data, 8);
 
@@ -92,7 +92,7 @@ static void check_memory_copy_share_and_bounds()
   static_cast<char*>(shared.get_data())[0] = 'C';
   assert(to_string(memory) == "abCdefgh");
 
-  auto copied = memory.copy(2, 3);
+  auto copied                              = memory.copy(2, 3);
   static_cast<char*>(copied.get_data())[0] = 'x';
   assert(to_string(copied) == "xde");
   assert(to_string(memory) == "abCdefgh");
@@ -122,9 +122,9 @@ static void check_mutable_destroy_callback_is_preserved()
 {
   bool destroyed = false;
   {
-    char raw[] = "secret";
+    char raw[]    = "secret";
     void* raw_ptr = raw;
-    auto memory = rstream::core::make_memory_wrapped(raw, 6, 1, [&destroyed, raw_ptr](void* data) {
+    auto memory   = rstream::core::make_memory_wrapped(raw, 6, 1, [&destroyed, raw_ptr](void* data) {
       assert(data == raw_ptr);
       destroyed = true;
     });
@@ -245,18 +245,17 @@ static void check_asio_memory_sequences_iterate_and_mutate_blocks()
   assert(mutable_it != mutable_sequence.end());
   assert(boost::asio::buffer_size(*mutable_it) == 3);
   static_cast<char*>(mutable_it->data())[0] = 'A';
-  auto mutable_post_increment = mutable_it++;
+  auto mutable_post_increment               = mutable_it++;
   assert(boost::asio::buffer_size(*mutable_post_increment) == 3);
   assert(boost::asio::buffer_size(*mutable_it) == 2);
   static_cast<char*>(mutable_it->data())[1] = 'E';
-  auto mutable_post_decrement = mutable_it--;
+  auto mutable_post_decrement               = mutable_it--;
   assert(boost::asio::buffer_size(*mutable_post_decrement) == 2);
   assert(boost::asio::buffer_size(*mutable_it) == 3);
   ++mutable_it;
   --mutable_it;
   assert(boost::asio::buffer_size(*mutable_it) == 3);
   assert(to_string(buffer) == "AbcdE");
-
 }
 
 static void check_core_error_messages()

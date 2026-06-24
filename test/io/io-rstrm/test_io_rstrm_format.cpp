@@ -3,8 +3,8 @@
 #include <cassert>
 #include <sstream>
 
-#include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io-rstrm/error.hpp>
+#include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io/address.hpp>
 
 static void check_status_serialization()
@@ -24,9 +24,9 @@ static void check_status_serialization()
   assert(json["plan"] == "pro");
 
   rstream::io_rstrm::status_extd extd;
-  extd.m_status     = "online";
-  extd.m_tunnel_id  = "tun_123";
-  extd.m_forwarding = "https://api.example";
+  extd.m_status            = "online";
+  extd.m_tunnel_id         = "tun_123";
+  extd.m_forwarding        = "https://api.example";
   nlohmann::json extd_json = nlohmann::json::object();
   extd_json << extd;
   assert(extd_json["version"].is_string());
@@ -40,7 +40,7 @@ static void check_format_forwarding_address_for_published_http_tunnel()
   properties.m_protocol = "http";
   properties.m_hostname = "viewer.example";
   properties.m_port     = 443;
-  auto formatted = rstream::io_rstrm::format_forwarding_address(properties);
+  auto formatted        = rstream::io_rstrm::format_forwarding_address(properties);
   assert(formatted);
   assert(formatted.value() == "https://viewer.example");
 
@@ -48,6 +48,22 @@ static void check_format_forwarding_address_for_published_http_tunnel()
   formatted         = rstream::io_rstrm::format_forwarding_address(properties);
   assert(formatted);
   assert(formatted.value() == "https://viewer.example:8443");
+}
+
+static void check_format_forwarding_address_for_published_webtty_tunnel()
+{
+  rstream::io_rstrm::tunnel_properties properties;
+  properties.m_protocol = "webtty";
+  properties.m_hostname = "terminal.example";
+  properties.m_port     = 443;
+  auto formatted        = rstream::io_rstrm::format_forwarding_address(properties);
+  assert(formatted);
+  assert(formatted.value() == "https://terminal.example (webtty)");
+
+  properties.m_port = 8443;
+  formatted         = rstream::io_rstrm::format_forwarding_address(properties);
+  assert(formatted);
+  assert(formatted.value() == "https://terminal.example:8443 (webtty)");
 }
 
 static void check_format_forwarding_address_for_unpublished_tunnel()
@@ -83,7 +99,7 @@ static void check_format_forwarded_address_for_http_upstream()
   rstream::io_rstrm::tunnel_properties properties;
   properties.m_protocol     = "http";
   properties.m_http_version = "h2";
-  auto formatted = rstream::io_rstrm::format_forwarded_address(rstream::io::make_address("127.0.0.1:80"), properties);
+  auto formatted            = rstream::io_rstrm::format_forwarded_address(rstream::io::make_address("127.0.0.1:80"), properties);
   assert(formatted);
   assert(formatted.value() == "http://127.0.0.1 (h2)");
 
@@ -119,6 +135,11 @@ static void check_format_forwarded_address_for_transport_modes()
   formatted                 = rstream::io_rstrm::format_forwarded_address(rstream::io::make_address("10.0.0.5:4443"), properties);
   assert(formatted);
   assert(formatted.value() == "10.0.0.5:4443 (quic)");
+
+  properties.m_protocol = "webtty";
+  formatted             = rstream::io_rstrm::format_forwarded_address(rstream::io::make_address("10.0.0.5:7681"), properties);
+  assert(formatted);
+  assert(formatted.value() == "10.0.0.5:7681 (webtty)");
 
   properties.m_protocol     = boost::none;
   properties.m_upstream_tls = true;
@@ -185,6 +206,7 @@ int main(int argc, char** argv)
   (void)argv;
   check_status_serialization();
   check_format_forwarding_address_for_published_http_tunnel();
+  check_format_forwarding_address_for_published_webtty_tunnel();
   check_format_forwarding_address_for_unpublished_tunnel();
   check_format_forwarding_address_for_tls_host();
   check_format_forwarded_address_for_http_upstream();

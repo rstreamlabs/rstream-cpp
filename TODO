@@ -1,0 +1,13 @@
+# TODO
+
+- Keep WebTTY E2E crypto agility scoped and explicit
+  The protocol reserves ChaCha20-Poly1305 suite identifiers, but the current implementation intentionally supports only the AES-256-GCM payload suite and HPKE X25519 / HKDF-SHA256 / AES-256-GCM key envelopes. Do not enable ChaCha20-Poly1305 until all SDKs have audited implementations, shared test vectors, cross-SDK runtime coverage, and product documentation that explains suite negotiation and fail-closed behavior.
+
+- Complete a dedicated WebTTY cybersecurity audit
+  Before treating the WebTTY non-UI block as production-ready, run and document a security audit covering threat modeling, endpoint authentication, replay and downgrade resistance, E2E key handling, workspace-managed trust, explicit-key trust, recording encryption, log export, permissions, CLI/config/env surfaces, and cross-SDK runtime behavior.
+
+- Keep WebTTY mutual-authentication coverage cross-SDK
+  The C++ WebTTY implementation sends and verifies the protocol-bound `ServerHello` / `ClientProof` handshake for endpoint-authenticated E2E sessions. Keep Go, JavaScript, and C++ transcript hashing, signing, and runtime tests aligned whenever the protobuf contract changes.
+
+- Keep workspace-managed WebTTY credentials interoperable
+  Workspace-managed clients pass signed device credentials through `ClientProof.credential`; servers must verify those credentials locally from enrollment trust pins without runtime control-plane calls. Keep the Go, JavaScript, and C++ canonical JSON, payload hash, signature, key-id, and device-fingerprint checks covered by shared vectors and runtime tests before changing the credential envelope.

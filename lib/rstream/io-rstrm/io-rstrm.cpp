@@ -374,14 +374,15 @@ struct config_auth {
   config_mtls mtls;
 };
 
+struct config_tls {
+  bool present                  = false;
+  bool insecure_skip_verify_set = false;
+  bool insecure_skip_verify     = false;
+  std::string ca_file;
+  std::string server_name;
+};
+
 struct config_proxy {
-  struct tls_config {
-    bool present                  = false;
-    bool insecure_skip_verify_set = false;
-    bool insecure_skip_verify     = false;
-    std::string ca_file;
-    std::string server_name;
-  };
   bool present                  = false;
   bool from_environment_present = false;
   bool from_environment         = false;
@@ -390,11 +391,12 @@ struct config_proxy {
   std::string username;
   std::string password;
   std::map<std::string, std::string> headers;
-  tls_config tls;
+  config_tls tls;
 };
 
 struct config_transport {
   config_proxy proxy;
+  config_tls tls;
 };
 
 struct config_environment {
@@ -557,6 +559,20 @@ static void parse_auth(const YAML::Node& node, config_auth& auth)
   parse_auth_mtls(auth_node["mtls"], auth);
 }
 
+static void parse_transport_tls(const YAML::Node& node, config_tls& tls_config)
+{
+  if (!node || !node.IsMap()) {
+    return;
+  }
+  tls_config.present     = true;
+  tls_config.ca_file     = yaml_string(node["caFile"]);
+  tls_config.server_name = yaml_string(node["serverName"]);
+  if (auto insecure_skip_verify = yaml_bool(node["insecureSkipVerify"])) {
+    tls_config.insecure_skip_verify_set = true;
+    tls_config.insecure_skip_verify     = insecure_skip_verify.get();
+  }
+}
+
 static void parse_transport_proxy(const YAML::Node& node, config_transport& transport)
 {
   if (!node || !node.IsMap()) {
@@ -571,16 +587,7 @@ static void parse_transport_proxy(const YAML::Node& node, config_transport& tran
     transport.proxy.from_environment_present = true;
     transport.proxy.from_environment         = from_environment.get();
   }
-  YAML::Node tls = node["tls"];
-  if (tls && tls.IsMap()) {
-    transport.proxy.tls.present     = true;
-    transport.proxy.tls.ca_file     = yaml_string(tls["caFile"]);
-    transport.proxy.tls.server_name = yaml_string(tls["serverName"]);
-    if (auto insecure_skip_verify = yaml_bool(tls["insecureSkipVerify"])) {
-      transport.proxy.tls.insecure_skip_verify_set = true;
-      transport.proxy.tls.insecure_skip_verify     = insecure_skip_verify.get();
-    }
-  }
+  parse_transport_tls(node["tls"], transport.proxy.tls);
   YAML::Node headers = node["headers"];
   if (headers && headers.IsMap()) {
     for (const auto& entry : headers) {
@@ -598,6 +605,7 @@ static void parse_transport(const YAML::Node& node, config_transport& transport)
   if (!node || !node.IsMap()) {
     return;
   }
+  parse_transport_tls(node["tls"], transport.tls);
   parse_transport_proxy(node["proxy"], transport);
 }
 
@@ -814,8 +822,27 @@ static bool transport_proxy_requested(const config_proxy& proxy)
   return !proxy.http.empty() || !proxy.socks5.empty() || !proxy.username.empty() || !proxy.password.empty() || proxy.from_environment || !proxy.headers.empty() || proxy.tls.present;
 }
 
+static void append_transport_tls_json(nlohmann::json& json, const config_tls& tls_config)
+{
+  if (!tls_config.present) {
+    return;
+  }
+  if (!tls_config.ca_file.empty()) {
+    json["caFile"] = tls_config.ca_file;
+  }
+  if (!tls_config.server_name.empty()) {
+    json["serverName"] = tls_config.server_name;
+  }
+  if (tls_config.insecure_skip_verify_set) {
+    json["insecureSkipVerify"] = tls_config.insecure_skip_verify;
+  }
+}
+
 static void append_transport_json(nlohmann::json& json, const config_transport& transport)
 {
+  if (transport.tls.present) {
+    append_transport_tls_json(json["transport"]["tls"], transport.tls);
+  }
   if (!transport.proxy.present) {
     return;
   }
@@ -838,15 +865,7 @@ static void append_transport_json(nlohmann::json& json, const config_transport& 
     json["transport"]["proxy"]["headers"][header.first] = header.second;
   }
   if (transport.proxy.tls.present) {
-    if (!transport.proxy.tls.ca_file.empty()) {
-      json["transport"]["proxy"]["tls"]["caFile"] = transport.proxy.tls.ca_file;
-    }
-    if (!transport.proxy.tls.server_name.empty()) {
-      json["transport"]["proxy"]["tls"]["serverName"] = transport.proxy.tls.server_name;
-    }
-    if (transport.proxy.tls.insecure_skip_verify_set) {
-      json["transport"]["proxy"]["tls"]["insecureSkipVerify"] = transport.proxy.tls.insecure_skip_verify;
-    }
+    append_transport_tls_json(json["transport"]["proxy"]["tls"], transport.proxy.tls);
   }
 }
 
@@ -1035,6 +1054,21 @@ static boost::system::result<boost::optional<config_mtls>> resolve_mtls_from_con
     return resolved.value().environment->auth.mtls;
   }
   return boost::optional<config_mtls>();
+}
+
+static boost::system::result<boost::optional<config_tls>> resolve_tls_from_config(const config_file& cfg, const std::string& api_url_explicit, const std::string& context_name)
+{
+  auto resolved = resolve_config_selection(cfg, api_url_explicit, context_name);
+  if (!resolved) {
+    return resolved.error();
+  }
+  if (resolved.value().context && resolved.value().context->transport.tls.present) {
+    return resolved.value().context->transport.tls;
+  }
+  if (resolved.value().environment && resolved.value().environment->transport.tls.present) {
+    return resolved.value().environment->transport.tls;
+  }
+  return boost::optional<config_tls>();
 }
 
 static boost::optional<config_mtls> resolve_mtls_from_environment()
@@ -1237,6 +1271,23 @@ static boost::system::result<std::string> append_mtls_auth_params(std::string ad
   return address;
 }
 
+static std::string append_engine_tls_params(std::string address, const boost::optional<config_tls>& tls_config)
+{
+  if (!tls_config) {
+    return address;
+  }
+  if (!tls_config.value().ca_file.empty()) {
+    address = append_query_param(address, "ssl.cacert_file", tls_config.value().ca_file);
+  }
+  if (!tls_config.value().server_name.empty()) {
+    address = append_query_param(address, "ssl.sni", tls_config.value().server_name);
+  }
+  if (tls_config.value().insecure_skip_verify_set && tls_config.value().insecure_skip_verify) {
+    address = append_query_param(address, "ssl.peer_verification", "false");
+  }
+  return address;
+}
+
 boost::system::result<nlohmann::json> get_rstream_config_file()
 {
   auto cfg = load_rstream_config(boost::none);
@@ -1355,6 +1406,7 @@ boost::system::result<std::string> get_rstream_engine_address(const boost::optio
     return append_mtls_auth_params(engine_address, resolve_mtls_from_environment());
   }
   boost::optional<config_mtls> mtls = resolve_mtls_from_environment();
+  boost::optional<config_tls> tls_config;
   std::string engine = getenv_trim("RSTREAM_ENGINE");
   if (engine.empty()) {
     auto cfg = load_rstream_config(config_path);
@@ -1380,14 +1432,19 @@ boost::system::result<std::string> get_rstream_engine_address(const boost::optio
       }
       mtls = resolved_mtls.value();
     }
+    auto resolved_tls = resolve_tls_from_config(cfg.value(), api_url, context_name);
+    if (!resolved_tls) {
+      return resolved_tls.error();
+    }
+    tls_config = resolved_tls.value();
   }
   if (engine.empty()) {
     return error::make_error_code(error::code::invalid_configuration);
   }
   if (engine.find("://") != std::string::npos) {
-    return append_mtls_auth_params(engine, mtls);
+    return append_mtls_auth_params(append_engine_tls_params(engine, tls_config), mtls);
   }
-  return append_mtls_auth_params(std::string("tcp://") + engine + "?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_tls_groups_query(), mtls);
+  return append_mtls_auth_params(append_engine_tls_params(std::string("tcp://") + engine + "?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_tls_groups_query(), tls_config), mtls);
 }
 
 boost::system::result<std::string> format_forwarding_address(const tunnel_properties& properties)
@@ -1395,9 +1452,15 @@ boost::system::result<std::string> format_forwarding_address(const tunnel_proper
   if (properties.m_hostname || properties.m_host) {
     std::string res;
     std::string edge_protocol;
+    std::string edge_protocol_suffix;
     if (properties.m_protocol && properties.m_protocol.value() == "http") {
       edge_protocol = "https";
       res           = edge_protocol + "://";
+    }
+    else if (properties.m_protocol && properties.m_protocol.value() == "webtty") {
+      edge_protocol        = "https";
+      edge_protocol_suffix = "webtty";
+      res                  = edge_protocol + "://";
     }
     else {
       edge_protocol = properties.m_protocol.value_or("tls");
@@ -1411,7 +1474,10 @@ boost::system::result<std::string> format_forwarding_address(const tunnel_proper
     else {
       res += properties.m_host.value();
     }
-    if (edge_protocol != "https") {
+    if (!edge_protocol_suffix.empty()) {
+      res += " (" + edge_protocol_suffix + ")";
+    }
+    else if (edge_protocol != "https") {
       res += " (" + edge_protocol + ")";
     }
     return res;
@@ -1487,6 +1553,9 @@ boost::system::result<std::string> format_forwarded_address(const io::address& f
     }
     else if (properties.m_protocol && properties.m_protocol.value() == "quic") {
       res += " (quic)";
+    }
+    else if (properties.m_protocol && properties.m_protocol.value() == "webtty") {
+      res += " (webtty)";
     }
     else {
       res += " (tcp)";

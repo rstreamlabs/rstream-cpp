@@ -13,7 +13,7 @@ URIs are used across the SDK and tools to carry:
 - Transport-level options (`tcp`, `unix`, `serial`)
 - TLS transport configuration (`ssl.*`)
 
-The same URI model is reused in SDK APIs and in binaries such as `rstream-tunnel`, `rstream-rtty-*`, and `rstream-nperf-*`.
+The same URI model is reused in SDK APIs and in binaries such as `rstream-tunnel`, `rstream-webtty-*`, and `rstream-nperf-*`.
 
 ## Parameter Namespaces
 
