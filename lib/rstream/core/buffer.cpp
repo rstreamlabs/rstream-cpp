@@ -176,7 +176,7 @@ std::size_t buffer::get_size_range(unsigned int index, int length, std::size_t* 
   for (std::size_t i = 0; i < length; ++i) {
     std::size_t mem_size, mem_offset, mem_maxsize;
     mem_size = mem_offset = mem_maxsize = 0;
-    mem_size                         = it->get_size(mem_offset, mem_maxsize);
+    mem_size                            = it->get_size(mem_offset, mem_maxsize);
     if (mem_offset > mem_maxsize || mem_size > mem_maxsize - mem_offset) {
       throw boost::system::system_error(error::code::invalid_size);
     }

@@ -11,6 +11,7 @@
 
 #include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/system/system_error.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <rstream/core/error.hpp>
@@ -19,7 +20,7 @@
 #include <rstream/core/version.hpp>
 #include <rstream/io/detail/metrics/error.hpp>
 
-namespace core_plugin = rstream::core::plugin;
+namespace core_plugin   = rstream::core::plugin;
 namespace detail_plugin = rstream::core::detail::plugin;
 namespace metrics_error = rstream::io::detail::metrics::error;
 
@@ -211,8 +212,7 @@ static void check_plugin_factory_registration_and_lookup()
     (void)factory.get_plugin("missing.plugin");
   }
   catch (const boost::system::system_error& error) {
-    throwing_lookup_failed =
-        error.code() == rstream::core::error::make_error_code(rstream::core::error::code::plugin_not_found);
+    throwing_lookup_failed = error.code() == rstream::core::error::make_error_code(rstream::core::error::code::plugin_not_found);
   }
   assert(throwing_lookup_failed);
 }

@@ -9,8 +9,8 @@
 #include <rstream/nperf/nperf.hpp>
 #include <rstream/nperf/protobuf/messages.pb.h>
 
-namespace nperf   = rstream::nperf;
-namespace detail  = rstream::nperf::detail;
+namespace nperf    = rstream::nperf;
+namespace detail   = rstream::nperf::detail;
 namespace protobuf = rstream::nperf::protobuf;
 
 static void check_protocol_parsing()
@@ -56,11 +56,11 @@ static void check_option_conversion()
 static void check_json_serialization()
 {
   nperf::sample sample = {
-      .m_type    = nperf::sample::type::ping,
-      .m_size    = 32,
-      .m_min_us  = 1,
-      .m_max_us  = 9,
-      .m_mean_us = 4.5,
+      .m_type     = nperf::sample::type::ping,
+      .m_size     = 32,
+      .m_min_us   = 1,
+      .m_max_us   = 9,
+      .m_mean_us  = 4.5,
       .m_stdev_us = 2.0,
   };
   nlohmann::json json;
@@ -99,9 +99,9 @@ static void check_json_serialization()
   }
   assert(rejected);
 
-  auto error = nperf::error::make_error_code(nperf::error::code::protocol_error);
+  auto error     = nperf::error::make_error_code(nperf::error::code::protocol_error);
   metrics.m_data = error;
-  json = {};
+  json           = {};
   json << metrics;
   assert(json["error"] == "protocol error");
 }

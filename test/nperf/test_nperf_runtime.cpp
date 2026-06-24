@@ -102,10 +102,10 @@ class nperf_server_fixture {
       : m_port(unused_tcp_port()),
         m_settings({
             .m_common = {
-                .m_buffer_size           = 16 * 1024,
-                .m_timeouts_max_time_ms  = 5000,
+                .m_buffer_size            = 16 * 1024,
+                .m_timeouts_max_time_ms   = 5000,
                 .m_timeouts_open_close_ms = 5000,
-                .m_protocol              = protocol,
+                .m_protocol               = protocol,
             },
             .m_timeouts_start_ms = 5000,
         }),
@@ -176,10 +176,10 @@ static nperf::settings_client client_settings(nperf::protocol protocol)
 {
   return {
       .m_common = {
-          .m_buffer_size           = 16 * 1024,
-          .m_timeouts_max_time_ms  = 5000,
+          .m_buffer_size            = 16 * 1024,
+          .m_timeouts_max_time_ms   = 5000,
           .m_timeouts_open_close_ms = 5000,
-          .m_protocol              = protocol,
+          .m_protocol               = protocol,
       },
       .m_execution_count   = 1,
       .m_max_ping          = 4,
@@ -288,15 +288,15 @@ static void check_client_cancel_stops_running_measurement()
   nperf::client::config config = {
       .m_address = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
   };
-  auto settings = client_settings(nperf::protocol::plain);
-  settings.m_sessions = 1;
+  auto settings             = client_settings(nperf::protocol::plain);
+  settings.m_sessions       = 1;
   settings.m_max_data_bytes = 4UL * 1024UL * 1024UL * 1024UL;
   nperf::client client(io_context.get_executor(), config, settings);
 
   boost::system::error_code result;
-  bool done      = false;
-  bool timed_out = false;
-  unsigned int metrics_count = 0;
+  bool done                          = false;
+  bool timed_out                     = false;
+  unsigned int metrics_count         = 0;
   nperf::client::callbacks callbacks = {
       .m_on_metrics_cb = [&](const nperf::metrics&) {
         ++metrics_count;

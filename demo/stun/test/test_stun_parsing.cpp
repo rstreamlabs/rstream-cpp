@@ -144,8 +144,8 @@ void test_2()
       0xdf,
       0xae,
   };
-  const std::string software = "test vector";
-  const auto address         = std::make_pair("192.0.2.1", 32853);
+  const std::string software      = "test vector";
+  const auto address              = std::make_pair("192.0.2.1", 32853);
   const std::string integrity_key = "VOkJxbRl1RmTxUk/WvJxBt";
   // create buffer
   auto memory = rstream::core::make_memory_wrapped(test_message, sizeof(test_message));
@@ -211,8 +211,8 @@ void test_3()
       0xdf,
       0xae,
   };
-  const std::string software = "test vector";
-  const auto address         = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", 32853);
+  const std::string software      = "test vector";
+  const auto address              = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", 32853);
   const std::string integrity_key = "VOkJxbRl1RmTxUk/WvJxBt";
   // create buffer
   auto memory = rstream::core::make_memory_wrapped(test_message, sizeof(test_message));

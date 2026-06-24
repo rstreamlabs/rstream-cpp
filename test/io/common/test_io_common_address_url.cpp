@@ -9,10 +9,10 @@
 #include <rstream/io/address.hpp>
 #include <rstream/io/detail/stream/acceptor.hpp>
 #include <rstream/io/detail/stream/endpoint.hpp>
-#include <rstream/io/detail/stream/factory.hpp>
 #include <rstream/io/detail/stream/error.hpp>
-#include <rstream/io/detail/stream/stream_socket.hpp>
+#include <rstream/io/detail/stream/factory.hpp>
 #include <rstream/io/detail/stream/ssl.hpp>
+#include <rstream/io/detail/stream/stream_socket.hpp>
 #include <rstream/io/detail/stream/url.hpp>
 #include <rstream/io/error.hpp>
 
@@ -98,14 +98,15 @@ static void check_ssl_url_config_parsing()
   assert(!disabled);
 
   auto enabled = stream::parse_ssl_config(parse_url(
-      "tcp://edge.example:443?ssl&ssl.tlsv13&ssl.peer_verification=false&ssl.request_peer_cert=false"
-      "&ssl.client_rpk=true&ssl.server_rpk=true&ssl.key=key&ssl.key_file=key.pem&ssl.key_type=PEM"
-      "&ssl.passphrase=secret&ssl.cert=cert&ssl.cert_file=cert.pem&ssl.cert_type=PEM"
-      "&ssl.tmp_dh_params=dh&ssl.tmp_dh_params_file=dh.pem&ssl.cacert=ca"
-      "&ssl.cacert_file=ca.pem&ssl.capath=/etc/ssl&ssl.ciphers=DEFAULT"
-      "&ssl.ciphers_tlsv13=TLS_AES_128_GCM_SHA256&ssl.groups=SecP256r1MLKEM768%3ASecP384r1MLKEM1024&ssl.sni=edge.example"
-      "&ssl.alpn_protos=rstrm%2F1&ssl.engine=pkcs11"
-      "&ssl.max_ongoing_upstream_ops=7&ssl.async_shutdown_timeout_ms=250"), error_code);
+                                              "tcp://edge.example:443?ssl&ssl.tlsv13&ssl.peer_verification=false&ssl.request_peer_cert=false"
+                                              "&ssl.client_rpk=true&ssl.server_rpk=true&ssl.key=key&ssl.key_file=key.pem&ssl.key_type=PEM"
+                                              "&ssl.passphrase=secret&ssl.cert=cert&ssl.cert_file=cert.pem&ssl.cert_type=PEM"
+                                              "&ssl.tmp_dh_params=dh&ssl.tmp_dh_params_file=dh.pem&ssl.cacert=ca"
+                                              "&ssl.cacert_file=ca.pem&ssl.capath=/etc/ssl&ssl.ciphers=DEFAULT"
+                                              "&ssl.ciphers_tlsv13=TLS_AES_128_GCM_SHA256&ssl.groups=SecP256r1MLKEM768%3ASecP384r1MLKEM1024&ssl.sni=edge.example"
+                                              "&ssl.alpn_protos=rstrm%2F1&ssl.engine=pkcs11"
+                                              "&ssl.max_ongoing_upstream_ops=7&ssl.async_shutdown_timeout_ms=250"),
+                                          error_code);
   assert(!error_code);
   assert(enabled);
   assert(!enabled->m_tlsv12);
@@ -135,7 +136,7 @@ static void check_ssl_url_config_parsing()
   assert(enabled->m_max_ongoing_upstream_ops.value() == 7);
   assert(enabled->m_async_shutdown_timeout_ms.value() == 250);
 
-  error_code = {};
+  error_code   = {};
   auto invalid = stream::parse_ssl_config(parse_url("tcp://edge.example:443?ssl&ssl.peer_verification=maybe"), error_code);
   assert(!invalid);
   assert_stream_error(error_code, stream::error::code::invalid_argument);
@@ -150,14 +151,13 @@ static void check_stream_factory_rejects_unavailable_protocols()
   boost::system::error_code error_code;
 
   stream::endpoint_base::protocol_type unknown = std::string("unknown");
-  auto missing = factory.socket(io_context.get_executor(), unknown, error_code);
+  auto missing                                 = factory.socket(io_context.get_executor(), unknown, error_code);
   assert(!missing);
   assert(error_code);
 
-  error_code = {};
-  stream::endpoint_base::protocol_type invalid =
-      boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
-  auto invalid_socket = factory.socket(io_context.get_executor(), invalid, error_code);
+  error_code                                   = {};
+  stream::endpoint_base::protocol_type invalid = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+  auto invalid_socket                          = factory.socket(io_context.get_executor(), invalid, error_code);
   assert(!invalid_socket);
   assert_stream_error(error_code, stream::error::code::uninitialized_object);
 }

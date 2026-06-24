@@ -2,12 +2,13 @@
 
 #include <cassert>
 #include <cstdlib>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 
 #include <boost/filesystem.hpp>
 #include <boost/url.hpp>
+
 #include <openssl/opensslv.h>
 
 #include <rstream/io-rstrm/error.hpp>
@@ -42,6 +43,7 @@ class env_guard {
   {
     unsetenv(m_key);
   }
+
  private:
   const char* m_key;
   bool m_present = false;
@@ -212,11 +214,11 @@ static void check_token_resolution_precedence()
   auto token_from_env = rstream::io_rstrm::get_rstream_token(cfg, rstream::io::make_address("engine.example:443"));
   assert(token_from_env);
   assert(token_from_env.value().get() == "env-token");
-  cfg.m_token = "explicit-token";
+  cfg.m_token                     = "explicit-token";
   auto token_from_explicit_config = rstream::io_rstrm::get_rstream_token(cfg, rstream::io::make_address("engine.example:443"));
   assert(token_from_explicit_config);
   assert(token_from_explicit_config.value().get() == "explicit-token");
-  cfg.m_no_token = true;
+  cfg.m_no_token     = true;
   auto skipped_token = rstream::io_rstrm::get_rstream_token(cfg, rstream::io::make_address("engine.example:443"));
   assert(skipped_token);
   assert(!skipped_token.value());
@@ -251,7 +253,7 @@ static void check_token_resolution_rejects_non_inline_storage()
 static void check_client_details_rejects_token_and_mtls_auth_conflict()
 {
   rstream::io_rstrm::config cfg;
-  cfg.m_token = "token";
+  cfg.m_token  = "token";
   auto details = rstream::io_rstrm::get_client_details(
       cfg,
       rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"));
@@ -268,8 +270,8 @@ static void check_client_details_rejects_token_and_mtls_auth_conflict()
 
   env_guard token("RSTREAM_AUTHENTICATION_TOKEN");
   token.set("env-token");
-  cfg.m_no_token = false;
-  cfg.m_token    = boost::none;
+  cfg.m_no_token    = false;
+  cfg.m_token       = boost::none;
   auto env_conflict = rstream::io_rstrm::get_client_details(
       cfg,
       rstream::io::make_address("tcp://engine.example:443?ssl&ssl.cert_file=client.pem&ssl.key_file=client-key.pem"));
@@ -669,12 +671,37 @@ static void check_engine_resolution_from_env_and_config()
       "    auth:\n"
       "      mtls:\n"
       "        certificateFile: /etc/rstream/client.pem\n"
-      "        keyFile: /etc/rstream/client-key.pem\n");
+      "        keyFile: /etc/rstream/client-key.pem\n"
+      "    transport:\n"
+      "      tls:\n"
+      "        caFile: /etc/rstream/engine-ca.pem\n"
+      "        serverName: project.localhost\n");
   config_path.set(path.string());
   auto from_config = rstream::io_rstrm::get_rstream_engine_address();
   assert(from_config);
-  assert(from_config.value() == "tcp://configured.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.cert_file=%2Fetc%2Frstream%2Fclient.pem&ssl.key_file=%2Fetc%2Frstream%2Fclient-key.pem");
+  assert(from_config.value() == "tcp://configured.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.cacert_file=%2Fetc%2Frstream%2Fengine-ca.pem&ssl.sni=project.localhost&ssl.cert_file=%2Fetc%2Frstream%2Fclient.pem&ssl.key_file=%2Fetc%2Frstream%2Fclient-key.pem");
   boost::filesystem::remove(path);
+
+  auto env_tls_path = write_config_file(
+      "environments:\n"
+      "  - apiUrl: https://rstream.io\n"
+      "    transport:\n"
+      "      tls:\n"
+      "        serverName: env.localhost\n"
+      "        insecureSkipVerify: true\n"
+      "contexts:\n"
+      "  - name: prod\n"
+      "    apiUrl: https://rstream.io\n"
+      "    engine: env-configured.example:443\n");
+  config_path.set(env_tls_path.string());
+  auto from_env_tls = rstream::io_rstrm::get_rstream_engine_address();
+  assert(from_env_tls);
+  assert(from_env_tls.value() == "tcp://env-configured.example:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1" + default_engine_tls_groups_query() + "&ssl.sni=env.localhost&ssl.peer_verification=false");
+  auto env_tls_json = rstream::io_rstrm::get_rstream_config_file(env_tls_path.string());
+  assert(env_tls_json);
+  assert(env_tls_json.value()["environments"][0]["transport"]["tls"]["serverName"] == "env.localhost");
+  assert(env_tls_json.value()["environments"][0]["transport"]["tls"]["insecureSkipVerify"] == true);
+  boost::filesystem::remove(env_tls_path);
 
   engine.set("tcp://raw.example:443?ssl");
   auto raw_engine = rstream::io_rstrm::get_rstream_engine_address();
