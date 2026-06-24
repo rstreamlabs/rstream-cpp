@@ -99,6 +99,13 @@ if(RSTREAM_WITH_PKCS11)
     -DRSTREAM_WITH_PKCS11)
 endif()
 
+if(RSTREAM_OPENSSL_ENGINE_FOUND)
+  target_compile_definitions(
+    ${LIBRARY_NAME}
+    PRIVATE
+    -DRSTREAM_WITH_OPENSSL_ENGINE)
+endif()
+
 if(ENABLE_STATIC_PLUGINS)
   if(BUILD_SHARED_LIBS)
     target_link_libraries(
