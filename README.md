@@ -87,13 +87,27 @@ ctest --test-dir build --output-on-failure
 cmake --install build --prefix ./build/release
 ```
 
-Runtime smoke tests that need a reachable rstream engine live under `test/e2e`. After building `rstream-tunnel`, run:
+Runtime smoke tests that need a reachable rstream engine live under `test/e2e`. After building `rstream-tunnel`, the engine-only suites can run against any configured context:
 
 ```bash
-RSTREAM_CONTEXT=tests test/e2e/rstream-tunnel-passthrough.sh
+export RSTREAM_CONTEXT=<context>
+test/e2e/rstream-tunnel-passthrough.sh
+test/e2e/rstream-tunnel-runtime.sh
 ```
 
 Set `RSTREAM_TUNNEL_BIN` when the binary is not under a standard build directory.
+
+The mTLS and PKCS#11 runtime suites also create temporary Control plane credential resources before opening tunnels. They require an explicit Control plane API URL and PAT:
+
+```bash
+export RSTREAM_RUNTIME_API_URL=<control-plane-api-url>
+export RSTREAM_RUNTIME_CONTROL_TOKEN='<pat with credential and project read permissions>'
+export RSTREAM_RUNTIME_PRO_PROJECT_ENDPOINT=<pro-project-endpoint>
+test/e2e/rstream-tunnel-mtls-runtime.sh
+test/e2e/rstream-tunnel-pkcs11-runtime.sh
+```
+
+Those scripts intentionally do not fall back to a local Control plane URL or to the engine context token; use the engine-only suites when validating remote devices that cannot reach the Control plane.
 
 For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.
 
