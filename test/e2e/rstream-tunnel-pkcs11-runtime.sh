@@ -4,8 +4,8 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 PYTHON="${PYTHON:-python3}"
-API_URL="${RSTREAM_RUNTIME_API_URL:-http://localhost:3000}"
-CONTROL_TOKEN="${RSTREAM_RUNTIME_CONTROL_TOKEN:-${RSTREAM_AUTHENTICATION_TOKEN:-}}"
+API_URL="${RSTREAM_RUNTIME_API_URL:-}"
+CONTROL_TOKEN="${RSTREAM_RUNTIME_CONTROL_TOKEN:-}"
 TIMEOUT_SECONDS="${RSTREAM_TUNNEL_E2E_TIMEOUT:-60}"
 NAME_PREFIX="${RSTREAM_TUNNEL_E2E_NAME_PREFIX:-cpp-pkcs11-$$}"
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/rstream-cpp-pkcs11-runtime.XXXXXX")
@@ -127,8 +127,14 @@ if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
   printf "ERROR missing rstream-tunnel binary; set RSTREAM_TUNNEL_BIN or build the project first\n" >&2
   exit 2
 fi
+if [ -z "$API_URL" ]; then
+  printf "ERROR set RSTREAM_RUNTIME_API_URL to the Control plane API URL for this test\n" >&2
+  printf "This runtime suite is not engine-only; it creates Control plane credential resources.\n" >&2
+  exit 2
+fi
 if [ -z "$CONTROL_TOKEN" ]; then
   printf "ERROR set RSTREAM_RUNTIME_CONTROL_TOKEN to a PAT with credential and project read permissions\n" >&2
+  printf "Do not rely on the engine context token for Control plane setup checks.\n" >&2
   exit 2
 fi
 OPENSSL_BIN=$(find_openssl || true)
