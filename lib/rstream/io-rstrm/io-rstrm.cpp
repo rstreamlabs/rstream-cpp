@@ -262,6 +262,7 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, token_auth)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, rstream_auth)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, challenge_mode)
+  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, datagram_guaranteed_delivery)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, tls_mode)
   PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, tls_alpns, ',')
 }
@@ -395,6 +396,11 @@ struct config_proxy {
 };
 
 struct config_transport {
+  bool mode_present = false;
+  std::string mode;
+  bool use_quic_present = false;
+  bool use_quic_valid   = true;
+  bool use_quic         = false;
   config_proxy proxy;
   config_tls tls;
 };
@@ -604,6 +610,19 @@ static void parse_transport(const YAML::Node& node, config_transport& transport)
 {
   if (!node || !node.IsMap()) {
     return;
+  }
+  if (node["mode"]) {
+    transport.mode_present = true;
+    transport.mode         = yaml_string(node["mode"]);
+  }
+  if (node["useQuic"]) {
+    transport.use_quic_present = true;
+    if (auto use_quic = yaml_bool(node["useQuic"])) {
+      transport.use_quic = use_quic.get();
+    }
+    else {
+      transport.use_quic_valid = false;
+    }
   }
   parse_transport_tls(node["tls"], transport.tls);
   parse_transport_proxy(node["proxy"], transport);
@@ -840,6 +859,12 @@ static void append_transport_tls_json(nlohmann::json& json, const config_tls& tl
 
 static void append_transport_json(nlohmann::json& json, const config_transport& transport)
 {
+  if (transport.mode_present) {
+    json["transport"]["mode"] = transport.mode;
+  }
+  if (transport.use_quic_present && transport.use_quic_valid) {
+    json["transport"]["useQuic"] = transport.use_quic;
+  }
   if (transport.tls.present) {
     append_transport_tls_json(json["transport"]["tls"], transport.tls);
   }
@@ -914,6 +939,61 @@ struct resolved_config {
   const config_context* context;
 };
 
+static boost::system::result<std::string> transport_mode_from_config(const config_transport& transport)
+{
+  if (transport.mode_present) {
+    if (transport.mode.empty()) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    return transport.mode;
+  }
+  if (transport.use_quic_present) {
+    if (!transport.use_quic_valid) {
+      return error::make_error_code(error::code::invalid_configuration);
+    }
+    return transport.use_quic ? "quic" : "tls";
+  }
+  return std::string();
+}
+
+static boost::system::result<std::string> resolve_tunnel_transport_mode(const config_environment* env, const config_context* ctx)
+{
+  std::string mode = getenv_trim("RSTREAM_TUNNEL_TRANSPORT");
+  if (mode.empty()) {
+    std::string legacy = getenv_trim("RSTREAM_QUIC_TRANSPORT");
+    if (!legacy.empty()) {
+      mode = legacy == "1" ? "quic" : "tls";
+    }
+  }
+  if (mode.empty() && ctx) {
+    auto context_mode = transport_mode_from_config(ctx->transport);
+    if (!context_mode) {
+      return context_mode.error();
+    }
+    mode = context_mode.value();
+  }
+  if (mode.empty() && env) {
+    auto environment_mode = transport_mode_from_config(env->transport);
+    if (!environment_mode) {
+      return environment_mode.error();
+    }
+    mode = environment_mode.value();
+  }
+  if (mode.empty()) {
+    mode = "auto";
+  }
+  for (auto& character : mode) {
+    character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  }
+  if (mode != "auto" && mode != "tls" && mode != "quic") {
+    return error::make_error_code(error::code::invalid_configuration);
+  }
+  if (mode == "quic") {
+    return error::make_error_code(error::code::invalid_configuration);
+  }
+  return std::string("tls");
+}
+
 static boost::system::result<resolved_config> resolve_config_selection(const config_file& cfg, const std::string& api_url_explicit, const std::string& context_name)
 {
   std::string api_url       = api_url_explicit;
@@ -983,6 +1063,10 @@ static boost::system::result<resolved_config> resolve_config_selection(const con
   }
   if (ctx && ctx->api_url.empty()) {
     env = nullptr;
+  }
+  auto tunnel_transport_mode = resolve_tunnel_transport_mode(env, ctx);
+  if (!tunnel_transport_mode) {
+    return tunnel_transport_mode.error();
   }
   if ((ctx && transport_proxy_requested(ctx->transport.proxy)) || (env && transport_proxy_requested(env->transport.proxy))) {
     return error::make_error_code(error::code::invalid_configuration);
@@ -1401,6 +1485,10 @@ boost::system::result<std::string> get_rstream_engine_address()
 
 boost::system::result<std::string> get_rstream_engine_address(const boost::optional<std::string>& config_path)
 {
+  auto environment_transport_mode = resolve_tunnel_transport_mode(nullptr, nullptr);
+  if (!environment_transport_mode) {
+    return environment_transport_mode.error();
+  }
   std::string engine_address = getenv_trim("RSTREAM_ENGINE_ADDRESS");
   if (!engine_address.empty()) {
     return append_mtls_auth_params(engine_address, resolve_mtls_from_environment());

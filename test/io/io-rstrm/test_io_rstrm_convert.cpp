@@ -62,7 +62,7 @@ static void check_client_details_roundtrip()
   details.m_arch             = "arm64";
   details.m_version          = "1.2.3";
   details.m_token            = "secret-token";
-  details.m_protocol_version = "1.4.1";
+  details.m_protocol_version = "1.4.2";
   protobuf::ClientDetails proto;
   rstream::io_rstrm::detail::convert(proto, details);
   assert(proto.has_token());
@@ -81,30 +81,31 @@ static void check_client_details_roundtrip()
 static void check_tunnel_properties_roundtrip()
 {
   rstream::io_rstrm::tunnel_properties properties;
-  properties.m_id              = "tun_123";
-  properties.m_name            = "api";
-  properties.m_creation_date   = std::chrono::system_clock::time_point(std::chrono::seconds(12345));
-  properties.m_type            = "bytestream";
-  properties.m_publish         = false;
-  properties.m_protocol        = "http";
-  properties.m_labels["env"]   = "prod";
-  properties.m_labels["owner"] = "platform";
-  properties.m_geoip           = {"FR", "US"};
-  properties.m_trusted_ips     = {"203.0.113.0/24", "198.51.100.12/32"};
-  properties.m_host            = "legacy.example";
-  properties.m_hostname        = "api.example";
-  properties.m_port            = 8443;
-  properties.m_tls_mode        = "terminated";
-  properties.m_tls_alpns       = {"h2", "http/1.1"};
-  properties.m_tls_min_version = "1.3";
-  properties.m_tls_ciphers     = {"TLS_AES_128_GCM_SHA256"};
-  properties.m_mtls_auth       = true;
-  properties.m_http_version    = "2";
-  properties.m_http_use_tls    = false;
-  properties.m_upstream_tls    = true;
-  properties.m_token_auth      = true;
-  properties.m_rstream_auth    = true;
-  properties.m_challenge_mode  = true;
+  properties.m_id                           = "tun_123";
+  properties.m_name                         = "api";
+  properties.m_creation_date                = std::chrono::system_clock::time_point(std::chrono::seconds(12345));
+  properties.m_type                         = "bytestream";
+  properties.m_publish                      = false;
+  properties.m_protocol                     = "http";
+  properties.m_labels["env"]                = "prod";
+  properties.m_labels["owner"]              = "platform";
+  properties.m_geoip                        = {"FR", "US"};
+  properties.m_trusted_ips                  = {"203.0.113.0/24", "198.51.100.12/32"};
+  properties.m_host                         = "legacy.example";
+  properties.m_hostname                     = "api.example";
+  properties.m_port                         = 8443;
+  properties.m_tls_mode                     = "terminated";
+  properties.m_tls_alpns                    = {"h2", "http/1.1"};
+  properties.m_tls_min_version              = "1.3";
+  properties.m_tls_ciphers                  = {"TLS_AES_128_GCM_SHA256"};
+  properties.m_mtls_auth                    = true;
+  properties.m_http_version                 = "2";
+  properties.m_http_use_tls                 = false;
+  properties.m_upstream_tls                 = true;
+  properties.m_token_auth                   = true;
+  properties.m_rstream_auth                 = true;
+  properties.m_challenge_mode               = true;
+  properties.m_datagram_guaranteed_delivery = true;
   protobuf::TunnelProperties proto;
   rstream::io_rstrm::detail::convert(proto, properties);
   assert(proto.has_publish());
@@ -129,6 +130,7 @@ static void check_tunnel_properties_roundtrip()
   assert(decoded.m_token_auth == properties.m_token_auth);
   assert(decoded.m_rstream_auth == properties.m_rstream_auth);
   assert(decoded.m_challenge_mode == properties.m_challenge_mode);
+  assert(decoded.m_datagram_guaranteed_delivery == properties.m_datagram_guaranteed_delivery);
 }
 
 int main(int argc, char** argv)

@@ -12,7 +12,7 @@ extend google.protobuf.FieldOptions {
   string access = 51234;
 }
 
-option (protocol_version) = "1.4.1";
+option (protocol_version) = "1.4.2";
 
 package rstream.io_rstrm.protobuf;
 
@@ -122,6 +122,7 @@ message TunnelProperties {
   google.protobuf.StringValue hostname = 22 [(access) = "read-write"];
   google.protobuf.UInt32Value port = 23 [(access) = "read-only"];
   google.protobuf.BoolValue upstream_tls = 24 [(access) = "read-write"];
+  google.protobuf.BoolValue datagram_guaranteed_delivery = 25 [(access) = "read-write"];
 }
 
 // When a client opens a new control channel to the server
@@ -236,6 +237,7 @@ message StreamReq {
   ClientDetails client_details = 1;
   string tunnel_id_name = 2;
   google.protobuf.BoolValue zero_rtt = 3;
+  google.protobuf.BoolValue datagram_channel = 4;
 }
 
 // Server's response to a 'StreamReq'. Skipped if zero_rtt option is enabled.
@@ -245,6 +247,11 @@ message StreamRsp {
     string stream_id = 1;
     Error error = 2;
   }
+}
+
+message DatagramChannelClose {
+  string stream_id = 1;
+  Error error = 2;
 }
 
 // Sent by client and/or server to maintain the control channel active
@@ -274,5 +281,6 @@ message Message {
     StreamRsp stream_rsp = 14;
     Heartbeat heartbeat = 15;
     ServerMessage server_message = 16;
+    DatagramChannelClose datagram_channel_close = 17;
   }
 }

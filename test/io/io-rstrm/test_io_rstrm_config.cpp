@@ -111,7 +111,7 @@ static void check_parse_settings_rejects_invalid_boolean()
 
 static void check_parse_settings_acceptor_policy_controls()
 {
-  auto url = parse_url("rstrm://edge?rstream.retry=false&rstrm.type=bytestream&rstrm.publish=false&rstrm.protocol=http&rstrm.labels=ignored&rstrm.labels=env%3Dprod&rstrm.labels=env%3Dstaging&rstrm.labels=tier%3Dedge&rstrm.geoip=FR,US&rstrm.trusted_ips=203.0.113.0%2F24,198.51.100.12%2F32&rstrm.hostname=api.example&rstrm.host=legacy.example&rstrm.tls_mode=terminated&rstrm.tls_alpns=h2,http%2F1.1&rstrm.tls_min_version=tls1.2&rstrm.tls_ciphers=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384&rstrm.mtls_auth&rstrm.http_version=h2&rstrm.http_use_tls=false&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.upstream_tls=true");
+  auto url = parse_url("rstrm://edge?rstream.retry=false&rstrm.type=bytestream&rstrm.publish=false&rstrm.protocol=http&rstrm.labels=ignored&rstrm.labels=env%3Dprod&rstrm.labels=env%3Dstaging&rstrm.labels=tier%3Dedge&rstrm.geoip=FR,US&rstrm.trusted_ips=203.0.113.0%2F24,198.51.100.12%2F32&rstrm.hostname=api.example&rstrm.host=legacy.example&rstrm.tls_mode=terminated&rstrm.tls_alpns=h2,http%2F1.1&rstrm.tls_min_version=tls1.2&rstrm.tls_ciphers=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384&rstrm.mtls_auth&rstrm.http_version=h2&rstrm.http_use_tls=false&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.upstream_tls=true&rstrm.datagram_guaranteed_delivery=true");
   rstream::io_rstrm::settings_acceptor settings;
   boost::system::error_code error_code;
   rstream::io_rstrm::parse_settings_acceptor(url, settings, error_code);
@@ -152,6 +152,8 @@ static void check_parse_settings_acceptor_policy_controls()
   assert(settings.m_tunnel_properties.m_challenge_mode.value());
   assert(settings.m_tunnel_properties.m_upstream_tls);
   assert(settings.m_tunnel_properties.m_upstream_tls.value());
+  assert(settings.m_tunnel_properties.m_datagram_guaranteed_delivery);
+  assert(settings.m_tunnel_properties.m_datagram_guaranteed_delivery.value());
 }
 
 static boost::filesystem::path write_config_file(const std::string& content)
@@ -937,6 +939,96 @@ static void check_config_rejects_unsupported_transport_proxy()
   boost::filesystem::remove(env_proxy_path);
 }
 
+static void check_tunnel_transport_mode_resolution()
+{
+  env_guard engine_address("RSTREAM_ENGINE_ADDRESS");
+  env_guard engine("RSTREAM_ENGINE");
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  env_guard api_url("RSTREAM_API_URL");
+  env_guard transport("RSTREAM_TUNNEL_TRANSPORT");
+  env_guard legacy_transport("RSTREAM_QUIC_TRANSPORT");
+  engine_address.unset();
+  engine.unset();
+  api_url.unset();
+  transport.unset();
+  legacy_transport.unset();
+  context.set("prod");
+
+  auto auto_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    transport:\n"
+      "      mode: auto\n");
+  config_path.set(auto_path.string());
+  auto automatic = rstream::io_rstrm::get_rstream_engine_address();
+  assert(automatic);
+  assert(automatic.value().find("tcp://configured.example:443?ssl") == 0);
+  auto auto_json = rstream::io_rstrm::get_rstream_config_file(auto_path.string());
+  assert(auto_json);
+  assert(auto_json.value()["contexts"][0]["transport"]["mode"] == "auto");
+  boost::filesystem::remove(auto_path);
+
+  auto quic_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    transport:\n"
+      "      mode: quic\n");
+  config_path.set(quic_path.string());
+  auto unsupported_quic = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!unsupported_quic);
+  assert(unsupported_quic.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+
+  transport.set("auto");
+  legacy_transport.set("1");
+  auto canonical_override = rstream::io_rstrm::get_rstream_engine_address();
+  assert(canonical_override);
+  assert(canonical_override.value().find("tcp://configured.example:443?ssl") == 0);
+  boost::filesystem::remove(quic_path);
+
+  transport.unset();
+  legacy_transport.unset();
+  auto legacy_quic_path = write_config_file(
+      "contexts:\n"
+      "  - name: prod\n"
+      "    engine: configured.example:443\n"
+      "    transport:\n"
+      "      useQuic: true\n");
+  config_path.set(legacy_quic_path.string());
+  auto legacy_quic = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!legacy_quic);
+  assert(legacy_quic.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+  auto legacy_json = rstream::io_rstrm::get_rstream_config_file(legacy_quic_path.string());
+  assert(legacy_json);
+  assert(legacy_json.value()["contexts"][0]["transport"]["useQuic"] == true);
+  boost::filesystem::remove(legacy_quic_path);
+
+  auto precedence_path = write_config_file(
+      "environments:\n"
+      "  - apiUrl: https://rstream.io\n"
+      "    transport:\n"
+      "      mode: quic\n"
+      "contexts:\n"
+      "  - name: prod\n"
+      "    apiUrl: https://rstream.io\n"
+      "    engine: configured.example:443\n"
+      "    transport:\n"
+      "      useQuic: false\n");
+  config_path.set(precedence_path.string());
+  auto context_override = rstream::io_rstrm::get_rstream_engine_address();
+  assert(context_override);
+  assert(context_override.value().find("tcp://configured.example:443?ssl") == 0);
+  boost::filesystem::remove(precedence_path);
+
+  transport.set("invalid");
+  engine.set("configured.example:443");
+  auto invalid = rstream::io_rstrm::get_rstream_engine_address();
+  assert(!invalid);
+  assert(invalid.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -961,5 +1053,6 @@ int main(int argc, char** argv)
   check_engine_resolution_from_pkcs11_mtls_auth_config();
   check_engine_resolution_rejects_unsupported_mtls_storage();
   check_config_rejects_unsupported_transport_proxy();
+  check_tunnel_transport_mode_resolution();
   return 0;
 }
