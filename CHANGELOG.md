@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.11.1...1.12.0) (2026-07-11)
+
+
+### Features
+
+* add automatic transport and datagram delivery metadata ([d2e9dd5](https://github.com/rstreamlabs/rstream-cpp/commit/d2e9dd5cd3d6466a3e70ff6a3d2bba7948de864a))
+
 ## [1.11.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.11.0...1.11.1) (2026-06-24)
 
 
