@@ -96,6 +96,7 @@ struct tunnel_properties {
   boost::optional<bool> m_token_auth;
   boost::optional<bool> m_rstream_auth;
   boost::optional<bool> m_challenge_mode;
+  boost::optional<bool> m_datagram_guaranteed_delivery;
 };
 
 struct config {

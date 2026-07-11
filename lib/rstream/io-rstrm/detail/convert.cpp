@@ -215,6 +215,11 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     val.set_value(*src.m_challenge_mode);
     dst.mutable_challenge_mode()->CopyFrom(val);
   }
+  if (src.m_datagram_guaranteed_delivery) {
+    google::protobuf::BoolValue val;
+    val.set_value(*src.m_datagram_guaranteed_delivery);
+    dst.mutable_datagram_guaranteed_delivery()->CopyFrom(val);
+  }
 }
 
 void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
@@ -279,6 +284,9 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   }
   if (src.has_challenge_mode()) {
     dst.m_challenge_mode = src.challenge_mode().value();
+  }
+  if (src.has_datagram_guaranteed_delivery()) {
+    dst.m_datagram_guaranteed_delivery = src.datagram_guaranteed_delivery().value();
   }
 }
 
