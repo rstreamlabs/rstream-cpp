@@ -13,6 +13,7 @@
 #include <rstream/core/exception.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/ncat/client.hpp>
+#include <rstream/ncat/error.hpp>
 #include <rstream/ncat/ncat.hpp>
 #include <rstream/ncat/server.hpp>
 
@@ -163,6 +164,9 @@ int run(int argc, char** argv)
     thread.join();
   }
   threads.clear();
+  if (result == rstream::ncat::error::make_error_code(rstream::ncat::error::code::operation_aborted)) {
+    result.clear();
+  }
   if (result) {
     std::cerr << result.message() << std::endl;
   }

@@ -400,7 +400,7 @@ class RSTREAM_GNUC_INTERNAL server::impl::session_proxy : public session, public
 
 class RSTREAM_GNUC_INTERNAL server::impl::session_exec : public session, public std::enable_shared_from_this<session_exec> {
  public:
-  session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec);
+  session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec, bool downstream_half_close);
 
   void async_run(async_run_completion_handler&& handler) override;
 
@@ -464,6 +464,8 @@ class RSTREAM_GNUC_INTERNAL server::impl::session_exec : public session, public 
   const session_id_type m_session_id;
 
   const exec m_exec;
+
+  const bool m_downstream_half_close;
 
   core::logger m_logger;
 
@@ -730,7 +732,7 @@ void server::impl::on_accept(const boost::system::error_code& error_code)
         session_ptr = std::make_shared<session_proxy>(std::move(m_socket), m_settings, session_id, boost::get<io::address>(m_config.m_remote));
       }
       else if (m_config.m_remote.type() == typeid(exec)) {
-        session_ptr = std::make_shared<session_exec>(std::move(m_socket), m_settings, session_id, boost::get<exec>(m_config.m_remote));
+        session_ptr = std::make_shared<session_exec>(std::move(m_socket), m_settings, session_id, boost::get<exec>(m_config.m_remote), m_config.m_local.m_url.scheme() == "tcp");
       }
       if (session_ptr) {
         m_sessions.insert(std::make_pair(session_id, session_ptr));
@@ -1172,13 +1174,14 @@ void server::impl::session_proxy::on_close(const boost::system::error_code& erro
   m_buffer_read_upstream   = nullptr;
 }
 
-server::impl::session_exec::session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec)
+server::impl::session_exec::session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec, bool downstream_half_close)
     : m_executor(downstream_socket.get_executor()),
       m_strand(downstream_socket.get_executor()),
       m_settings(settings),
       m_downstream_socket(std::move(downstream_socket)),
       m_session_id(session_id),
       m_exec(exec),
+      m_downstream_half_close(downstream_half_close),
       m_logger({"rstream", "ncat", "session", fmt::format("#{}", session_id)}),
       m_state(state::null),
       m_child_stdin(get_io_context(m_executor)),
@@ -1406,6 +1409,10 @@ void server::impl::session_exec::on_read_downstream(const boost::system::error_c
   }
   if (error_code) {
     if (is_eof_error(error_code)) {
+      if (!m_downstream_half_close) {
+        on_close(boost::system::error_code());
+        return;
+      }
       {
         boost::system::error_code tmp;
         m_child_stdin.close(tmp);
