@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.12.0...1.12.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* close ncat sessions on peer shutdown ([af3c161](https://github.com/rstreamlabs/rstream-cpp/commit/af3c1615e5bec98bb16b386e9b8a01304a14c3d3))
+
 ## [1.12.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.11.1...1.12.0) (2026-07-11)
 
 
