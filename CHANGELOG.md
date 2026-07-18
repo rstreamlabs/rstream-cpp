@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.12.1...1.13.0) (2026-07-18)
+
+
+### Features
+
+* add published TCP tunnels ([8eae97f](https://github.com/rstreamlabs/rstream-cpp/commit/8eae97fdef93bd4cb44e904014ce26c36d857e7a))
+
 ## [1.12.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.12.0...1.12.1) (2026-07-12)
 
 
