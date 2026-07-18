@@ -66,6 +66,17 @@ static void check_format_forwarding_address_for_published_webtty_tunnel()
   assert(formatted.value() == "https://terminal.example:8443 (webtty)");
 }
 
+static void check_format_forwarding_address_for_published_tcp_tunnel()
+{
+  rstream::io_rstrm::tunnel_properties properties;
+  properties.m_protocol = rstream::io_rstrm::protocol::tcp;
+  properties.m_hostname = "tcp.example";
+  properties.m_port     = 10042;
+  auto formatted        = rstream::io_rstrm::format_forwarding_address(properties);
+  assert(formatted);
+  assert(formatted.value() == "tcp.example:10042 (tcp)");
+}
+
 static void check_format_forwarding_address_for_unpublished_tunnel()
 {
   rstream::io_rstrm::tunnel_properties properties;
@@ -195,6 +206,7 @@ static void check_error_category_messages()
   assert(rstream::io_rstrm::to_string(rstream::io_rstrm::error::code::invalid_stream) == "invalid stream");
   assert(rstream::io_rstrm::to_string(rstream::io_rstrm::error::code::feature_not_available) == "feature not available");
   assert(rstream::io_rstrm::to_string(rstream::io_rstrm::error::code::service_unavailable) == "service unavailable");
+  assert(rstream::io_rstrm::to_string(rstream::io_rstrm::error::code::capacity_exhausted) == "capacity exhausted");
   assert(rstream::io_rstrm::to_string(rstream::io_rstrm::error::code::internal) == "internal error");
   assert(rstream::io_rstrm::error::make_error_code(2000).message() == "invalid request");
   assert(rstream::io_rstrm::to_string(static_cast<rstream::io_rstrm::error::code>(999)) == "unknown error");
@@ -207,6 +219,7 @@ int main(int argc, char** argv)
   check_status_serialization();
   check_format_forwarding_address_for_published_http_tunnel();
   check_format_forwarding_address_for_published_webtty_tunnel();
+  check_format_forwarding_address_for_published_tcp_tunnel();
   check_format_forwarding_address_for_unpublished_tunnel();
   check_format_forwarding_address_for_tls_host();
   check_format_forwarded_address_for_http_upstream();

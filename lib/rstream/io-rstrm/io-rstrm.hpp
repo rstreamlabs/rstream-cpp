@@ -26,6 +26,7 @@ using labels = std::map<std::string, std::string>;
 
 namespace protocol {
 const std::string tls  = "tls";
+const std::string tcp  = "tcp";
 const std::string http = "http";
 }  // namespace protocol
 

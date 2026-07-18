@@ -125,6 +125,9 @@ static void maybe_set_generated_stable_domain(tunnel_properties& properties,
   if (!properties.m_publish || !properties.m_publish.value()) {
     return;
   }
+  if (properties.m_protocol && properties.m_protocol.value() == protocol::tcp) {
+    return;
+  }
   if (!generated_stable_domain) {
     generated_stable_domain = generate_stable_domain(server_address);
   }

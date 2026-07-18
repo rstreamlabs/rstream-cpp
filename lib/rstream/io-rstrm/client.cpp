@@ -43,6 +43,49 @@
 namespace rstream {
 namespace io_rstrm {
 
+static bool invalid_published_tcp_options(const tunnel_properties& properties)
+{
+  const bool published_tcp = properties.m_protocol && properties.m_protocol.value() == protocol::tcp;
+  if (properties.m_port && !published_tcp) {
+    return true;
+  }
+  if (!published_tcp) {
+    return false;
+  }
+  if ((properties.m_publish && !properties.m_publish.value())
+      || (properties.m_type && properties.m_type.value() != "bytestream")
+      || (properties.m_port && (properties.m_port.value() == 0 || properties.m_port.value() > 65535))) {
+    return true;
+  }
+  return properties.m_hostname
+         || properties.m_tls_mode
+         || !properties.m_tls_alpns.empty()
+         || properties.m_tls_min_version
+         || !properties.m_tls_ciphers.empty()
+         || properties.m_mtls_auth
+         || properties.m_http_version
+         || properties.m_http_use_tls
+         || properties.m_upstream_tls
+         || properties.m_token_auth
+         || properties.m_rstream_auth
+         || properties.m_challenge_mode
+         || properties.m_datagram_guaranteed_delivery;
+}
+
+static tunnel_properties normalize_tunnel_properties(const tunnel_properties& properties)
+{
+  auto normalized = properties;
+  if (normalized.m_protocol && normalized.m_protocol.value() == protocol::tcp) {
+    if (!normalized.m_type) {
+      normalized.m_type = "bytestream";
+    }
+    if (!normalized.m_publish) {
+      normalized.m_publish = true;
+    }
+  }
+  return normalized;
+}
+
 class RSTREAM_GNUC_INTERNAL tunnel::impl : public std::enable_shared_from_this<impl> {
  public:
   using client_type = std::shared_ptr<client::impl>;
@@ -607,12 +650,13 @@ void client::impl::async_create_tunnel_internal(const tunnel_properties& propert
     rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, nullptr);
   }
   else {
-    if (properties.m_type && properties.m_type.value() != "bytestream") {
+    const auto normalized = normalize_tunnel_properties(properties);
+    if ((normalized.m_type && normalized.m_type.value() != "bytestream") || invalid_published_tcp_options(normalized)) {
       rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_configuration, nullptr);
       return;
     }
     const auto request_id       = generate_request_id();
-    const auto create_tunnel_op = std::allocate_shared<create_tunnel_op_type>(core::allocator::wrapper<impl>(m_allocator), properties, std::move(handler));
+    const auto create_tunnel_op = std::allocate_shared<create_tunnel_op_type>(core::allocator::wrapper<impl>(m_allocator), normalized, std::move(handler));
     do_create_tunnel(m_create_tunnel_ops.insert(std::make_pair(request_id, create_tunnel_op)).first);
   }
 }

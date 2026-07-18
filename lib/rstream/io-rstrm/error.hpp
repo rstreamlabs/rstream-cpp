@@ -42,6 +42,7 @@ enum class code {
   invalid_stream                = 4000,
   feature_not_available         = 5000,
   service_unavailable           = 6000,
+  capacity_exhausted            = 7000,
   internal                      = 9000,
 };
 
