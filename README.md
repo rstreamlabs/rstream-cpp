@@ -285,6 +285,20 @@ int main() {
 }
 ```
 
+### Published TCP tunnels
+
+Set `m_protocol` to `rstrm::protocol::tcp` for a raw published TCP bytestream. Leave `m_port` unset for an ephemeral address, or set it to a port already reserved by the project through the Control plane:
+
+```cpp
+rstrm::tunnel_properties properties = {
+    .m_publish = true,
+    .m_protocol = rstrm::protocol::tcp,
+    .m_port = 10042,
+};
+```
+
+The SDK does not reserve the port. Published TCP forwards downstream bytes without adding encryption or authentication; use a secure application protocol such as SSH, or choose a TLS tunnel for TLS traffic.
+
 ### Private tunnel with programmatic dial
 
 This sample creates a private tunnel named `echo`, accepts a connection, then dials the same tunnel from the same process via an endpoint. It demonstrates the private-tunnel semantics and the dial path that avoids published forwarding addresses.

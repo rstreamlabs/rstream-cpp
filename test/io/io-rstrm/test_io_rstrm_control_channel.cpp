@@ -355,6 +355,61 @@ static void check_client_rejects_operations_before_connection()
   assert(create_rejected);
 }
 
+static void check_client_normalizes_published_tcp_tunnel()
+{
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    auto open_request = read_message(socket);
+    assert(open_request.has_open_control_channel_req());
+    write_message(socket, open_control_response());
+    auto tunnel_request = read_message(socket);
+    assert(tunnel_request.has_open_tunnel_req());
+    const auto& properties = tunnel_request.open_tunnel_req().tunnel_properties();
+    assert(properties.protocol().value() == rstream::io_rstrm::protocol::tcp);
+    assert(properties.type().value() == "bytestream");
+    assert(properties.publish().value());
+    assert(properties.port().value() == 10042);
+    auto response = open_tunnel_response(tunnel_request.open_tunnel_req());
+    response.mutable_open_tunnel_rsp()->mutable_tunnel_properties()->mutable_protocol()->set_value(rstream::io_rstrm::protocol::tcp);
+    response.mutable_open_tunnel_rsp()->mutable_tunnel_properties()->mutable_port()->set_value(10042);
+    write_message(socket, response);
+    auto close_tunnel_request = read_message(socket);
+    assert(close_tunnel_request.has_close_tunnel_req());
+    write_message(socket, close_tunnel_response("tunnel-1"));
+    auto close_request = read_message(socket);
+    assert(close_request.has_close_control_channel_req());
+    write_message(socket, close_control_response());
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = false;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  config.m_heartbeat_interval_ms = 0;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool created = false;
+  watchdog test_watchdog(io_context);
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    rstream::io_rstrm::tunnel_properties properties;
+    properties.m_name     = "ssh";
+    properties.m_protocol = rstream::io_rstrm::protocol::tcp;
+    properties.m_port     = 10042;
+    client.async_create_tunnel(properties, [&](const boost::system::error_code& create_error, rstream::io_rstrm::tunnel tunnel) {
+      assert(!create_error);
+      assert(tunnel);
+      created = true;
+      tunnel.close();
+      client.close();
+    });
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  assert(!test_watchdog.timed_out());
+  assert(created);
+}
+
 static void check_client_rejects_invalid_operations_after_connection()
 {
   fake_engine engine;
@@ -379,6 +434,7 @@ static void check_client_rejects_invalid_operations_after_connection()
   bool callbacks_rejected      = false;
   bool second_connect_rejected = false;
   bool invalid_tunnel_rejected = false;
+  bool invalid_tcp_rejected    = false;
   watchdog test_watchdog(io_context);
 
   client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
@@ -407,7 +463,15 @@ static void check_client_rejects_invalid_operations_after_connection()
       assert(create_error == rstream::io_rstrm::error::code::invalid_configuration);
       assert(!tunnel);
       invalid_tunnel_rejected = true;
-      client.close();
+      rstream::io_rstrm::tunnel_properties tcp_properties;
+      tcp_properties.m_protocol = rstream::io_rstrm::protocol::tcp;
+      tcp_properties.m_hostname = "ssh.example.test";
+      client.async_create_tunnel(tcp_properties, [&](const boost::system::error_code& tcp_error, rstream::io_rstrm::tunnel tcp_tunnel) {
+        assert(tcp_error == rstream::io_rstrm::error::code::invalid_configuration);
+        assert(!tcp_tunnel);
+        invalid_tcp_rejected = true;
+        client.close();
+      });
     });
   });
 
@@ -420,6 +484,7 @@ static void check_client_rejects_invalid_operations_after_connection()
   assert(callbacks_rejected);
   assert(second_connect_rejected);
   assert(invalid_tunnel_rejected);
+  assert(invalid_tcp_rejected);
 }
 
 static void check_client_rejects_malformed_open_response()
@@ -1051,10 +1116,10 @@ static void check_acceptor_opens_tunnel_and_aborts_pending_accept_on_close()
   assert(accept_aborted);
 }
 
-static void check_acceptor_generates_stable_domain_from_project_endpoint()
+static void check_acceptor_stable_domain_behavior(const std::string& protocol, bool expects_hostname)
 {
   fake_engine engine;
-  engine.start([](tcp::socket& socket) {
+  engine.start([protocol, expects_hostname](tcp::socket& socket) {
     auto open_request = read_message(socket);
     assert(open_request.has_open_control_channel_req());
     write_message(socket, open_control_response());
@@ -1062,10 +1127,13 @@ static void check_acceptor_generates_stable_domain_from_project_endpoint()
     auto tunnel_request = read_message(socket);
     assert(tunnel_request.has_open_tunnel_req());
     assert(tunnel_request.open_tunnel_req().tunnel_properties().name().value() == "project");
-    assert(tunnel_request.open_tunnel_req().tunnel_properties().has_hostname());
-    const auto& hostname = tunnel_request.open_tunnel_req().tunnel_properties().hostname().value();
-    assert(hostname.size() > std::string("-project.t.localhost").size());
-    assert(hostname.find("-project.t.localhost") == hostname.size() - std::string("-project.t.localhost").size());
+    assert(tunnel_request.open_tunnel_req().tunnel_properties().protocol().value() == protocol);
+    assert(tunnel_request.open_tunnel_req().tunnel_properties().has_hostname() == expects_hostname);
+    if (expects_hostname) {
+      const auto& hostname = tunnel_request.open_tunnel_req().tunnel_properties().hostname().value();
+      assert(hostname.size() > std::string("-project.t.localhost").size());
+      assert(hostname.find("-project.t.localhost") == hostname.size() - std::string("-project.t.localhost").size());
+    }
     write_message(socket, open_tunnel_response(tunnel_request.open_tunnel_req()));
 
     auto close_request = read_message(socket);
@@ -1082,7 +1150,7 @@ static void check_acceptor_generates_stable_domain_from_project_endpoint()
   settings.m_auto_recreate_tunnel           = false;
   settings.m_tunnel_properties.m_type       = "bytestream";
   settings.m_tunnel_properties.m_publish    = true;
-  settings.m_tunnel_properties.m_protocol   = "http";
+  settings.m_tunnel_properties.m_protocol   = protocol;
   rstream::io_rstrm::acceptor acceptor(io_context.get_executor(), settings);
 
   bool saw_tunnel_properties = false;
@@ -1119,6 +1187,16 @@ static void check_acceptor_generates_stable_domain_from_project_endpoint()
 
   assert(!test_watchdog.timed_out());
   assert(saw_tunnel_properties);
+}
+
+static void check_acceptor_generates_stable_domain_from_project_endpoint()
+{
+  check_acceptor_stable_domain_behavior(rstream::io_rstrm::protocol::http, true);
+}
+
+static void check_acceptor_skips_stable_domain_for_published_tcp()
+{
+  check_acceptor_stable_domain_behavior(rstream::io_rstrm::protocol::tcp, false);
 }
 
 static void check_socket_stream_handshake_then_transfers_bytes()
@@ -1219,6 +1297,7 @@ int main(int argc, char** argv)
   const char* selected = argc > 1 ? argv[1] : nullptr;
   run_selected_check(selected, "client_rejects_operations_before_connection", check_client_rejects_operations_before_connection);
   run_selected_check(selected, "client_can_create_and_close_tunnel", check_client_can_create_and_close_tunnel);
+  run_selected_check(selected, "client_normalizes_published_tcp_tunnel", check_client_normalizes_published_tcp_tunnel);
   run_selected_check(selected, "client_rejects_invalid_operations_after_connection", check_client_rejects_invalid_operations_after_connection);
   run_selected_check(selected, "client_rejects_malformed_open_response", check_client_rejects_malformed_open_response);
   run_selected_check(selected, "client_reports_open_response_error", check_client_reports_open_response_error);
@@ -1231,6 +1310,7 @@ int main(int argc, char** argv)
   run_selected_check(selected, "acceptor_rejects_invalid_state_operations", check_acceptor_rejects_invalid_state_operations);
   run_selected_check(selected, "acceptor_opens_tunnel_and_aborts_pending_accept_on_close", check_acceptor_opens_tunnel_and_aborts_pending_accept_on_close);
   run_selected_check(selected, "acceptor_generates_stable_domain_from_project_endpoint", check_acceptor_generates_stable_domain_from_project_endpoint);
+  run_selected_check(selected, "acceptor_skips_stable_domain_for_published_tcp", check_acceptor_skips_stable_domain_for_published_tcp);
   run_selected_check(selected, "socket_stream_handshake_then_transfers_bytes", check_socket_stream_handshake_then_transfers_bytes);
   return 0;
 }

@@ -69,6 +69,8 @@ std::string to_string(error::code code)
       return "feature not available";
     case error::code::service_unavailable:
       return "service unavailable";
+    case error::code::capacity_exhausted:
+      return "capacity exhausted";
     case error::code::internal:
       return "internal error";
     default:
