@@ -96,6 +96,21 @@ static void check_make_endpoint_from_uri_server_param()
   assert(endpoint.value().m_server_address_from_uri_param);
 }
 
+static void check_make_redirected_server_address_uses_target_sni()
+{
+  const auto base = rstream::io::make_address("tcp://owner.example:443?ssl&ssl.sni=project.example&ssl.alpn_protos=rstrm%2F1");
+  auto redirected = rstream::io_rstrm::make_redirected_server_address(base, "ingress.example:8443");
+  assert(redirected);
+  assert(redirected->host() == "ingress.example");
+  assert(redirected->port() == "8443");
+  const auto params = redirected->m_url.params();
+  const auto alpn   = params.find("ssl.alpn_protos");
+  assert(params.contains("ssl"));
+  assert(!params.contains("ssl.sni"));
+  assert(alpn != params.end() && (*alpn).value == "rstrm/1");
+  assert(!rstream::io_rstrm::make_redirected_server_address(base, "missing-port.example"));
+}
+
 static void check_make_endpoint_fails_closed_without_engine()
 {
   env_guard home("HOME");
@@ -196,6 +211,7 @@ int main(int argc, char** argv)
   (void)argv;
   check_make_endpoint_from_explicit_inputs();
   check_make_endpoint_from_uri_server_param();
+  check_make_redirected_server_address_uses_target_sni();
   check_make_endpoint_fails_closed_without_engine();
   check_resolver_delivers_single_endpoint();
   check_resolver_rejects_invalid_uri();

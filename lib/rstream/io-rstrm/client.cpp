@@ -13,6 +13,7 @@
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/deadline_timer.hpp>
@@ -46,6 +47,9 @@ namespace io_rstrm {
 static bool invalid_published_tcp_options(const tunnel_properties& properties)
 {
   const bool published_tcp = properties.m_protocol && properties.m_protocol.value() == protocol::tcp;
+  if (properties.m_allow_cross_region_routing && !published_tcp) {
+    return true;
+  }
   if (properties.m_port && !published_tcp) {
     return true;
   }
@@ -174,6 +178,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
     struct context {
       boost::optional<std::string> m_secret;
       boost::optional<boost::asio::ip::address> m_source_ip;
+      boost::optional<io::address> m_proxy_endpoint;
     };
     struct container {
       ptr m_ptr;
@@ -242,7 +247,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void on_proxy_request(tunnels_type::iterator& tunnel_it, const stream_type::id& stream_id, const stream_type::context& context);
 
-  void do_send_proxy_response(tunnels_type::iterator& tunnel_it, const stream_type::id& stream_id, const boost::system::error_code& error_code);
+  void do_send_proxy_response(const stream_type::id& stream_id, const boost::system::error_code& error_code);
 
   void do_connect_stream(tunnels_type::iterator& tunnel_it, streams_type::iterator& stream_it);
 
@@ -705,8 +710,9 @@ void client::impl::async_accept_tunnel_internal(const tunnel_type::id& tunnel_id
       }
     }
     if (stream_it != tunnel_it->second->m_streams.end()) {
-      peer     = std::move(stream_it->second.m_ptr->m_peer);  // TODO : Properly rebind executor
-      endpoint = (struct endpoint){.m_id_name = stream_it->first, .m_server_address = m_server_address, .m_secret = boost::none, .m_source_ip = stream_it->second.m_context.m_source_ip};
+      peer               = std::move(stream_it->second.m_ptr->m_peer);  // TODO : Properly rebind executor
+      const auto address = stream_it->second.m_context.m_proxy_endpoint ? stream_it->second.m_context.m_proxy_endpoint.get() : m_server_address;
+      endpoint           = (struct endpoint){.m_id_name = stream_it->first, .m_server_address = address, .m_secret = boost::none, .m_source_ip = stream_it->second.m_context.m_source_ip};
       rstream::core::invoke_completion_handler(m_executor, std::move(handler), boost::system::error_code());
 #ifdef DEBUG_BUILD
       m_logger->trace("accept operation completed [tunnel_id={}, stream_id={}]", tunnel_id, stream_it->first);
@@ -995,10 +1001,12 @@ void client::impl::on_proxy_request(tunnels_type::iterator& tunnel_it, const str
     auto stream_it = tunnel_it->second->m_streams.insert(std::make_pair(stream_id, (stream_type::container){.m_ptr = stream_ptr, .m_context = context})).first;
     do_connect_stream(tunnel_it, stream_it);
   }
-  do_send_proxy_response(tunnel_it, stream_id, error_code);
+  if (error_code) {
+    do_send_proxy_response(stream_id, error_code);
+  }
 }
 
-void client::impl::do_send_proxy_response(tunnels_type::iterator& tunnel_it, const stream_type::id& stream_id, const boost::system::error_code& error_code)
+void client::impl::do_send_proxy_response(const stream_type::id& stream_id, const boost::system::error_code& error_code)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -1035,7 +1043,9 @@ void client::impl::do_connect_stream(tunnels_type::iterator& tunnel_it, streams_
     peer                                          = &tunnel_it->second->m_accept_tunnel_op->m_peer;
   }
   if (peer) {
-    endpoint endpoint       = {.m_id_name = stream_it->first, .m_server_address = m_server_address, .m_secret = stream_it->second.m_context.m_secret, .m_source_ip = stream_it->second.m_context.m_source_ip};
+    const auto& context     = stream_it->second.m_context;
+    const auto address      = context.m_proxy_endpoint ? context.m_proxy_endpoint.get() : m_server_address;
+    endpoint endpoint       = {.m_id_name = stream_it->first, .m_server_address = address, .m_secret = context.m_secret, .m_source_ip = context.m_source_ip};
     auto completion_handler = std::bind(&impl::on_connect_stream, shared_from_this(), tunnel_it->first, stream_it->first, std::placeholders::_1);
     boost::system::error_code error_code;
     if (!error_code) {
@@ -1072,6 +1082,7 @@ void client::impl::on_connect_stream(const tunnel_type::id& tunnel_id, const str
   {
     auto it = m_tunnels.find(tunnel_id);
     if (it == m_tunnels.end()) {
+      do_send_proxy_response(stream_id, error::code::tunnel_not_found);
       return;
     }
     else {
@@ -1080,6 +1091,7 @@ void client::impl::on_connect_stream(const tunnel_type::id& tunnel_id, const str
   }
   auto it = tunnel->m_streams.find(stream_id);
   if (it == tunnel->m_streams.end()) {
+    do_send_proxy_response(stream_id, error::code::invalid_stream);
     return;
   }
   if (tunnel->m_accept_tunnel_op) {
@@ -1099,7 +1111,8 @@ void client::impl::on_connect_stream(const tunnel_type::id& tunnel_id, const str
       if (it->second.m_ptr) {
         tunnel->m_accept_tunnel_op->m_peer = std::move(it->second.m_ptr->m_peer);  // TODO : Properly rebind executor
       }
-      tunnel->m_accept_tunnel_op->m_endpoint = (endpoint){.m_id_name = it->first, .m_server_address = m_server_address, .m_secret = boost::none, .m_source_ip = it->second.m_context.m_source_ip};
+      const auto address                     = it->second.m_context.m_proxy_endpoint ? it->second.m_context.m_proxy_endpoint.get() : m_server_address;
+      tunnel->m_accept_tunnel_op->m_endpoint = (endpoint){.m_id_name = it->first, .m_server_address = address, .m_secret = boost::none, .m_source_ip = it->second.m_context.m_source_ip};
       rstream::core::invoke_completion_handler(m_executor, std::move(tunnel->m_accept_tunnel_op->m_handler), boost::system::error_code());
       it                         = tunnel->m_streams.erase(it);
       tunnel->m_accept_tunnel_op = nullptr;
@@ -1114,6 +1127,7 @@ void client::impl::on_connect_stream(const tunnel_type::id& tunnel_id, const str
       it->second.m_ptr->m_connected = true;
     }
   }
+  do_send_proxy_response(stream_id, error_code);
 }
 
 void client::impl::do_read_incoming_message()
@@ -1269,6 +1283,7 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
       tunnels_type::iterator it;
       stream_type::id stream_id;
       stream_type::context context;
+      boost::system::error_code request_error;
       {
         auto payload = message.proxy_conn_req();
         stream_id    = payload.stream_id();
@@ -1282,6 +1297,22 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
         if (!error_code) {
           if (payload.has_secret()) {
             context.m_secret = payload.secret().value();
+          }
+        }
+        if (!error_code && payload.has_proxy_endpoint()) {
+          if (!context.m_secret
+              || boost::algorithm::trim_copy(context.m_secret.value()).empty()
+              || boost::algorithm::trim_copy(payload.proxy_endpoint().value()).empty()) {
+            request_error = error::code::protocol_error;
+          }
+          else {
+            auto endpoint_result = make_redirected_server_address(m_server_address, payload.proxy_endpoint().value());
+            if (endpoint_result) {
+              context.m_proxy_endpoint = endpoint_result.value();
+            }
+            else {
+              request_error = endpoint_result.error();
+            }
           }
         }
         if (!error_code) {
@@ -1300,7 +1331,12 @@ void client::impl::on_read_incoming_message(const protobuf::Message& message)
         }
       }
       if (!error_code) {
-        on_proxy_request(it, stream_id, context);
+        if (request_error) {
+          do_send_proxy_response(stream_id, request_error);
+        }
+        else {
+          on_proxy_request(it, stream_id, context);
+        }
       }
     }
     else if (message_type == payload_type::kCloseControlChannelRsp) {

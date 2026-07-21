@@ -70,7 +70,7 @@ static void write_message(tcp::socket& socket, const protobuf::Message& message)
   std::uint32_t frame_size = htonl(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  check(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())), "failed to serialize protobuf message");
   if (!payload.empty()) {
     boost::asio::write(socket, boost::asio::buffer(payload));
   }
@@ -369,6 +369,7 @@ static void check_client_normalizes_published_tcp_tunnel()
     assert(properties.type().value() == "bytestream");
     assert(properties.publish().value());
     assert(properties.port().value() == 10042);
+    assert(properties.allow_cross_region_routing().value());
     auto response = open_tunnel_response(tunnel_request.open_tunnel_req());
     response.mutable_open_tunnel_rsp()->mutable_tunnel_properties()->mutable_protocol()->set_value(rstream::io_rstrm::protocol::tcp);
     response.mutable_open_tunnel_rsp()->mutable_tunnel_properties()->mutable_port()->set_value(10042);
@@ -392,9 +393,10 @@ static void check_client_normalizes_published_tcp_tunnel()
   client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
     assert(!error_code);
     rstream::io_rstrm::tunnel_properties properties;
-    properties.m_name     = "ssh";
-    properties.m_protocol = rstream::io_rstrm::protocol::tcp;
-    properties.m_port     = 10042;
+    properties.m_name                       = "ssh";
+    properties.m_protocol                   = rstream::io_rstrm::protocol::tcp;
+    properties.m_port                       = 10042;
+    properties.m_allow_cross_region_routing = true;
     client.async_create_tunnel(properties, [&](const boost::system::error_code& create_error, rstream::io_rstrm::tunnel tunnel) {
       assert(!create_error);
       assert(tunnel);
@@ -430,11 +432,12 @@ static void check_client_rejects_invalid_operations_after_connection()
   config.m_connection_timeout_ms = kControlChannelTimeoutMs;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
 
-  bool connected               = false;
-  bool callbacks_rejected      = false;
-  bool second_connect_rejected = false;
-  bool invalid_tunnel_rejected = false;
-  bool invalid_tcp_rejected    = false;
+  bool connected                = false;
+  bool callbacks_rejected       = false;
+  bool second_connect_rejected  = false;
+  bool invalid_tunnel_rejected  = false;
+  bool invalid_tcp_rejected     = false;
+  bool invalid_routing_rejected = false;
   watchdog test_watchdog(io_context);
 
   client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
@@ -470,7 +473,15 @@ static void check_client_rejects_invalid_operations_after_connection()
         assert(tcp_error == rstream::io_rstrm::error::code::invalid_configuration);
         assert(!tcp_tunnel);
         invalid_tcp_rejected = true;
-        client.close();
+        rstream::io_rstrm::tunnel_properties routing_properties;
+        routing_properties.m_protocol                   = rstream::io_rstrm::protocol::http;
+        routing_properties.m_allow_cross_region_routing = true;
+        client.async_create_tunnel(routing_properties, [&](const boost::system::error_code& routing_error, rstream::io_rstrm::tunnel routing_tunnel) {
+          assert(routing_error == rstream::io_rstrm::error::code::invalid_configuration);
+          assert(!routing_tunnel);
+          invalid_routing_rejected = true;
+          client.close();
+        });
       });
     });
   });
@@ -485,6 +496,7 @@ static void check_client_rejects_invalid_operations_after_connection()
   assert(second_connect_rejected);
   assert(invalid_tunnel_rejected);
   assert(invalid_tcp_rejected);
+  assert(invalid_routing_rejected);
 }
 
 static void check_client_rejects_malformed_open_response()
@@ -739,6 +751,21 @@ static protobuf::Message proxy_connection_request(const std::string& stream_id, 
   return message;
 }
 
+static protobuf::Message redirected_proxy_connection_request(const std::string& stream_id,
+                                                             const std::string& tunnel_id,
+                                                             const std::string& proxy_endpoint,
+                                                             bool include_secret,
+                                                             const std::string& secret = "stream-secret")
+{
+  auto message  = proxy_connection_request(stream_id, tunnel_id);
+  auto* request = message.mutable_proxy_conn_req();
+  request->mutable_proxy_endpoint()->set_value(proxy_endpoint);
+  if (include_secret) {
+    request->mutable_secret()->set_value(secret);
+  }
+  return message;
+}
+
 static protobuf::Message proxy_response()
 {
   protobuf::Message response;
@@ -798,7 +825,8 @@ static void check_client_accepts_delayed_proxy_stream_and_rejects_max_streams()
     assert(!handshake.proxy_req().client_details().has_token());
     write_proxy_response_if_needed(stream, handshake);
 
-    auto proxy_ack = read_message(control);
+    first_stream_ready = true;
+    auto proxy_ack     = read_message(control);
     assert(proxy_ack.has_proxy_conn_rsp());
     assert(proxy_ack.proxy_conn_rsp().stream_id() == "stream-1");
     assert(!proxy_ack.proxy_conn_rsp().has_error());
@@ -810,7 +838,6 @@ static void check_client_accepts_delayed_proxy_stream_and_rejects_max_streams()
     assert(proxy_rejection.proxy_conn_rsp().has_error());
     assert(proxy_rejection.proxy_conn_rsp().error().code() == static_cast<protobuf::ErrorCode>(rstream::io_rstrm::error::make_error_code(rstream::io_rstrm::error::code::operation_aborted).value()));
 
-    first_stream_ready        = true;
     const std::string inbound = "hello";
     boost::asio::write(stream, boost::asio::buffer(inbound));
     std::array<char, 5> reply = {};
@@ -925,6 +952,83 @@ static void check_client_rejects_proxy_request_for_unknown_tunnel()
   assert(!test_watchdog.timed_out());
   assert(connected);
   assert(disconnected);
+}
+
+static void check_client_reports_redirected_proxy_failures()
+{
+  boost::asio::io_context port_context;
+  tcp::acceptor unavailable(port_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
+  const auto unavailable_address = std::string("127.0.0.1:") + std::to_string(unavailable.local_endpoint().port());
+  unavailable.close();
+
+  std::atomic_bool failures_reported = false;
+  fake_engine owner;
+  owner.start([&](tcp::socket& control) {
+    auto open_request = read_message(control);
+    assert(open_request.has_open_control_channel_req());
+    write_message(control, open_control_response());
+    auto tunnel_request = read_message(control);
+    assert(tunnel_request.has_open_tunnel_req());
+    write_message(control, open_tunnel_response(tunnel_request.open_tunnel_req()));
+
+    write_message(control, redirected_proxy_connection_request("stream-unavailable", "tunnel-1", unavailable_address, true));
+    auto unavailable_response = read_message(control);
+    assert(unavailable_response.has_proxy_conn_rsp());
+    assert(unavailable_response.proxy_conn_rsp().has_error());
+
+    write_message(control, redirected_proxy_connection_request("stream-missing-secret", "tunnel-1", unavailable_address, false));
+    auto missing_secret_response = read_message(control);
+    assert(missing_secret_response.has_proxy_conn_rsp());
+    assert(missing_secret_response.proxy_conn_rsp().has_error());
+
+    write_message(control, redirected_proxy_connection_request("stream-empty-endpoint", "tunnel-1", "", true));
+    auto empty_endpoint_response = read_message(control);
+    assert(empty_endpoint_response.has_proxy_conn_rsp());
+    assert(empty_endpoint_response.proxy_conn_rsp().has_error());
+
+    write_message(control, redirected_proxy_connection_request("stream-empty-secret", "tunnel-1", unavailable_address, true, ""));
+    auto empty_secret_response = read_message(control);
+    assert(empty_secret_response.has_proxy_conn_rsp());
+    assert(empty_secret_response.proxy_conn_rsp().has_error());
+    failures_reported = true;
+  });
+
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token               = true;
+  config.m_hearbeat               = false;
+  config.m_connection_timeout_ms  = kControlChannelTimeoutMs;
+  config.m_async_stream_operation = true;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool tunnel_created = false;
+  bool disconnected   = false;
+  watchdog test_watchdog(io_context);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  callbacks.m_on_disconnection_cb = [&](const boost::system::error_code&) {
+    disconnected = true;
+  };
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  assert(!callback_error);
+  client.async_connect(rstream::io::make_address(owner.address()), [&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    rstream::io_rstrm::tunnel_properties properties;
+    properties.m_name = "api";
+    properties.m_type = "bytestream";
+    client.async_create_tunnel(properties, [&](const boost::system::error_code& create_error, rstream::io_rstrm::tunnel tunnel) {
+      assert(!create_error);
+      assert(tunnel);
+      tunnel_created = true;
+    });
+  });
+
+  io_context.run();
+  test_watchdog.complete();
+  owner.join();
+  assert(!test_watchdog.timed_out());
+  assert(tunnel_created);
+  assert(disconnected);
+  assert(failures_reported.load());
 }
 
 static void check_socket_rejects_invalid_state_operations()
@@ -1306,6 +1410,7 @@ int main(int argc, char** argv)
   run_selected_check(selected, "client_heartbeat_and_unexpected_close_response", check_client_heartbeat_and_unexpected_close_response);
   run_selected_check(selected, "client_accepts_delayed_proxy_stream_and_rejects_max_streams", check_client_accepts_delayed_proxy_stream_and_rejects_max_streams);
   run_selected_check(selected, "client_rejects_proxy_request_for_unknown_tunnel", check_client_rejects_proxy_request_for_unknown_tunnel);
+  run_selected_check(selected, "client_reports_redirected_proxy_failures", check_client_reports_redirected_proxy_failures);
   run_selected_check(selected, "socket_rejects_invalid_state_operations", check_socket_rejects_invalid_state_operations);
   run_selected_check(selected, "acceptor_rejects_invalid_state_operations", check_acceptor_rejects_invalid_state_operations);
   run_selected_check(selected, "acceptor_opens_tunnel_and_aborts_pending_accept_on_close", check_acceptor_opens_tunnel_and_aborts_pending_accept_on_close);

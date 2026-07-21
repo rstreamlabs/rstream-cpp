@@ -4,6 +4,8 @@
 
 #include <rstream/io/detail/stream/url.hpp>
 
+#include "error.hpp"
+
 namespace rstream {
 namespace io_rstrm {
 
@@ -91,6 +93,28 @@ boost::system::result<endpoint> make_endpoint(const boost::urls::url& url)
   }
   else {
     return error_code;
+  }
+}
+
+boost::system::result<io::address> make_redirected_server_address(const io::address& base, const std::string& server_address)
+{
+  try {
+    const auto target = io::make_address(server_address);
+    if (target.host().empty() || target.port().empty()) {
+      return error::code::invalid_endpoint;
+    }
+    auto url = base.m_url;
+    url.set_encoded_host(target.m_url.encoded_host());
+    url.set_port(target.port());
+    auto params = url.params();
+    const auto sni = params.find("ssl.sni");
+    if (sni != params.end()) {
+      params.erase(sni);
+    }
+    return io::address(url);
+  }
+  catch (...) {
+    return error::code::invalid_endpoint;
   }
 }
 
