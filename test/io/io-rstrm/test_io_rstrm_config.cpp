@@ -111,7 +111,7 @@ static void check_parse_settings_rejects_invalid_boolean()
 
 static void check_parse_settings_acceptor_policy_controls()
 {
-  auto url = parse_url("rstrm://edge?rstream.retry=false&rstrm.type=bytestream&rstrm.publish=false&rstrm.protocol=http&rstrm.labels=ignored&rstrm.labels=env%3Dprod&rstrm.labels=env%3Dstaging&rstrm.labels=tier%3Dedge&rstrm.geoip=FR,US&rstrm.trusted_ips=203.0.113.0%2F24,198.51.100.12%2F32&rstrm.hostname=api.example&rstrm.host=legacy.example&rstrm.tls_mode=terminated&rstrm.tls_alpns=h2,http%2F1.1&rstrm.tls_min_version=tls1.2&rstrm.tls_ciphers=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384&rstrm.mtls_auth&rstrm.http_version=h2&rstrm.http_use_tls=false&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.upstream_tls=true&rstrm.datagram_guaranteed_delivery=true");
+  auto url = parse_url("rstrm://edge?rstream.retry=false&rstrm.type=bytestream&rstrm.publish=false&rstrm.protocol=http&rstrm.labels=ignored&rstrm.labels=env%3Dprod&rstrm.labels=env%3Dstaging&rstrm.labels=tier%3Dedge&rstrm.geoip=FR,US&rstrm.trusted_ips=203.0.113.0%2F24,198.51.100.12%2F32&rstrm.hostname=api.example&rstrm.host=legacy.example&rstrm.tls_mode=terminated&rstrm.tls_alpns=h2,http%2F1.1&rstrm.tls_min_version=tls1.2&rstrm.tls_ciphers=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384&rstrm.mtls_auth&rstrm.http_version=h2&rstrm.http_use_tls=false&rstrm.token_auth=true&rstrm.rstream_auth=true&rstrm.challenge_mode=true&rstrm.upstream_tls=true&rstrm.datagram_guaranteed_delivery=true&rstrm.allow_cross_region_routing=false");
   rstream::io_rstrm::settings_acceptor settings;
   boost::system::error_code error_code;
   rstream::io_rstrm::parse_settings_acceptor(url, settings, error_code);
@@ -154,6 +154,8 @@ static void check_parse_settings_acceptor_policy_controls()
   assert(settings.m_tunnel_properties.m_upstream_tls.value());
   assert(settings.m_tunnel_properties.m_datagram_guaranteed_delivery);
   assert(settings.m_tunnel_properties.m_datagram_guaranteed_delivery.value());
+  assert(settings.m_tunnel_properties.m_allow_cross_region_routing);
+  assert(!settings.m_tunnel_properties.m_allow_cross_region_routing.value());
 }
 
 static boost::filesystem::path write_config_file(const std::string& content)

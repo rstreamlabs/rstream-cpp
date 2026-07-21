@@ -220,6 +220,11 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
     val.set_value(*src.m_datagram_guaranteed_delivery);
     dst.mutable_datagram_guaranteed_delivery()->CopyFrom(val);
   }
+  if (src.m_allow_cross_region_routing) {
+    google::protobuf::BoolValue val;
+    val.set_value(*src.m_allow_cross_region_routing);
+    dst.mutable_allow_cross_region_routing()->CopyFrom(val);
+  }
 }
 
 void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
@@ -287,6 +292,9 @@ void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
   }
   if (src.has_datagram_guaranteed_delivery()) {
     dst.m_datagram_guaranteed_delivery = src.datagram_guaranteed_delivery().value();
+  }
+  if (src.has_allow_cross_region_routing()) {
+    dst.m_allow_cross_region_routing = src.allow_cross_region_routing().value();
   }
 }
 

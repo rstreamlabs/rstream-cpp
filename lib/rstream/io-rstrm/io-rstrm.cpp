@@ -263,6 +263,7 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, rstream_auth)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, challenge_mode)
   PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, datagram_guaranteed_delivery)
+  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, allow_cross_region_routing)
   PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, tls_mode)
   PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, tls_alpns, ',')
 }

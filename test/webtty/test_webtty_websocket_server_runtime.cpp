@@ -201,7 +201,8 @@ static protobuf::Message eos_message(protobuf::Data::Type type)
 static rstream::webtty::byte_vector sha256_message(const google::protobuf::Message& message)
 {
   std::string bytes;
-  assert(message.SerializeToString(&bytes));
+  const auto serialized = message.SerializeToString(&bytes);
+  assert(serialized);
   unsigned char digest[SHA256_DIGEST_LENGTH] = {};
   SHA256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest);
   return rstream::webtty::byte_vector(digest, digest + SHA256_DIGEST_LENGTH);
@@ -804,7 +805,8 @@ static void check_websocket_server_e2e_rejects_missing_client_proof()
   assert(hello);
   assert(hello->payload_case() == protobuf::Message::PayloadCase::kServerHello);
   write_message(websocket, open_message({"/bin/cat"}, client_crypto));
-  assert(read_error_or_close(websocket));
+  const auto rejected = read_error_or_close(websocket);
+  assert(rejected);
 }
 
 static void check_websocket_server_e2e_rejects_expired_client_proof()
@@ -832,7 +834,8 @@ static void check_websocket_server_e2e_rejects_expired_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello->server_hello(), client_identity, "websocket", -60, -30);
   write_message(websocket, open);
-  assert(read_error_or_close(websocket));
+  const auto rejected = read_error_or_close(websocket);
+  assert(rejected);
 }
 
 static void check_websocket_server_e2e_rejects_unauthorized_client_proof()
@@ -863,7 +866,8 @@ static void check_websocket_server_e2e_rejects_unauthorized_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello->server_hello(), denied_client_identity, "websocket");
   write_message(websocket, open);
-  assert(read_error_or_close(websocket));
+  const auto rejected = read_error_or_close(websocket);
+  assert(rejected);
 }
 
 int main(int argc, char** argv)

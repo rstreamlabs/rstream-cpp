@@ -229,7 +229,8 @@ static protobuf::Message eos_message(protobuf::Data::Type type)
 static rstream::webtty::byte_vector sha256_message(const google::protobuf::Message& message)
 {
   std::string bytes;
-  assert(message.SerializeToString(&bytes));
+  const auto serialized = message.SerializeToString(&bytes);
+  assert(serialized);
   unsigned char digest[SHA256_DIGEST_LENGTH] = {};
   SHA256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest);
   return rstream::webtty::byte_vector(digest, digest + SHA256_DIGEST_LENGTH);
@@ -713,7 +714,8 @@ static void check_plain_server_e2e_rejects_missing_session_key_grant()
   auto open = open_message({"/bin/cat"});
   add_client_proof(*open.mutable_open(), hello.server_hello(), client_identity, "plain");
   write_message(socket, open);
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_missing_client_proof()
@@ -738,7 +740,8 @@ static void check_plain_server_e2e_rejects_missing_client_proof()
   auto hello  = read_message(socket);
   assert(hello.payload_case() == protobuf::Message::PayloadCase::kServerHello);
   write_message(socket, open_message({"/bin/cat"}, client_crypto));
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_expired_client_proof()
@@ -765,7 +768,8 @@ static void check_plain_server_e2e_rejects_expired_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello.server_hello(), client_identity, "plain", -60, -30);
   write_message(socket, open);
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_unauthorized_client_proof()
@@ -795,7 +799,8 @@ static void check_plain_server_e2e_rejects_unauthorized_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello.server_hello(), denied_client_identity, "plain");
   write_message(socket, open);
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_plaintext_data()
@@ -823,7 +828,8 @@ static void check_plain_server_e2e_rejects_plaintext_data()
   auto ack = read_message(socket);
   assert(ack.payload_case() == protobuf::Message::PayloadCase::kAck);
   write_message(socket, data_message(protobuf::Data::TYPE_STDIN, "plaintext\n"));
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_login_execution_mode_requires_user()

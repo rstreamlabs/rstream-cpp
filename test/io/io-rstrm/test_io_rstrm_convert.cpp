@@ -106,6 +106,7 @@ static void check_tunnel_properties_roundtrip()
   properties.m_rstream_auth                 = true;
   properties.m_challenge_mode               = true;
   properties.m_datagram_guaranteed_delivery = true;
+  properties.m_allow_cross_region_routing   = false;
   protobuf::TunnelProperties proto;
   rstream::io_rstrm::detail::convert(proto, properties);
   assert(proto.has_publish());
@@ -131,6 +132,7 @@ static void check_tunnel_properties_roundtrip()
   assert(decoded.m_rstream_auth == properties.m_rstream_auth);
   assert(decoded.m_challenge_mode == properties.m_challenge_mode);
   assert(decoded.m_datagram_guaranteed_delivery == properties.m_datagram_guaranteed_delivery);
+  assert(decoded.m_allow_cross_region_routing == properties.m_allow_cross_region_routing);
 }
 
 int main(int argc, char** argv)
