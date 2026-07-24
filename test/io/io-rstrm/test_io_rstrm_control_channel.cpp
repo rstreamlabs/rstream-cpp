@@ -420,6 +420,12 @@ static void check_client_rejects_invalid_operations_after_connection()
     assert(open_request.has_open_control_channel_req());
     write_message(socket, open_control_response());
 
+    auto tunnel_request = read_message(socket);
+    assert(tunnel_request.has_open_tunnel_req());
+    assert(tunnel_request.open_tunnel_req().tunnel_properties().protocol().value() == rstream::io_rstrm::protocol::http);
+    assert(tunnel_request.open_tunnel_req().tunnel_properties().allow_cross_region_routing().value());
+    write_message(socket, open_tunnel_response(tunnel_request.open_tunnel_req()));
+
     auto close_request = read_message(socket);
     assert(close_request.has_close_control_channel_req());
     write_message(socket, close_control_response());
@@ -432,12 +438,12 @@ static void check_client_rejects_invalid_operations_after_connection()
   config.m_connection_timeout_ms = kControlChannelTimeoutMs;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
 
-  bool connected                = false;
-  bool callbacks_rejected       = false;
-  bool second_connect_rejected  = false;
-  bool invalid_tunnel_rejected  = false;
-  bool invalid_tcp_rejected     = false;
-  bool invalid_routing_rejected = false;
+  bool connected                 = false;
+  bool callbacks_rejected        = false;
+  bool second_connect_rejected   = false;
+  bool invalid_tunnel_rejected   = false;
+  bool invalid_tcp_rejected      = false;
+  bool cross_region_routing_sent = false;
   watchdog test_watchdog(io_context);
 
   client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
@@ -477,9 +483,9 @@ static void check_client_rejects_invalid_operations_after_connection()
         routing_properties.m_protocol                   = rstream::io_rstrm::protocol::http;
         routing_properties.m_allow_cross_region_routing = true;
         client.async_create_tunnel(routing_properties, [&](const boost::system::error_code& routing_error, rstream::io_rstrm::tunnel routing_tunnel) {
-          assert(routing_error == rstream::io_rstrm::error::code::invalid_configuration);
-          assert(!routing_tunnel);
-          invalid_routing_rejected = true;
+          assert(!routing_error);
+          assert(routing_tunnel);
+          cross_region_routing_sent = true;
           client.close();
         });
       });
@@ -496,7 +502,7 @@ static void check_client_rejects_invalid_operations_after_connection()
   assert(second_connect_rejected);
   assert(invalid_tunnel_rejected);
   assert(invalid_tcp_rejected);
-  assert(invalid_routing_rejected);
+  assert(cross_region_routing_sent);
 }
 
 static void check_client_rejects_malformed_open_response()
