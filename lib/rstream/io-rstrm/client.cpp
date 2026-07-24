@@ -47,9 +47,6 @@ namespace io_rstrm {
 static bool invalid_published_tcp_options(const tunnel_properties& properties)
 {
   const bool published_tcp = properties.m_protocol && properties.m_protocol.value() == protocol::tcp;
-  if (properties.m_allow_cross_region_routing && !published_tcp) {
-    return true;
-  }
   if (properties.m_port && !published_tcp) {
     return true;
   }
