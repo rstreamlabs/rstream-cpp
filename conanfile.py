@@ -43,7 +43,7 @@ class ConanPackage(ConanFile):
         "build_channel": None,
         "build_os": None,
         "ncurses_ref": None,
-        "protobuf_ref": "protobuf/3.21.12",
+        "protobuf_ref": "protobuf/7.35.0",
         "shared": False,
         "ssl_provider": "openssl",
         "static_libstdcxx": False,
@@ -136,7 +136,7 @@ class ConanPackage(ConanFile):
 
     def build_requirements(self):
         if self.options.enable_testing:
-            self.test_requires("gtest/1.12.1")
+            self.test_requires("gtest/1.17.0")
         protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
         if protobuf_ref and protobuf_ref != "none":
             self.build_requires(protobuf_ref)
