@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 # usage :
 #
@@ -17,26 +18,26 @@ type="local"
 conan_password_file="${CONAN_PASSWORD_FILE:-$HOME/.credentials/conan}"
 docker_build_args=()
 
-script_dir=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 declare -a toolchains=("glibc" "musl" "emscripten" "android" "mingw")
 
 declare -a targets=("linux/amd64" "linux/arm64/v8")
 
-if [ ! -z $1 ]; then toolchains=(${1}); fi
-if [ ! -z $2 ]; then targets=(${2}); fi
-if [ ! -z $3 ]; then type=(${3}); fi
+if [ -n "${1:-}" ]; then read -r -a toolchains <<<"$1"; fi
+if [ -n "${2:-}" ]; then read -r -a targets <<<"$2"; fi
+if [ -n "${3:-}" ]; then type="$3"; fi
 
-if [ -n "${CONAN_REMOTE_NAME}" ]; then docker_build_args+=(--build-arg "CONAN_REMOTE_NAME=${CONAN_REMOTE_NAME}"); fi
-if [ -n "${CONAN_REMOTE_URL}" ]; then docker_build_args+=(--build-arg "CONAN_REMOTE_URL=${CONAN_REMOTE_URL}"); fi
-if [ -n "${CONAN_REMOTE_USERNAME}" ]; then docker_build_args+=(--build-arg "CONAN_REMOTE_USERNAME=${CONAN_REMOTE_USERNAME}"); fi
+if [ -n "${CONAN_REMOTE_NAME:-}" ]; then docker_build_args+=(--build-arg "CONAN_REMOTE_NAME=${CONAN_REMOTE_NAME}"); fi
+if [ -n "${CONAN_REMOTE_URL:-}" ]; then docker_build_args+=(--build-arg "CONAN_REMOTE_URL=${CONAN_REMOTE_URL}"); fi
+if [ -n "${CONAN_REMOTE_USERNAME:-}" ]; then docker_build_args+=(--build-arg "CONAN_REMOTE_USERNAME=${CONAN_REMOTE_USERNAME}"); fi
 
 function package_name {
-  echo "$(conan inspect ${script_dir} --format=json | jq -r .name)"
+  conan inspect "${script_dir}" --format=json | jq -r .name
 }
 
 function package_version {
-  echo "$(conan inspect ${script_dir} --format=json | jq -r .version)"
+  conan inspect "${script_dir}" --format=json | jq -r .version
 }
 
 snapshot="snapshot-$(date +%F)"
@@ -56,9 +57,16 @@ if [ "$(printf '%s\n' "2.0.0" "${conan_version}" | sort -V | head -n1)" != "2.0.
   exit 1
 fi
 
-for toolchain in ${toolchains[@]}; do
-  docker buildx build ${script_dir} --progress plain --secret id=password,src=${conan_password_file} "${docker_build_args[@]}" -o $(output $(package_version)) --platform "$(
-    IFS=,
-    echo "${targets[*]}"
-  )" -f ${script_dir}/docker/Dockerfile.conan.${toolchain} -t registry.rstream.io/rstream-cpp-conan:$(package_version)-${toolchain}-${snapshot} -t registry.rstream.io/rstream-cpp-conan:$(package_version)-${toolchain}-latest
+version=$(package_version)
+platforms=$(IFS=,; echo "${targets[*]}")
+for toolchain in "${toolchains[@]}"; do
+  docker buildx build "${script_dir}" \
+    --progress plain \
+    --secret "id=password,src=${conan_password_file}" \
+    "${docker_build_args[@]}" \
+    -o "$(output "${version}")" \
+    --platform "${platforms}" \
+    -f "${script_dir}/docker/Dockerfile.conan.${toolchain}" \
+    -t "registry.rstream.io/rstream-cpp-conan:${version}-${toolchain}-${snapshot}" \
+    -t "registry.rstream.io/rstream-cpp-conan:${version}-${toolchain}-latest"
 done
