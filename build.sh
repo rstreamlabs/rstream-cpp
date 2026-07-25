@@ -2,7 +2,7 @@
 
 set -e
 
-script_dir="$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 build_name="${build_name:-$(uname -m)-$(uname -s)$(uname -r)}"
 build_type="${build_type:-Debug}"
 workdir="${workdir:-${script_dir}/build-${build_name}}"
@@ -51,7 +51,7 @@ sanitize_env_flags() {
     esac
   done
   printf -v "${name}" '%s' "${keep[*]}"
-  export "${name}"
+  export "${name?}"
 }
 
 if [ "$(uname -s)" = "Darwin" ]; then

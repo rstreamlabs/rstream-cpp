@@ -89,22 +89,18 @@ class ConanPackage(ConanFile):
     def get_git_tag(self):
         try:
             return self.git().run("describe --tags --exact-match 2>/dev/null")
-        except:
+        except Exception:
             return None
-
-    def get_git_branch(self):
-        event_name = os.getenv("GITHUB_EVENT_NAME")
-        if (event_name and event_name == "pull_request"):
-            return os.getenv("GITHUB_BASE_REF")
-        else:
-            return self.git().run("rev-parse --abbrev-ref HEAD")
 
     def get_version(self):
         version = os.getenv("VERSION")
         if version:
             return version
-        tag, branch = self.get_git_tag(), self.get_git_branch()
-        return tag if tag else branch
+        tag = self.get_git_tag()
+        if tag:
+            return tag
+        with open(os.path.join(self.recipe_folder, "version.txt"), encoding="utf-8") as version_file:
+            return version_file.read().strip()
 
     def set_version(self):
         self.version = self.get_version()

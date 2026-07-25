@@ -7,7 +7,7 @@ if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
   exit 1
 fi
 
-script_dir=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Default values
 default_build_type="Release"
@@ -36,11 +36,13 @@ package_version_cache=""
 
 function resolve_list {
   local value="$1"
+  # shellcheck disable=SC2034
   local -n dst="$2"
   shift 2
   if [ -n "${value}" ]; then
     read -r -a dst <<<"${value}"
   else
+    # shellcheck disable=SC2034
     dst=("$@")
   fi
 }
@@ -65,13 +67,21 @@ function inspect_package_metadata {
 }
 
 function docker_run_builder {
-  docker compose -f ${docker_compose_file} run --rm --no-deps "$@"
+  docker compose -f "${docker_compose_file}" run --rm --no-deps "$@"
 }
 
 # Allow overrides from environment variables
 build_type="${BUILD_TYPE:-${default_build_type}}"
 docker_compose_file="${DOCKER_COMPOSE_FILE-${default_compose_file}}"
 export_package_name="${EXPORT_PACKAGE_NAME:-${default_export_package_name}}"
+linux_archs=()
+linux_build_shared=()
+linux_tclibcs=()
+macos_archs=()
+macos_build_shared=()
+oss=()
+windows_archs=()
+windows_build_shared=()
 resolve_list "${LINUX_ARCHS:-}" linux_archs "${default_linux_archs[@]}"
 resolve_list "${LINUX_BUILD_SHARED:-}" linux_build_shared "${default_linux_build_shared[@]}"
 resolve_list "${LINUX_TCLIBCS:-}" linux_tclibcs "${default_linux_tclibcs[@]}"
@@ -89,6 +99,30 @@ patched_boost_version="${PATCHED_BOOST_VERSION:-${default_patched_boost_version}
 patched_ncurses_version="${PATCHED_NCURSES_VERSION:-${default_patched_ncurses_version}}"
 
 blacklist=()
+ARCH="${ARCH:-}"
+BUILD_SHARED="${BUILD_SHARED:-}"
+CMD="${CMD:-}"
+LIBC="${LIBC:-}"
+OS="${OS:-}"
+SRC_PATH="${SRC_PATH:-}"
+
+function call_os {
+  local suffix="$1"
+  local function_name="${OS}_${suffix}"
+  shift
+  "${function_name}" "$@"
+}
+
+function is_blacklisted {
+  local candidate="$1"
+  local item
+  for item in "${blacklist[@]}"; do
+    if [ "${item}" = "${candidate}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 glibc_version="2.39"
 macosx_version_min="11.0"
@@ -130,15 +164,21 @@ function patched_conan_conf {
 }
 
 function resolve_channel {
-  if [ -n "${CHANNEL}" ]; then
+  if [ -n "${CHANNEL:-}" ]; then
     echo "${CHANNEL}"
+  elif [ "${RSTREAM_URL:-}" = "https://rstream.io" ]; then
+    echo "stable"
   else
-    echo "$([ "${RSTREAM_URL}" = "https://rstream.io" ] && echo "stable" || echo "dev")"
+    echo "dev"
   fi
 }
 
 function shared {
-  [ "${BUILD_SHARED}" = "on" ] && echo "True" || echo "False"
+  if [ "${BUILD_SHARED}" = "on" ]; then
+    echo "True"
+  else
+    echo "False"
+  fi
 }
 
 function package_name {
@@ -170,7 +210,11 @@ function conan_arch {
 }
 
 function linux_static_libstdcxx {
-  [ "${LIBC}" = "musl" ] && echo $([ "${BUILD_SHARED}" = "on" ] && echo "False" || echo "True") || echo "False"
+  if [ "${LIBC}" = "musl" ] && [ "${BUILD_SHARED}" != "on" ]; then
+    echo "True"
+  else
+    echo "False"
+  fi
 }
 
 function windows_static_libstdcxx {
@@ -182,15 +226,15 @@ function package_options {
 }
 
 function linux_package_options {
-  echo "$(package_options) --options $(package_name)/*:static_libstdcxx=$(${OS}_static_libstdcxx)"
+  echo "$(package_options) --options $(package_name)/*:static_libstdcxx=$(call_os static_libstdcxx)"
 }
 
 function macos_package_options {
-  echo "$(package_options)"
+  package_options
 }
 
 function windows_package_options {
-  echo "$(package_options) --options $(package_name)/*:static_libstdcxx=$(${OS}_static_libstdcxx)"
+  echo "$(package_options) --options $(package_name)/*:static_libstdcxx=$(call_os static_libstdcxx)"
 }
 
 function linux_conan_extra_options {
@@ -218,11 +262,11 @@ function windows_conan_extra_settings {
 }
 
 function conan_options {
-  echo "$(${OS}_conan_extra_options) $(${OS}_conan_extra_settings) $(${OS}_package_options) --profile:build=default --settings:host build_type=${build_type}"
+  echo "$(call_os conan_extra_options) $(call_os conan_extra_settings) $(call_os package_options) --profile:build=default --settings:host build_type=${build_type}"
 }
 
 function linux_conan_options {
-  echo "$(conan_options) --profile:host=${default_linux_toolchain} --settings:host arch=$(conan_arch) --settings:host os.sdk=${default_linux_toolchain}-${default_linux_toolchain_version}-${ARCH}-${LIBC} --options:build ${default_linux_toolchain}/${default_linux_toolchain_version}:arch=${ARCH} --options:build ${default_linux_toolchain}/${default_linux_toolchain_version}:libc=${LIBC}"
+  echo "$(conan_options) --profile:host=${linux_toolchain} --settings:host arch=$(conan_arch) --settings:host os.sdk=${linux_toolchain}-${linux_toolchain_version}-${ARCH}-${LIBC} --options:build ${linux_toolchain}/${linux_toolchain_version}:arch=${ARCH} --options:build ${linux_toolchain}/${linux_toolchain_version}:libc=${LIBC}"
 }
 
 function macos_conan_options {
@@ -246,7 +290,7 @@ function windows_package_outdir {
 }
 
 function cmd_build {
-  echo "conan create $(${OS}_conan_options) --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
+  echo "conan create $(call_os conan_options) --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
 }
 
 function linux_cmd_build {
@@ -262,7 +306,7 @@ function windows_cmd_build {
 }
 
 function cmd_export {
-  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(${OS}_conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(${OS}_package_outdir) -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf)"
+  echo "EXPORT_PACKAGE_NAME=${export_package_name} conan install $(call_os conan_options) --requires $(package_name)/$(package_version) --deployer ${SRC_PATH}/deploy.py -of ${SRC_PATH}/$(call_os package_outdir) -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf)"
 }
 
 function linux_cmd_export {
@@ -315,10 +359,10 @@ function export_patched_conan_recipes {
 function linux_run_build {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
-    ${OS}_run_docker "$(${OS}_cmd_build)"
+    call_os run_docker "$(call_os cmd_build)"
   else
     export SRC_PATH=${script_dir}
-    bash -c "$(${OS}_cmd_build)"
+    bash -c "$(call_os cmd_build)"
   fi
 }
 
@@ -332,78 +376,79 @@ function macos_run_build {
   unset LDFLAGS
   unset PKG_CONFIG_PATH
   export SRC_PATH=${script_dir}
-  bash -c "$(${OS}_cmd_build)"
+  bash -c "$(call_os cmd_build)"
 }
 
 function windows_run_build {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
-    ${OS}_run_docker "$(${OS}_cmd_build)"
+    call_os run_docker "$(call_os cmd_build)"
   else
     export SRC_PATH=${script_dir}
-    bash -c "$(${OS}_cmd_build)"
+    bash -c "$(call_os cmd_build)"
   fi
 }
 
 function linux_run_export {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
-    ${OS}_run_docker "$(${OS}_cmd_export) && chown -R $(id -u):$(id -g) /source/$(${OS}_package_outdir)"
+    call_os run_docker "$(call_os cmd_export) && chown -R $(id -u):$(id -g) /source/$(call_os package_outdir)"
   else
     export SRC_PATH=${script_dir}
-    bash -c "$(${OS}_cmd_export)"
+    bash -c "$(call_os cmd_export)"
   fi
 }
 
 function macos_run_export {
   export SRC_PATH=${script_dir}
-  bash -c "$(${OS}_cmd_export)"
+  bash -c "$(call_os cmd_export)"
 }
 
 function windows_run_export {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
-    ${OS}_run_docker "$(${OS}_cmd_export) && chown -R $(id -u):$(id -g) /source/$(${OS}_package_outdir)"
+    call_os run_docker "$(call_os cmd_export) && chown -R $(id -u):$(id -g) /source/$(call_os package_outdir)"
   else
     export SRC_PATH=${script_dir}
-    bash -c "$(${OS}_cmd_export)"
+    bash -c "$(call_os cmd_export)"
   fi
 }
 
 function linux_get_outdir {
-  echo "$(${OS}_package_outdir)"
+  call_os package_outdir
 }
 
 function macos_get_outdir {
-  echo "$(${OS}_package_outdir)"
+  call_os package_outdir
 }
 
 function windows_get_outdir {
-  echo "$(${OS}_package_outdir)"
+  call_os package_outdir
 }
 
 function linux_get_version {
-  echo "$(package_version)"
+  package_version
 }
 
 function macos_get_version {
-  echo "$(package_version)"
+  package_version
 }
 
 function windows_get_version {
-  echo "$(package_version)"
+  package_version
 }
 
 function run_upload {
   export SRC_PATH=${script_dir}
   if [ -f .env.local ]; then
+    # shellcheck source=/dev/null
     source .env.local
   fi
-  outdir=$(${OS}_get_outdir)
+  outdir=$(call_os get_outdir)
   extension=$([ "${OS}" = "windows" ] && echo ".zip" || echo ".tar.gz")
   archive="${outdir}/packages/${export_package_name}${extension}"
   name="${export_package_name}"
-  version=$(${OS}_get_version)
+  version=$(call_os get_version)
   channel=$(resolve_channel)
   shared=$([ "${BUILD_SHARED}" = "on" ] && echo "true" || echo "false")
   if [ "${OS}" = "linux" ]; then
@@ -427,10 +472,11 @@ function run_upload {
   response=$(curl --fail -H "Authorization: Bearer ${RSTREAM_TOKEN}" -i -s -S -X PUT "${url}")
   package_id=$(echo "${response}" | grep 'x-package-id' | cut -d ' ' -f2 | tr -d '\r')
   signed_url=$(echo "${response}" | grep 'location:' | cut -d ' ' -f2 | tr -d '\r')
-  curl --progress-bar --upload-file "$(pwd)/${archive}" -fail -H "Content-Type: application/octet-stream" -X PUT "${signed_url}" | cat
-  printf "name:${name}\nid:${package_id}\nversion:${version}\nchannel:${channel}\nos:${OS}\narch:${ARCH}\nshared:${shared}\nfilename:${filename}\nchecksum:${checksum}\n" >$(pwd)/${archive}.info
+  curl --progress-bar --upload-file "${archive}" --fail -H "Content-Type: application/octet-stream" -X PUT "${signed_url}" | cat
+  printf 'name:%s\nid:%s\nversion:%s\nchannel:%s\nos:%s\narch:%s\nshared:%s\nfilename:%s\nchecksum:%s\n' \
+    "${name}" "${package_id}" "${version}" "${channel}" "${OS}" "${ARCH}" "${shared}" "${filename}" "${checksum}" >"${archive}.info"
   if [ "${OS}" = "linux" ]; then
-    printf "libc:${LIBC}\n" >>$(pwd)/${archive}.info
+    printf 'libc:%s\n' "${LIBC}" >>"${archive}.info"
   fi
   echo "Package uploaded: ${package_id}"
 }
@@ -455,13 +501,12 @@ function linux_run {
   for arch in "${linux_archs[@]}"; do
     for libc in "${linux_tclibcs[@]}"; do
       config="${OS}-${arch}-${libc}"
-      if [[ " ${blacklist[@]} " =~ " ${config} " ]]; then
+      if is_blacklisted "${config}"; then
         echo "Skipping blacklisted configuration: ${config}"
         continue
       fi
-      for build_shared in ${linux_build_shared[@]}; do
-        ARCH=${arch} LIBC=${libc} BUILD_SHARED=${build_shared} ${OS}_run_${CMD}
-        if [ "$?" -ne 0 ]; then
+      for build_shared in "${linux_build_shared[@]}"; do
+        if ! ARCH=${arch} LIBC=${libc} BUILD_SHARED=${build_shared} call_os "run_${CMD}"; then
           echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared}"
           exit 1
         fi
@@ -477,13 +522,12 @@ function macos_run {
   fi
   for arch in "${macos_archs[@]}"; do
     config="${OS}-${arch}"
-    if [[ " ${blacklist[@]} " =~ " ${config} " ]]; then
+    if is_blacklisted "${config}"; then
       echo "Skipping blacklisted configuration: ${config}"
       continue
     fi
-    for build_shared in ${macos_build_shared[@]}; do
-      ARCH=${arch} BUILD_SHARED=${build_shared} ${OS}_run_${CMD}
-      if [ "$?" -ne 0 ]; then
+    for build_shared in "${macos_build_shared[@]}"; do
+      if ! ARCH=${arch} BUILD_SHARED=${build_shared} call_os "run_${CMD}"; then
         echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared}"
         exit 1
       fi
@@ -498,13 +542,12 @@ function windows_run {
   fi
   for arch in "${windows_archs[@]}"; do
     config="${OS}-${arch}"
-    if [[ " ${blacklist[@]} " =~ " ${config} " ]]; then
+    if is_blacklisted "${config}"; then
       echo "Skipping blacklisted configuration: ${config}"
       continue
     fi
-    for build_shared in ${windows_build_shared[@]}; do
-      ARCH=${arch} BUILD_SHARED=${build_shared} ${OS}_run_${CMD}
-      if [ "$?" -ne 0 ]; then
+    for build_shared in "${windows_build_shared[@]}"; do
+      if ! ARCH=${arch} BUILD_SHARED=${build_shared} call_os "run_${CMD}"; then
         echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared}"
         exit 1
       fi
@@ -530,7 +573,7 @@ function run {
   fi
   export_patched_conan_recipes
   for os in "${oss[@]}"; do
-    OS=${os} ${os}_run
+    OS=${os} call_os run
   done
 }
 
