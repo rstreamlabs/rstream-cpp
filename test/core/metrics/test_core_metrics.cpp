@@ -154,7 +154,12 @@ void test_registry_collects_registered_metrics()
       compare(metric.m_samples.size(), static_cast<std::size_t>(2));
       const auto* value = boost::get<metrics::sample::histogram>(&metric.m_samples.front().m_value);
       compare(value != nullptr, true);
-      compare(value->m_sample_count > 0, true);
+      compare(value->m_sample_count, static_cast<std::uint64_t>(2));
+      compare(value->m_buckets.size(), static_cast<std::size_t>(4));
+      compare(value->m_buckets.at(0).m_cumulative_count, static_cast<std::uint64_t>(1));
+      compare(value->m_buckets.at(1).m_cumulative_count, static_cast<std::uint64_t>(1));
+      compare(value->m_buckets.at(2).m_cumulative_count, static_cast<std::uint64_t>(2));
+      compare(value->m_buckets.at(3).m_cumulative_count, static_cast<std::uint64_t>(2));
     }
     if (metric.m_name == "rstream_test_summary") {
       saw_summary = true;
