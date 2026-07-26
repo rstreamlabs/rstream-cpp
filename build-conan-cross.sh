@@ -11,25 +11,30 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Default values
 default_build_type="Release"
+default_enable_strict_warnings="on"
 default_compose_file="${script_dir}/conan/compose.yaml"
 default_export_package_name="rstream-utils"
 default_linux_archs=("x86_i686" "x86_core2" "x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4" "armv6" "armv6hf" "armv7" "armv7hf" "arm64" "mips" "mipsle" "mips64" "mips64le" "riscv64")
 default_linux_build_shared=("on" "off")
+default_linux_plugin_modes=("auto")
 default_linux_tclibcs=("glibc" "musl")
 default_linux_toolchain_version="5.0.2"
 default_linux_toolchain="yocto-toolchain"
 default_macos_archs=("x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4" "arm64" "apple-m1" "apple-m2")
 default_macos_build_shared=("on" "off")
+default_macos_plugin_modes=("auto")
 default_oss=("macos" "linux" "windows")
 default_use_docker="on"
 default_windows_archs=("x86_i686" "x86_core2" "x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4" "arm64")
 default_windows_build_shared=("on" "off")
+default_windows_plugin_modes=("auto")
 default_use_patched_conan_deps="on"
+default_warnings_as_errors="on"
 default_patched_conan_channel="conan/stable"
 default_patched_boost_version="1.85.0"
 default_patched_ncurses_version="6.5"
-default_boost_disabled_components=("cobalt" "context" "contract" "coroutine" "fiber" "graph" "graph_parallel" "iostreams" "json" "locale" "log" "math" "mpi" "nowide" "program_options" "serialization" "stacktrace" "test" "timer" "type_erasure" "wave")
 docker_conan_config_synced="off"
+linux_toolchain_recipe_exported="off"
 patched_conan_recipes_exported="off"
 package_name_cache=""
 package_version_cache=""
@@ -45,15 +50,6 @@ function resolve_list {
     # shellcheck disable=SC2034
     dst=("$@")
   fi
-}
-
-function boost_conan_options {
-  local component
-  local opts=""
-  for component in "${default_boost_disabled_components[@]}"; do
-    opts="${opts} --options boost/*:without_${component}=True"
-  done
-  echo "${opts}"
 }
 
 function inspect_package_metadata {
@@ -72,31 +68,43 @@ function docker_run_builder {
 
 # Allow overrides from environment variables
 build_type="${BUILD_TYPE:-${default_build_type}}"
+enable_strict_warnings="${ENABLE_STRICT_WARNINGS:-${default_enable_strict_warnings}}"
 docker_compose_file="${DOCKER_COMPOSE_FILE-${default_compose_file}}"
 export_package_name="${EXPORT_PACKAGE_NAME:-${default_export_package_name}}"
 linux_archs=()
 linux_build_shared=()
+linux_plugin_modes=()
 linux_tclibcs=()
 macos_archs=()
 macos_build_shared=()
+macos_plugin_modes=()
 oss=()
 windows_archs=()
 windows_build_shared=()
+windows_plugin_modes=()
 resolve_list "${LINUX_ARCHS:-}" linux_archs "${default_linux_archs[@]}"
 resolve_list "${LINUX_BUILD_SHARED:-}" linux_build_shared "${default_linux_build_shared[@]}"
+resolve_list "${LINUX_PLUGIN_MODES:-}" linux_plugin_modes "${default_linux_plugin_modes[@]}"
 resolve_list "${LINUX_TCLIBCS:-}" linux_tclibcs "${default_linux_tclibcs[@]}"
 linux_toolchain_version="${LINUX_TOOLCHAIN_VERSION:-${default_linux_toolchain_version}}"
 linux_toolchain="${LINUX_TOOLCHAIN:-${default_linux_toolchain}}"
 resolve_list "${MACOS_ARCHS:-}" macos_archs "${default_macos_archs[@]}"
 resolve_list "${MACOS_BUILD_SHARED:-}" macos_build_shared "${default_macos_build_shared[@]}"
+resolve_list "${MACOS_PLUGIN_MODES:-}" macos_plugin_modes "${default_macos_plugin_modes[@]}"
 resolve_list "${OSS:-}" oss "${default_oss[@]}"
 use_docker="${USE_DOCKER:-${default_use_docker}}"
 resolve_list "${WINDOWS_ARCHS:-}" windows_archs "${default_windows_archs[@]}"
 resolve_list "${WINDOWS_BUILD_SHARED:-}" windows_build_shared "${default_windows_build_shared[@]}"
+resolve_list "${WINDOWS_PLUGIN_MODES:-}" windows_plugin_modes "${default_windows_plugin_modes[@]}"
 use_patched_conan_deps="${USE_PATCHED_CONAN_DEPS:-${default_use_patched_conan_deps}}"
+warnings_as_errors="${WARNINGS_AS_ERRORS:-${default_warnings_as_errors}}"
 patched_conan_channel="${PATCHED_CONAN_CHANNEL:-${default_patched_conan_channel}}"
 patched_boost_version="${PATCHED_BOOST_VERSION:-${default_patched_boost_version}}"
 patched_ncurses_version="${PATCHED_NCURSES_VERSION:-${default_patched_ncurses_version}}"
+if [[ "${patched_conan_channel}" != */* ]]; then
+  echo "PATCHED_CONAN_CHANNEL must use the user/channel form." >&2
+  exit 1
+fi
 
 blacklist=()
 ARCH="${ARCH:-}"
@@ -104,6 +112,7 @@ BUILD_SHARED="${BUILD_SHARED:-}"
 CMD="${CMD:-}"
 LIBC="${LIBC:-}"
 OS="${OS:-}"
+PLUGIN_MODE="${PLUGIN_MODE:-}"
 SRC_PATH="${SRC_PATH:-}"
 
 function call_os {
@@ -181,6 +190,21 @@ function shared {
   fi
 }
 
+function conan_bool {
+  case "$1" in
+  on)
+    echo "True"
+    ;;
+  off)
+    echo "False"
+    ;;
+  *)
+    echo "Unsupported boolean value '$1'. Expected on or off." >&2
+    return 1
+    ;;
+  esac
+}
+
 function package_name {
   inspect_package_metadata
   echo "${package_name_cache}"
@@ -210,7 +234,7 @@ function conan_arch {
 }
 
 function linux_static_libstdcxx {
-  if [ "${LIBC}" = "musl" ] && [ "${BUILD_SHARED}" != "on" ]; then
+  if [ "${LIBC}" = "musl" ] && [ "${BUILD_SHARED}" != "on" ] && [ "${PLUGIN_MODE}" != "dynamic" ]; then
     echo "True"
   else
     echo "False"
@@ -218,11 +242,51 @@ function linux_static_libstdcxx {
 }
 
 function windows_static_libstdcxx {
-  [ "${BUILD_SHARED}" = "on" ] && echo "False" || echo "True"
+  if [ "${BUILD_SHARED}" != "on" ] && [ "${PLUGIN_MODE}" != "dynamic" ]; then
+    echo "True"
+  else
+    echo "False"
+  fi
+}
+
+function windows_toolchain_target {
+  if [[ "${ARCH}" == x86_64* ]]; then
+    echo "x86_64-w64-mingw32"
+  elif [[ "${ARCH}" == x86* ]]; then
+    echo "i686-w64-mingw32"
+  elif [[ "${ARCH}" == arm64* ]]; then
+    echo "aarch64-w64-mingw32"
+  else
+    echo "Unsupported Windows architecture '${ARCH}'." >&2
+    return 1
+  fi
+}
+
+function static_plugins_option {
+  case "${PLUGIN_MODE}" in
+  auto)
+    ;;
+  static)
+    echo "--options $(package_name)/*:static_plugins=True"
+    ;;
+  dynamic)
+    echo "--options $(package_name)/*:static_plugins=False"
+    ;;
+  *)
+    echo "Unsupported plugin mode '${PLUGIN_MODE}'. Expected auto, static, or dynamic." >&2
+    return 1
+    ;;
+  esac
+}
+
+function plugin_mode_path {
+  if [ "${PLUGIN_MODE}" != "auto" ]; then
+    echo "/plugins-${PLUGIN_MODE}"
+  fi
 }
 
 function package_options {
-  echo "--options $(package_name)/*:shared=$(shared)"
+  echo "--options $(package_name)/*:shared=$(shared) $(static_plugins_option) --options $(package_name)/*:enable_strict_warnings=$(conan_bool "${enable_strict_warnings}") --options $(package_name)/*:warnings_as_errors=$(conan_bool "${warnings_as_errors}")"
 }
 
 function linux_package_options {
@@ -238,15 +302,15 @@ function windows_package_options {
 }
 
 function linux_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}$(boost_conan_options)"
+  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}"
 }
 
 function macos_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}"]}$(boost_conan_options)"
+  echo "${extra_conan_options["${OS}-${ARCH}"]}"
 }
 
 function windows_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}"]}$(boost_conan_options) --options openssl/*:no_apps=True"
+  echo "${extra_conan_options["${OS}-${ARCH}"]} --options openssl/*:no_apps=True"
 }
 
 function linux_conan_extra_settings {
@@ -278,15 +342,15 @@ function windows_conan_options {
 }
 
 function linux_package_outdir {
-  echo "out/release/$(package_version)/${OS}/${ARCH}/${LIBC}/$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")"
+  echo "out/release/$(package_version)/${OS}/${ARCH}/${LIBC}/$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")$(plugin_mode_path)"
 }
 
 function macos_package_outdir {
-  echo "out/release/$(package_version)/${OS}/${ARCH}/$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")"
+  echo "out/release/$(package_version)/${OS}/${ARCH}/$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")$(plugin_mode_path)"
 }
 
 function windows_package_outdir {
-  echo "out/release/$(package_version)/${OS}/${ARCH}/$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")"
+  echo "out/release/$(package_version)/${OS}/${ARCH}/$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")$(plugin_mode_path)"
 }
 
 function cmd_build {
@@ -318,15 +382,17 @@ function macos_cmd_export {
 }
 
 function windows_cmd_export {
-  echo "${extra_env_vars["${OS}-${ARCH}"]} $(cmd_export)"
+  local toolchain_target
+  toolchain_target=$(windows_toolchain_target)
+  echo "${extra_env_vars["${OS}-${ARCH}"]} RSTREAM_WINDOWS_OBJDUMP=/opt/llvm-mingw/bin/${toolchain_target}-objdump RSTREAM_WINDOWS_RUNTIME_DIR=/opt/llvm-mingw/${toolchain_target}/bin $(cmd_export)"
 }
 
 function linux_run_docker {
-  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e LIBC -e BUILD_SHARED -e SRC_PATH "${@:2}" conan2-builder -c "$1"
+  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e LIBC -e BUILD_SHARED -e PLUGIN_MODE -e SRC_PATH "${@:2}" conan2-builder -c "$1"
 }
 
 function windows_run_docker {
-  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e BUILD_SHARED -e SRC_PATH "${@:2}" conan2-builder -c "$1"
+  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e BUILD_SHARED -e PLUGIN_MODE -e SRC_PATH "${@:2}" conan2-builder -c "$1"
 }
 
 function sync_docker_conan_config {
@@ -342,18 +408,33 @@ function export_patched_conan_recipes {
     return
   fi
   local recipe
-  for recipe in boost ncurses; do
-    if [ "${use_docker}" != "on" ]; then
+  if [ "${use_docker}" != "on" ]; then
+    for recipe in boost ncurses; do
       (
         cd "${script_dir}/conan/recipes/${recipe}"
         python3 export.py
       ) || exit 1
-    fi
-  done
+    done
+  fi
   if [ "${use_docker}" = "on" ]; then
-    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done" || exit 1
+    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
+      "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done" || exit 1
   fi
   patched_conan_recipes_exported="on"
+}
+
+function export_linux_toolchain_recipe {
+  if [ "${linux_toolchain}" != "yocto-toolchain" ] || [ "${linux_toolchain_recipe_exported}" = "on" ]; then
+    return
+  fi
+  local recipe_dir="${script_dir}/conan/recipes/yocto-toolchain"
+  if [ "${use_docker}" = "on" ]; then
+    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
+      "conan export /source/conan/recipes/yocto-toolchain --version '${linux_toolchain_version}' --build-require" || exit 1
+  else
+    conan export "${recipe_dir}" --version "${linux_toolchain_version}" --build-require
+  fi
+  linux_toolchain_recipe_exported="on"
 }
 
 function linux_run_build {
@@ -451,10 +532,11 @@ function run_upload {
   version=$(call_os get_version)
   channel=$(resolve_channel)
   shared=$([ "${BUILD_SHARED}" = "on" ] && echo "true" || echo "false")
+  plugin_suffix=$([ "${PLUGIN_MODE}" = "auto" ] && echo "" || echo "-plugins-${PLUGIN_MODE}")
   if [ "${OS}" = "linux" ]; then
-    filename="${export_package_name}-${version}-${OS}-${ARCH}-${LIBC}-$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")${extension}"
+    filename="${export_package_name}-${version}-${OS}-${ARCH}-${LIBC}-$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")${plugin_suffix}${extension}"
   else
-    filename="${export_package_name}-${version}-${OS}-${ARCH}-$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")${extension}"
+    filename="${export_package_name}-${version}-${OS}-${ARCH}-$([ "${BUILD_SHARED}" == "on" ] && echo "shared" || echo "static")${plugin_suffix}${extension}"
   fi
   checksum=$(shasum -a 256 "${archive}" | awk '{print $1}')
   if [ "${OS}" = "linux" ]; then
@@ -506,10 +588,13 @@ function linux_run {
         continue
       fi
       for build_shared in "${linux_build_shared[@]}"; do
-        if ! ARCH=${arch} LIBC=${libc} BUILD_SHARED=${build_shared} call_os "run_${CMD}"; then
-          echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared}"
-          exit 1
-        fi
+        for plugin_mode in "${linux_plugin_modes[@]}"; do
+          echo "Running ${CMD}: os=${OS} arch=${arch} libc=${libc} shared=${build_shared} plugins=${plugin_mode}"
+          if ! ARCH=${arch} LIBC=${libc} BUILD_SHARED=${build_shared} PLUGIN_MODE=${plugin_mode} call_os "run_${CMD}"; then
+            echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared} and ${plugin_mode} plugins"
+            exit 1
+          fi
+        done
       done
     done
   done
@@ -527,10 +612,13 @@ function macos_run {
       continue
     fi
     for build_shared in "${macos_build_shared[@]}"; do
-      if ! ARCH=${arch} BUILD_SHARED=${build_shared} call_os "run_${CMD}"; then
-        echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared}"
-        exit 1
-      fi
+      for plugin_mode in "${macos_plugin_modes[@]}"; do
+        echo "Running ${CMD}: os=${OS} arch=${arch} shared=${build_shared} plugins=${plugin_mode}"
+        if ! ARCH=${arch} BUILD_SHARED=${build_shared} PLUGIN_MODE=${plugin_mode} call_os "run_${CMD}"; then
+          echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared} and ${plugin_mode} plugins"
+          exit 1
+        fi
+      done
     done
   done
 }
@@ -547,10 +635,13 @@ function windows_run {
       continue
     fi
     for build_shared in "${windows_build_shared[@]}"; do
-      if ! ARCH=${arch} BUILD_SHARED=${build_shared} call_os "run_${CMD}"; then
-        echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared}"
-        exit 1
-      fi
+      for plugin_mode in "${windows_plugin_modes[@]}"; do
+        echo "Running ${CMD}: os=${OS} arch=${arch} shared=${build_shared} plugins=${plugin_mode}"
+        if ! ARCH=${arch} BUILD_SHARED=${build_shared} PLUGIN_MODE=${plugin_mode} call_os "run_${CMD}"; then
+          echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared} and ${plugin_mode} plugins"
+          exit 1
+        fi
+      done
     done
   done
 }
@@ -573,36 +664,47 @@ function run {
   fi
   export_patched_conan_recipes
   for os in "${oss[@]}"; do
+    if [ "${os}" = "linux" ]; then
+      export_linux_toolchain_recipe
+    fi
     OS=${os} call_os run
   done
 }
 
 function show_help {
-  echo "Conan Builder - Automated builder for conan"
+  echo "rstream Conan cross-platform builder"
   echo ""
-  echo "Usage: $0 [build|export|upload|-h]"
+  echo "Usage: $0 [build|export|upload|help]"
   echo ""
-  echo "  build             : Build the project using the Yocto SDK."
+  echo "  build             : Build and validate the configured target matrix."
   echo "  export            : Export the build output to the out directory."
   echo "  upload            : Upload the exported build output."
-  echo "  -h                : Show this help message."
+  echo "  help, -h, --help  : Show this help message."
   echo ""
-  echo "Environmesnt Variables:"
+  echo "Environment Variables:"
   echo ""
+  echo "  BUILD_TYPE             : Set the CMake build type (default: ${default_build_type})."
   echo "  DOCKER_COMPOSE_FILE     : Set the docker-compose file to use (linux)."
+  echo "  CONAN_DOCKER_IMAGE      : Set the Conan builder image name."
+  echo "  CONAN_DOCKER_PLATFORM   : Set its host platform (default: linux/amd64)."
+  echo "  ENABLE_STRICT_WARNINGS  : Enable strict project warnings (default: ${default_enable_strict_warnings})."
   echo "  EXPORT_PACKAGE_NAME     : Set the package name to export."
   echo "  LINUX_ARCHS             : Set the machine architecture to build for (linux)."
   echo "  LINUX_BUILD_SHARED      : Build shared or static libraries (linux)."
+  echo "  LINUX_PLUGIN_MODES      : Use auto, static, or dynamic plugin loading (linux)."
   echo "  LINUX_TCLIBCS           : Set the C library for the target (linux)."
   echo "  LINUX_TOOLCHAIN         : Set the Yocto toolchain to use (linux)."
   echo "  LINUX_TOOLCHAIN_VERSION : Set the Yocto toolchain version to use (linux)."
   echo "  USE_DOCKER              : Use docker to build the project (linux, windows)."
   echo "  MACOS_ARCHS             : Set the machine architecture to build for (macos)."
   echo "  MACOS_BUILD_SHARED      : Build shared or static libraries (macos)."
+  echo "  MACOS_PLUGIN_MODES      : Use auto, static, or dynamic plugin loading (macos)."
   echo "  WINDOWS_ARCHS           : Set the machine architecture to build for (windows)."
   echo "  WINDOWS_BUILD_SHARED    : Build shared or static libraries (windows)."
+  echo "  WINDOWS_PLUGIN_MODES    : Use auto, static, or dynamic plugin loading (windows)."
   echo "  OSS                     : Set the operating systems to build for."
-  echo "  USE_PATCHED_CONAN_DEPS  : Use patched boost/ncurses overrides (default: ${default_use_patched_conan_deps})."
+  echo "  USE_PATCHED_CONAN_DEPS  : Use patched Boost and Ncurses overrides (default: ${default_use_patched_conan_deps})."
+  echo "  WARNINGS_AS_ERRORS      : Treat project warnings as errors (default: ${default_warnings_as_errors})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
   echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."
   echo "  PATCHED_NCURSES_VERSION : Override Ncurses version (default: ${default_patched_ncurses_version})."
@@ -638,7 +740,7 @@ build | export | upload)
 "")
   CMD="build" run && CMD="export" run
   ;;
--h)
+help | -h | --help)
   show_help
   ;;
 *)

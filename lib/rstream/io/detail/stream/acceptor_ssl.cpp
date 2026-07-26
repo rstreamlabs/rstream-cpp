@@ -5,6 +5,8 @@
 #include <map>
 #include <memory>
 
+#include <boost/asio/associated_allocator.hpp>
+#include <boost/asio/bind_allocator.hpp>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/socket_base.hpp>
@@ -63,7 +65,7 @@ class RSTREAM_GNUC_INTERNAL acceptor_ssl::impl : public std::enable_shared_from_
   struct async_accept_upstream_op_type {
     using ptr = std::shared_ptr<async_accept_upstream_op_type>;
     using id  = std::string;
-    async_accept_upstream_op_type(const executor_type& executor, core::allocator::ptr allocator);
+    async_accept_upstream_op_type(const executor_type& executor);
     bool m_connected;
     stream_socket m_peer;
     endpoint m_endpoint;
@@ -163,7 +165,7 @@ acceptor_ssl::impl::async_accept_downstream_op_type::async_accept_downstream_op_
 {
 }
 
-acceptor_ssl::impl::async_accept_upstream_op_type::async_accept_upstream_op_type(const executor_type& executor, core::allocator::ptr allocator)
+acceptor_ssl::impl::async_accept_upstream_op_type::async_accept_upstream_op_type(const executor_type& executor)
     : m_connected(false),
       m_peer(executor)
 {
@@ -209,7 +211,15 @@ endpoint acceptor_ssl::impl::local_endpoint(boost::system::error_code& error_cod
 
 void acceptor_ssl::impl::async_accept(stream_socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front(&impl::async_accept_internal, shared_from_this(), std::ref(peer), std::ref(endpoint), std::move(handler)));
+  const auto allocator = boost::asio::get_associated_allocator(handler);
+  auto self            = shared_from_this();
+  boost::asio::dispatch(
+      m_strand,
+      boost::asio::bind_allocator(
+          allocator,
+          [self = std::move(self), peer = &peer, endpoint = &endpoint, handler = std::move(handler)]() mutable {
+            self->async_accept_internal(*peer, *endpoint, std::move(handler));
+          }));
 }
 
 acceptor_ptr acceptor_ssl::impl::next_layer() const
@@ -245,13 +255,14 @@ void acceptor_ssl::impl::async_accept_internal(stream_socket& peer, endpoint& en
       }
     }
     if (it != m_async_accept_upstream_ops.end()) {
-      peer     = std::move(it->second->m_peer);  // TODO : Properly rebind executor
-      endpoint = std::move(it->second->m_endpoint);
+      peer.swap(it->second->m_peer.native_handle());
+      endpoint = it->second->m_endpoint;
       rstream::core::invoke_completion_handler(m_executor, std::move(handler), boost::system::error_code());
       it = m_async_accept_upstream_ops.erase(it);
     }
     else {
-      m_async_accept_downstream_op = std::allocate_shared<async_accept_downstream_op_type>(core::allocator::wrapper<impl>(m_allocator), peer, endpoint, std::move(handler));
+      const auto allocator         = boost::asio::get_associated_allocator(handler);
+      m_async_accept_downstream_op = std::allocate_shared<async_accept_downstream_op_type>(allocator, peer, endpoint, std::move(handler));
       do_accept();
     }
   }
@@ -270,7 +281,7 @@ void acceptor_ssl::impl::do_accept()
     return;
   }
   m_ongoing_accept_op           = true;
-  auto async_accept_upstream_op = std::allocate_shared<async_accept_upstream_op_type>(core::allocator::wrapper<impl>(m_allocator), m_executor, m_allocator);
+  auto async_accept_upstream_op = std::allocate_shared<async_accept_upstream_op_type>(core::allocator::wrapper<async_accept_upstream_op_type>(m_allocator), m_executor);
   auto it                       = m_async_accept_upstream_ops.insert(std::make_pair(generate_id(), async_accept_upstream_op)).first;
   do_accept(it);
 }
@@ -351,8 +362,8 @@ void acceptor_ssl::impl::on_handshake(const async_accept_upstream_op_type::id& i
 #endif
   if (!error_code) {
     if (m_async_accept_downstream_op) {
-      m_async_accept_downstream_op->m_peer     = std::move(it->second->m_peer);  // TODO : Properly rebind executor
-      m_async_accept_downstream_op->m_endpoint = std::move(it->second->m_endpoint);
+      m_async_accept_downstream_op->m_peer.swap(it->second->m_peer.native_handle());
+      m_async_accept_downstream_op->m_endpoint = it->second->m_endpoint;
       rstream::core::invoke_completion_handler(m_executor, std::move(m_async_accept_downstream_op->m_handler), error_code);
       it                           = m_async_accept_upstream_ops.erase(it);
       m_async_accept_downstream_op = nullptr;

@@ -31,7 +31,7 @@ class server : public io::io_object {
 
   server(const executor_type& executor, const config& config, const settings_server& settings);
 
-  virtual ~server();
+  ~server() noexcept override;
 
   using async_run_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&)>;
 

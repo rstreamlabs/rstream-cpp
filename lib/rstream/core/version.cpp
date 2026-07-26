@@ -133,15 +133,5 @@ project_info get_project_info()
   return project_info;
 }
 
-static std::string hex_to_ascii(const std::string& hex)
-{
-  std::string str;
-  std::size_t length = hex.length();
-  for (std::size_t i = 0; i < length; i += 2) {
-    str.push_back((char)(int)strtol(hex.substr(i, 2).c_str(), nullptr, 16));
-  }
-  return str;
-}
-
 }  // namespace core
 }  // namespace rstream

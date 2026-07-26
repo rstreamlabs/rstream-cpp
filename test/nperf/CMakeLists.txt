@@ -4,10 +4,9 @@
 
 set(NPERF_GENERATED_SOURCE_DIR "${PROJECT_BINARY_DIR}/bin/nperf/lib/cpp/rstream/nperf/generated-cpp-sources")
 
-add_test_target(${PROJECT_NAME}-test-nperf-common test_nperf_common.cpp)
+add_test_target(${PROJECT_NAME}-test-nperf-common test_nperf_common.cpp ${PROJECT_NAME}::nperf protobuf::libprotobuf)
 target_include_directories(${PROJECT_NAME}-test-nperf-common PRIVATE ${NPERF_GENERATED_SOURCE_DIR})
-target_link_libraries(${PROJECT_NAME}-test-nperf-common ${PROJECT_NAME}::nperf protobuf::libprotobuf)
 
-add_test_target(${PROJECT_NAME}-test-nperf-runtime test_nperf_runtime.cpp)
+add_test_target(${PROJECT_NAME}-test-nperf-runtime test_nperf_runtime.cpp ${PROJECT_NAME}::nperf ${PROJECT_NAME}::${PROJECT_NAME} protobuf::libprotobuf)
 target_include_directories(${PROJECT_NAME}-test-nperf-runtime PRIVATE ${NPERF_GENERATED_SOURCE_DIR})
-target_link_libraries(${PROJECT_NAME}-test-nperf-runtime ${PROJECT_NAME}::nperf protobuf::libprotobuf)
+rstream_enable_runtime_plugins(${PROJECT_NAME}-test-nperf-runtime ${PROJECT_NAME}-plugin-io-generic)

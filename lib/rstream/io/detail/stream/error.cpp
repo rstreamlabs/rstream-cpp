@@ -9,6 +9,17 @@ namespace stream {
 
 namespace error {
 
+category::category() noexcept
+    : boost::system::error_category(0x727374727374726dULL)
+{
+}
+
+const category& rstream_io_detail_stream_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::io::detail::stream::error::category";

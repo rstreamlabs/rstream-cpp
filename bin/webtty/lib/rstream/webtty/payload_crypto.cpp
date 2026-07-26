@@ -42,11 +42,6 @@ const unsigned char* data_ptr(const byte_vector& value)
   return value.empty() ? nullptr : value.data();
 }
 
-unsigned char* data_ptr(byte_vector& value)
-{
-  return value.empty() ? nullptr : value.data();
-}
-
 void set_crypto_error(std::error_code& error_code)
 {
   if (!error_code) {
@@ -164,7 +159,7 @@ void hkdf_expand(byte_vector& dst, const byte_vector& prk, const byte_vector& in
   if (length == 0) {
     return;
   }
-  if (length > 255 * SHA256_DIGEST_LENGTH) {
+  if (length > static_cast<std::size_t>(255) * SHA256_DIGEST_LENGTH) {
     set_crypto_error(error_code);
     return;
   }

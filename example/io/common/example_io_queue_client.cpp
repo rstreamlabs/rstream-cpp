@@ -17,11 +17,11 @@ static const std::size_t g_mtu = 1500;
 
 static const std::size_t g_count = 100;
 
-int main(int argc, char** argv)
+int main()
 {
   boost::asio::io_context io_context;
   auto executor_work_guard = std::make_shared<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(io_context.get_executor());
-  std::thread thread(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+  std::thread thread(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
   try {
     // connect to remote
     using socket_type    = boost::asio::ip::tcp::socket;
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
       buffer.append(request);
       std::vector<std::future<void>> futures;
       futures.reserve(g_count);
-      for (int i = 0; i < g_count; i++) {
+      for (std::size_t i = 0; i < g_count; ++i) {
         futures.push_back(queue.async_send(buffer, boost::asio::use_future));
       }
       for (auto& future : futures) {
@@ -52,7 +52,7 @@ int main(int argc, char** argv)
       }
     }
     // wait for replies
-    for (int i = 0; i < g_count; i++) {
+    for (std::size_t i = 0; i < g_count; ++i) {
       rstream::core::buffer buffer;
       buffer.append(memory);
       payloader.async_recv(buffer, boost::asio::use_future).get();

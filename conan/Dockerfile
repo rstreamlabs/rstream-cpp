@@ -61,6 +61,8 @@ RUN conan config install /tmp/conan-config
 
 RUN rm -rf /tmp/conan-config
 
+RUN conan remote update conancenter --url https://center2.conan.io
+
 ARG CONAN_REMOTE_NAME=rstream
 
 ARG CONAN_REMOTE_URL

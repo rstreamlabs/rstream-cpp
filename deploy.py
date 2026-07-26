@@ -5,6 +5,7 @@
 
 import base64
 import glob
+import hashlib
 import os
 import shutil
 import subprocess
@@ -33,6 +34,107 @@ def write_base64_secret(temp_dir, env_name, filename):
 def package_file_requires_macos_signature(file_path):
     filename = os.path.basename(file_path)
     return os.access(file_path, os.X_OK) or filename.endswith(".dylib") or ".dylib." in filename or filename.endswith(".so") or ".so." in filename
+
+def file_checksum(file_path):
+    digest = hashlib.sha256()
+    with open(file_path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def add_windows_runtime_candidate(candidates, file_path):
+    name = os.path.basename(file_path).lower()
+    existing = candidates.get(name)
+    if existing and file_checksum(existing) != file_checksum(file_path):
+        raise Exception("conflicting Windows runtime libraries named '" + os.path.basename(file_path) + "'")
+    candidates[name] = file_path
+
+def get_windows_runtime_candidates(conan_dependencies):
+    candidates = { }
+    for dependency in conan_dependencies:
+        if not dependency.package_folder:
+            continue
+        for file_path in glob.glob(os.path.join(dependency.package_folder, "bin", "*.dll")):
+            add_windows_runtime_candidate(candidates, file_path)
+    runtime_dir = os.environ.get("RSTREAM_WINDOWS_RUNTIME_DIR")
+    if runtime_dir:
+        for file_path in glob.glob(os.path.join(runtime_dir, "*.dll")):
+            add_windows_runtime_candidate(candidates, file_path)
+    return candidates
+
+def parse_windows_imports(output):
+    prefix = "DLL Name:"
+    result = []
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith(prefix):
+            result.append(line[len(prefix):].strip())
+    return result
+
+def inspect_windows_imports(file_path):
+    executable = os.environ.get("RSTREAM_WINDOWS_OBJDUMP") or shutil.which("llvm-objdump") or shutil.which("objdump")
+    if not executable:
+        raise Exception("unable to inspect Windows runtime dependencies: objdump was not found")
+    result = subprocess.run([executable, "-p", file_path], check = True, capture_output = True, text = True)
+    return parse_windows_imports(result.stdout)
+
+def is_windows_system_library(name):
+    name = name.lower()
+    if name.startswith("api-ms-win-") or name.startswith("ext-ms-win-"):
+        return True
+    return name in {
+        "advapi32.dll",
+        "bcrypt.dll",
+        "crypt32.dll",
+        "dbghelp.dll",
+        "dnsapi.dll",
+        "iphlpapi.dll",
+        "kernel32.dll",
+        "mswsock.dll",
+        "ntdll.dll",
+        "ole32.dll",
+        "oleaut32.dll",
+        "secur32.dll",
+        "shell32.dll",
+        "shlwapi.dll",
+        "ucrtbase.dll",
+        "user32.dll",
+        "userenv.dll",
+        "version.dll",
+        "winhttp.dll",
+        "winmm.dll",
+        "ws2_32.dll",
+    }
+
+def copy_windows_runtime_dependencies(deploy_dir, candidates, inspect_imports = inspect_windows_imports):
+    deployed = { }
+    pending = []
+    for root, _, filenames in os.walk(deploy_dir):
+        for filename in filenames:
+            if not filename.lower().endswith((".dll", ".exe")):
+                continue
+            file_path = os.path.join(root, filename)
+            deployed[filename.lower()] = file_path
+            pending.append(file_path)
+    unresolved = set()
+    bin_dir = os.path.join(deploy_dir, "bin")
+    while pending:
+        file_path = pending.pop()
+        for imported_name in inspect_imports(file_path):
+            key = imported_name.lower()
+            if key in deployed or is_windows_system_library(key):
+                continue
+            candidate = candidates.get(key)
+            if not candidate:
+                unresolved.add(imported_name)
+                continue
+            os.makedirs(bin_dir, exist_ok = True)
+            destination = os.path.join(bin_dir, os.path.basename(candidate))
+            shutil.copy2(candidate, destination)
+            deployed[key] = destination
+            pending.append(destination)
+    if unresolved:
+        raise Exception("missing Windows runtime libraries: " + ", ".join(sorted(unresolved)))
 
 def run_command_with_retries(command, attempts = 3, delay = 5):
     for attempt in range(1, attempts + 1):
@@ -178,6 +280,8 @@ def generate_package(conanfile, package, conan_dependencies, output_folder):
             shutil.copytree(terminfo, dst, dirs_exist_ok = True)
         else:
             shutil.copy(terminfo, datadir)
+    if str(conanfile.settings.os) == "Windows":
+        copy_windows_runtime_dependencies(deploy_dir, get_windows_runtime_candidates(conan_dependencies))
     sign_macos_payload(conanfile, deploy_dir)
     if package[1] == ".zip":
         with zipfile.ZipFile(package_name, "w", zipfile.ZIP_DEFLATED) as zipf:

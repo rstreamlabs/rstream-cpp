@@ -7,6 +7,12 @@ namespace nperf {
 
 namespace error {
 
+const category& rstream_nperf_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::nperf::error::category";

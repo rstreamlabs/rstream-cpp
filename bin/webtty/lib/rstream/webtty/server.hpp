@@ -25,7 +25,7 @@ class server : private boost::noncopyable {
 
   server(const executor_type& executor, const config& config, const settings_server& settings);
 
-  virtual ~server();
+  virtual ~server() noexcept;
 
   using async_run_completion_handler = rstream::core::completion_handler<void(const std::error_code&)>;
 

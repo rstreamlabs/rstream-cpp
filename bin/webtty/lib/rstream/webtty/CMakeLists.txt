@@ -44,6 +44,23 @@ add_custom_command(
 add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS} ${GENERATED_SOURCES})
 add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
 
+if(ENABLE_STRICT_WARNINGS)
+  if(MSVC)
+    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS /W0)
+  else()
+    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS -w)
+  endif()
+endif()
+
+if(ENABLE_STRICT_WARNINGS AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # GCC 13 reports Boost.Asio's type-erased executor storage as potentially
+  # uninitialized while instantiating the Beast websocket read operation.
+  set_source_files_properties(
+    client.cpp
+    server.cpp
+    PROPERTIES COMPILE_OPTIONS -Wno-maybe-uninitialized)
+endif()
+
 set_target_properties(
   ${LIBRARY_NAME}
   PROPERTIES

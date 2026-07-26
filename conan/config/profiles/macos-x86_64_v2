@@ -12,6 +12,8 @@ compiler.target={{ compiler_target_cpu }}
 build_type=Release
 [options]
 [tool_requires]
-[runenv]
-CC=/usr/bin/clang -arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
-CXX=/usr/bin/clang++ -arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+[buildenv]
+CFLAGS=-arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+CXXFLAGS=-arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+CC=/usr/bin/clang
+CXX=/usr/bin/clang++

@@ -7,7 +7,6 @@
 #include <chrono>
 #include <cstdint>
 #include <iomanip>
-#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -15,15 +14,15 @@
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/dispatch.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <openssl/sha.h>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
 #ifdef _WIN32
-#include <boost/asio/windows/stream_handle.hpp>
+#include <rstream/core/windows/blocking_handle.hpp>
 #else
 #include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/signal_set.hpp>
@@ -40,6 +39,7 @@
 #include <rstream/config.hpp>
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/detail/protobuf.hpp>
 #include <rstream/core/helpers/asio.hpp>
 #include <rstream/core/memory.hpp>
 #ifdef RSTREAM_WITH_IO_STREAMS
@@ -71,68 +71,6 @@ namespace rstream {
 namespace webtty {
 
 namespace {
-
-bool is_eof_error(const std::error_code& error_code)
-{
-  if (!error_code) {
-    return false;
-  }
-  if (error_code == boost::system::error_code(boost::asio::error::eof)) {
-    return true;
-  }
-#ifdef _WIN32
-  if (error_code == boost::system::error_code(boost::asio::error::broken_pipe)) {
-    return true;
-  }
-  if (error_code.value() == ERROR_BROKEN_PIPE && error_code.category() == std::system_category()) {
-    return true;
-  }
-#endif
-  return false;
-}
-
-#ifdef _WIN32
-HANDLE duplicate_handle(HANDLE handle)
-{
-  HANDLE dup = nullptr;
-  if (!handle || handle == INVALID_HANDLE_VALUE) {
-    return nullptr;
-  }
-  if (!::DuplicateHandle(::GetCurrentProcess(), handle, ::GetCurrentProcess(), &dup, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-    return nullptr;
-  }
-  return dup;
-}
-
-std::error_code make_windows_error(DWORD error)
-{
-  if (error == ERROR_SUCCESS) {
-    return {};
-  }
-  return std::error_code(static_cast<int>(error), std::system_category());
-}
-
-std::error_code write_standard_handle(HANDLE handle, const std::string& value)
-{
-  if (!handle || handle == INVALID_HANDLE_VALUE) {
-    return std::make_error_code(std::errc::bad_file_descriptor);
-  }
-  std::size_t offset = 0;
-  while (offset < value.size()) {
-    const auto remaining = value.size() - offset;
-    const auto size      = std::min<std::size_t>(remaining, static_cast<std::size_t>(std::numeric_limits<DWORD>::max()));
-    DWORD written        = 0;
-    if (!::WriteFile(handle, value.data() + offset, static_cast<DWORD>(size), &written, nullptr)) {
-      return make_windows_error(::GetLastError());
-    }
-    if (written == 0 && size != 0) {
-      return std::make_error_code(std::errc::io_error);
-    }
-    offset += written;
-  }
-  return {};
-}
-#endif
 
 bool is_same_terminal_size(const terminal_size& lhs, const terminal_size& rhs)
 {
@@ -205,27 +143,6 @@ void to_proto(rstream::webtty::protobuf::EncryptedPayload& dst, const encrypted_
   dst.set_ciphertext(string_from_bytes(src.m_ciphertext));
   dst.set_plaintext_length(src.m_plaintext_length);
   to_proto(*dst.mutable_payload_crypto(), src.m_payload_crypto);
-}
-
-void from_proto(key_envelope& dst, const rstream::webtty::protobuf::KeyEnvelope& src)
-{
-  dst.m_recipient_key_id = bytes_from_string(src.recipient_key_id());
-  dst.m_encapsulated_key = bytes_from_string(src.encapsulated_key());
-  dst.m_wrapped_key      = bytes_from_string(src.wrapped_key());
-}
-
-void from_proto(session_key_grant& dst, const rstream::webtty::protobuf::SessionKeyGrant& src)
-{
-  dst.m_payload_suite  = static_cast<payload_cipher_suite>(src.payload_suite());
-  dst.m_payload_key_id = bytes_from_string(src.payload_key_id());
-  dst.m_key_envelopes.clear();
-  for (const auto& envelope : src.key_envelopes()) {
-    key_envelope converted;
-    from_proto(converted, envelope);
-    dst.m_key_envelopes.push_back(std::move(converted));
-  }
-  dst.m_key_context        = bytes_from_string(src.key_context());
-  dst.m_key_envelope_suite = static_cast<key_envelope_suite>(src.key_envelope_suite());
 }
 
 void from_proto(payload_crypto_metadata& dst, const rstream::webtty::protobuf::PayloadCrypto& src)
@@ -412,7 +329,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   using queue_type = rstream::io::queue_base::ptr;
 
 #ifdef _WIN32
-  using stream_type = boost::asio::windows::stream_handle;
+  using stream_type = rstream::core::windows::blocking_handle;
 #else
   using stream_type     = boost::asio::posix::stream_descriptor;
   using signal_set_type = boost::asio::signal_set;
@@ -452,9 +369,9 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void do_connect(const resolver_type::results_type& results);
 
-  void on_connect(const std::error_code& error_code, const resolver_type::results_type::endpoint_type& endpoint);
+  void on_connect(const std::error_code& error_code, const resolver_type::results_type::endpoint_type&);
 
-  void do_handshake_websocket(const resolver_type::results_type::endpoint_type& endpoint);
+  void do_handshake_websocket();
 
   void on_handshake_websocket(const std::error_code& error_code);
 
@@ -471,6 +388,10 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   void do_close(const std::error_code& error_code);
 
   void on_close(const std::error_code& error_code, int code = 0);
+
+  void on_queue_cancelled(const boost::system::error_code& error_code);
+
+  void close_resources();
 
   void run_loop();
 
@@ -552,7 +473,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   stream_type m_stream_std_err;
 
-  boost::asio::deadline_timer m_terminal_size_timer;
+  boost::asio::steady_timer m_terminal_size_timer;
 
 #ifndef _WIN32
   signal_set_type m_signal_set;
@@ -580,9 +501,14 @@ client::client(const executor_type& executor, const config& config, const settin
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-client::~client()
+client::~client() noexcept
 {
-  m_impl->cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void client::async_run(async_run_completion_handler&& handler)
@@ -639,6 +565,19 @@ client::impl::impl(const executor_type& executor, const config& config, const se
     m_terminal_std_in = std::make_shared<terminal>(STDIN_FILENO);
 #endif
   }
+#ifdef _WIN32
+  boost::system::error_code error_code;
+  m_stream_std_out.open(::GetStdHandle(STD_OUTPUT_HANDLE), stream_type::access::write, error_code);
+  if (!error_code) {
+    m_stream_std_err.open(::GetStdHandle(STD_ERROR_HANDLE), stream_type::access::write, error_code);
+  }
+  if (!error_code && m_config.m_protocol_config.m_options.m_interactive) {
+    m_stream_std_in.open(::GetStdHandle(STD_INPUT_HANDLE), stream_type::access::read, error_code);
+  }
+  if (error_code) {
+    throw boost::system::system_error(error_code);
+  }
+#endif
 }
 
 void client::impl::async_run(async_run_completion_handler&& handler)
@@ -675,7 +614,7 @@ void client::impl::arm_state_timer(unsigned int timeout_ms)
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -697,7 +636,7 @@ void client::impl::arm_state_timer(unsigned int timeout_ms)
       ptr->on_error(error::code::operation_timeout);
     }
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -757,7 +696,7 @@ void client::impl::do_connect(const resolver_type::results_type& results)
   boost::asio::async_connect(m_socket, results, boost::asio::bind_executor(m_strand, completion_handler));
 }
 
-void client::impl::on_connect(const std::error_code& error_code, const resolver_type::results_type::endpoint_type& endpoint)
+void client::impl::on_connect(const std::error_code& error_code, const resolver_type::results_type::endpoint_type&)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -770,7 +709,7 @@ void client::impl::on_connect(const std::error_code& error_code, const resolver_
   }
   else {
     if (m_websocket) {
-      do_handshake_websocket(endpoint);
+      do_handshake_websocket();
     }
     else {
       do_open();
@@ -778,7 +717,7 @@ void client::impl::on_connect(const std::error_code& error_code, const resolver_
   }
 }
 
-void client::impl::do_handshake_websocket(const resolver_type::results_type::endpoint_type& endpoint)
+void client::impl::do_handshake_websocket()
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -938,13 +877,6 @@ void client::impl::do_close(const std::error_code& error_code)
   set_state(state::disconnecting);
   m_error_code = error_code;
   rstream::webtty::protobuf::Message message;
-  error::code code;
-  if (error_code.category() == std::error_code((error::code){}).category()) {
-    code = (error::code)error_code.value();
-  }
-  else {
-    code = error::code::unknown_undefined_error;
-  }
   message.mutable_error()->set_msg(error_code.message());
   arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   do_send_message(message);
@@ -972,15 +904,38 @@ void client::impl::on_close(const std::error_code& error_code, int code)
   if (m_handler) {
     rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), cause, cause ? -1 : code);
   }
+  auto completion_handler = std::bind(&client::impl::on_queue_cancelled, shared_from_this(), std::placeholders::_1);
+  m_queue->async_cancel(boost::asio::bind_executor(m_strand, std::move(completion_handler)));
+}
+
+void client::impl::on_queue_cancelled(const boost::system::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  (void)error_code;
+  close_resources();
+}
+
+void client::impl::close_resources()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
   {
     boost::system::error_code tmp;
     m_resolver.cancel();
     m_socket.close(tmp);
-    m_queue->cancel();
+#ifdef _WIN32
+    m_stream_std_in.close();
+    m_stream_std_out.close();
+    m_stream_std_err.close();
+#else
     m_stream_std_in.close(tmp);
     m_stream_std_out.close(tmp);
     m_stream_std_err.close(tmp);
-    m_terminal_size_timer.cancel(tmp);
+#endif
+    m_terminal_size_timer.cancel();
 #ifndef _WIN32
     m_signal_set.cancel(tmp);
 #endif
@@ -1051,22 +1006,6 @@ void client::impl::read_std_in_loop()
     on_error(error_code);
   }
   else {
-#ifdef _WIN32
-    if (!m_stream_std_in.is_open()) {
-      auto handle = duplicate_handle(::GetStdHandle(STD_INPUT_HANDLE));
-      if (!handle) {
-        on_error(make_windows_error(::GetLastError()));
-        return;
-      }
-      boost::system::error_code assign_error;
-      m_stream_std_in.assign(handle, assign_error);
-      if (assign_error) {
-        ::CloseHandle(handle);
-        on_error(std::error_code(assign_error.value(), std::system_category()));
-        return;
-      }
-    }
-#endif
     do_read_std_in();
   }
 }
@@ -1093,7 +1032,7 @@ void client::impl::on_read_std_in(const std::error_code& error_code, std::size_t
   }
   bool eos = false;
   if (error_code) {
-    eos = is_eof_error(error_code);
+    eos = core::helpers::is_eof_error(error_code);
   }
   if (error_code && !eos) {
     on_error(error_code);
@@ -1141,7 +1080,7 @@ void client::impl::do_wait_for_terminal_size()
     return;
   }
 #ifdef _WIN32
-  m_terminal_size_timer.expires_from_now(boost::posix_time::milliseconds(300));
+  m_terminal_size_timer.expires_after(std::chrono::milliseconds(300));
   auto completion_handler = std::bind(&impl::on_wait_for_terminal_size, shared_from_this(), std::placeholders::_1);
   m_terminal_size_timer.async_wait(boost::asio::bind_executor(m_strand, completion_handler));
 #else
@@ -1210,9 +1149,11 @@ void client::impl::do_send_message(const rstream::webtty::protobuf::Message& mes
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  std::size_t buffer_size = message.ByteSizeLong();
-  auto buffer             = rstream::core::make_buffer_allocated(buffer_size);
-  message.SerializeToArray(buffer.map().get_data(), buffer_size);
+  rstream::core::buffer buffer;
+  if (!rstream::core::detail::serialize_protobuf_message(message, buffer)) {
+    on_error(error::code::protocol_error);
+    return;
+  }
   auto completion_handler = std::bind(&impl::on_send_message, shared_from_this(), std::placeholders::_1, loop);
   m_queue->async_send(buffer, boost::asio::bind_executor(m_strand, completion_handler));
 }
@@ -1262,14 +1203,17 @@ void client::impl::do_read_incoming_message()
     return;
   }
   m_buffer_socket.reset_size();
-  auto completion_handler = std::bind(&impl::on_read_incoming_data, shared_from_this(), std::placeholders::_1);
+  auto self               = shared_from_this();
+  auto completion_handler = std::bind(&impl::on_read_incoming_data, self, std::placeholders::_1);
   if (m_websocket) {
-    auto handler = [this, completion_handler](const std::error_code& error_code, std::size_t bytes_transferred) {
-      m_buffer_socket.set_size(bytes_transferred);
-      completion_handler(error_code);
+    auto handler = [self, completion_handler](const std::error_code& error_code, std::size_t bytes_transferred) mutable {
+      boost::asio::dispatch(self->m_strand, [self, completion_handler = std::move(completion_handler), error_code, bytes_transferred]() mutable {
+        self->m_buffer_socket.set_size(bytes_transferred);
+        completion_handler(error_code);
+      });
     };
     m_http_buffers_adaptor = boost::beast::buffers_adaptor<core::helpers::mutable_memory_sequence>(core::helpers::mutable_memory_sequence(m_buffer_socket));
-    m_websocket->async_read(m_http_buffers_adaptor, boost::asio::bind_executor(m_strand, handler));
+    m_websocket->async_read(m_http_buffers_adaptor, std::move(handler));
   }
   else {
     m_payloader->async_recv(m_buffer_socket, boost::asio::bind_executor(m_strand, completion_handler));
@@ -1521,29 +1465,26 @@ void client::impl::do_process_data(const std::shared_ptr<std::string>& buffer, s
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-#ifdef _WIN32
-  if (buffer == nullptr) {
-    on_process_data(std::error_code());
-    return;
-  }
-  auto handle     = type == stdfd_type::std_out ? ::GetStdHandle(STD_OUTPUT_HANDLE) : ::GetStdHandle(STD_ERROR_HANDLE);
-  auto error_code = write_standard_handle(handle, *buffer);
-  on_process_data(error_code);
-#else
   auto& stream = type == stdfd_type::std_out ? m_stream_std_out : m_stream_std_err;
   if (buffer == nullptr) {
+#ifdef _WIN32
     stream.close();
+#else
+    stream.close();
+#endif
     on_process_data(std::error_code());
   }
   else {
     auto handler = [ptr = shared_from_this(), buffer](const std::error_code& error_code, std::size_t) {
       ptr->on_process_data(error_code);
     };
-    auto completion_handler = std::bind(&impl::on_process_data, shared_from_this(), std::placeholders::_1);
-    auto boost_buffer       = boost::asio::const_buffer(buffer->data(), buffer->size());
+    auto boost_buffer = boost::asio::const_buffer(buffer->data(), buffer->size());
+#ifdef _WIN32
+    stream.async_write(boost_buffer, boost::asio::bind_executor(m_strand, handler));
+#else
     boost::asio::async_write(stream, boost_buffer, boost::asio::bind_executor(m_strand, handler));
-  }
 #endif
+  }
 }
 
 void client::impl::on_process_data(const std::error_code& error_code)
@@ -1595,7 +1536,7 @@ void client::impl::do_send_heartbeat()
       m_signal_state = boost::signals2::scoped_connection();
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -1618,7 +1559,7 @@ void client::impl::do_send_heartbeat()
     }
     task_ptr->clean();
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }

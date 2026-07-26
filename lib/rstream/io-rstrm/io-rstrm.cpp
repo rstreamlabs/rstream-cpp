@@ -46,7 +46,7 @@ static std::vector<std::string> split(const std::string& str, char delimiter)
 
 static bool has_client_certificate_config(const rstream::io::address& server_address)
 {
-  for (const auto param : server_address.m_url.params()) {
+  for (const auto param : rstream::io::detail::stream::url_params(server_address.m_url)) {
     if (param.key == "ssl.cert" || param.key == "ssl.cert_file") {
       return true;
     }
@@ -245,40 +245,42 @@ settings_acceptor::settings_acceptor()
 
 void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& properties, boost::system::error_code& error_code)
 {
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, type)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, publish)
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, protocol)
-  PARSE_PARAMS_VIEW_STRING_MAP(url.params(), properties, "rstrm.", error_code, labels, '=')
-  PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, geoip, ',')
-  PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, trusted_ips, ',')
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, host)
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, hostname)
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, tls_min_version)
-  PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, tls_ciphers, ',')
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, mtls_auth)
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, http_version)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, http_use_tls)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, upstream_tls)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, token_auth)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, rstream_auth)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, challenge_mode)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, datagram_guaranteed_delivery)
-  PARSE_PARAMS_VIEW_BOOLEAN(url.params(), properties, "rstrm.", error_code, allow_cross_region_routing)
-  PARSE_PARAMS_VIEW_STRING(url.params(), properties, "rstrm.", error_code, tls_mode)
-  PARSE_PARAMS_VIEW_STRING_VEC(url.params(), properties, "rstrm.", error_code, tls_alpns, ',')
+  const auto params = rstream::io::detail::stream::url_params(url);
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, type)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, publish)
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, protocol)
+  PARSE_PARAMS_VIEW_STRING_MAP(params, properties, "rstrm.", error_code, labels, '=')
+  PARSE_PARAMS_VIEW_STRING_VEC(params, properties, "rstrm.", error_code, geoip, ',')
+  PARSE_PARAMS_VIEW_STRING_VEC(params, properties, "rstrm.", error_code, trusted_ips, ',')
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, host)
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, hostname)
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, tls_min_version)
+  PARSE_PARAMS_VIEW_STRING_VEC(params, properties, "rstrm.", error_code, tls_ciphers, ',')
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, mtls_auth)
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, http_version)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, http_use_tls)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, upstream_tls)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, token_auth)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, rstream_auth)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, challenge_mode)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, datagram_guaranteed_delivery)
+  PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, allow_cross_region_routing)
+  PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, tls_mode)
+  PARSE_PARAMS_VIEW_STRING_VEC(params, properties, "rstrm.", error_code, tls_alpns, ',')
 }
 
 void parse_config(const boost::urls::url& url, config& config, boost::system::error_code& error_code)
 {
+  const auto params = rstream::io::detail::stream::url_params(url);
   if (!error_code) {
-    auto it = url.params().find("rstream.no_token");
-    if (it != url.params().end()) {
+    auto it = params.find("rstream.no_token");
+    if (it != params.end()) {
       rstream::io::detail::stream::parse_url_param_value(config.m_no_token, *it, error_code);
     }
   }
   if (!error_code) {
-    auto it = url.params().find("rstream.token");
-    if (it != url.params().end()) {
+    auto it = params.find("rstream.token");
+    if (it != params.end()) {
       if (config.m_no_token) {
 #ifdef DEBUG_BUILD
         g_logger->warn("cannot set token when 'no_token' option is set");
@@ -313,8 +315,9 @@ void parse_settings_acceptor(const boost::urls::url& url, settings_acceptor& set
     parse_config_client(url, settings.m_config, error_code);
   }
   if (!error_code) {
-    auto it = url.params().find("rstream.retry");
-    if (it != url.params().end()) {
+    const auto params = rstream::io::detail::stream::url_params(url);
+    auto it           = params.find("rstream.retry");
+    if (it != params.end()) {
       rstream::io::detail::stream::parse_url_param_value(settings.m_auto_reconnect, *it, error_code);
     }
   }
@@ -1429,7 +1432,7 @@ boost::system::result<boost::optional<std::string>> get_rstream_token(const conf
   return token.value();
 }
 
-boost::system::result<client_details> get_client_details(const boost::optional<std::string> token)
+boost::system::result<client_details> get_client_details(boost::optional<std::string> token)
 {
   auto compiletime_identity     = core::get_compiletime_identity();
   auto protobuf_file_descriptor = protobuf::ClientDetails::descriptor()->file();
@@ -1454,13 +1457,13 @@ boost::system::result<client_details> get_client_details(const boost::optional<s
   if (!compiletime_identity.m_arch.empty()) {
     arch = compiletime_identity.m_arch;
   }
-  return (client_details){
+  return client_details{
       .m_agent            = std::string("rstream-utils"),
       .m_channel          = channel,
       .m_os               = os_value,
       .m_arch             = arch,
       .m_version          = std::string(RSTREAM_VERSION),
-      .m_token            = token ? boost::optional<std::string>(token.value()) : boost::none,
+      .m_token            = std::move(token),
       .m_protocol_version = protocol_version,
   };
 }

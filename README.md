@@ -87,6 +87,20 @@ ctest --test-dir build --output-on-failure
 cmake --install build --prefix ./build/release
 ```
 
+Native development presets provide reproducible development, quality,
+sanitizer, coverage, and Release configurations:
+
+```bash
+cmake --preset quality
+cmake --build --preset quality
+ctest --preset quality
+```
+
+The `release`, `release-shared-static`, `release-static-static`, and
+`release-static-dynamic` presets cover the four library/plugin topologies.
+`build.sh` exposes the same choices through `build_shared=on|off` and
+`plugin_mode=auto|static|dynamic`.
+
 Runtime smoke tests that need a reachable rstream engine live under `test/e2e`. After building `rstream-tunnel`, the engine-only suites can run against any configured context:
 
 ```bash
@@ -110,6 +124,31 @@ test/e2e/rstream-tunnel-pkcs11-runtime.sh
 Those scripts intentionally do not fall back to a local Control plane URL or to the engine context token; use the engine-only suites when validating remote devices that cannot reach the Control plane.
 
 For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.
+
+Library linkage and plugin loading are independent build choices. CMake uses
+`BUILD_SHARED_LIBS` for SDK libraries and `ENABLE_STATIC_PLUGINS` for plugin
+registration. The cross-build script exposes the same contract through
+`*_BUILD_SHARED` and `*_PLUGIN_MODES` for Linux, macOS, and Windows.
+
+Plugin mode defaults to `auto`, which preserves the historical packaging:
+static libraries use static plugins and shared libraries use dynamic plugins.
+Use `static` or `dynamic` explicitly to build another supported combination:
+
+```bash
+OSS="linux windows" \
+LINUX_ARCHS="x86_64" \
+LINUX_BUILD_SHARED="on off" \
+LINUX_PLUGIN_MODES="static dynamic" \
+WINDOWS_ARCHS="x86_64" \
+WINDOWS_BUILD_SHARED="on off" \
+WINDOWS_PLUGIN_MODES="static dynamic" \
+./build-conan-cross.sh
+```
+
+The cross-build script enables strict project warnings and treats them as
+errors by default. Set `ENABLE_STRICT_WARNINGS=off WARNINGS_AS_ERRORS=off` only
+for diagnosis against a compiler that is not yet part of the supported
+matrix.
 
 Regular CI is handled by the `Build` GitHub Actions workflow. Pushes to `main` build the `stable` Conan channel, `feature-*` and `fix-*` branches build the `dev` channel, and manual runs can select `dev`, `stable`, or `testing`. This workflow only validates the Conan package with `conan create`; it does not run the full cross-platform release export.
 

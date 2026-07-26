@@ -5,7 +5,9 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <new>
+#include <stdexcept>
 #include <string>
 
 #include <boost/system/system_error.hpp>
@@ -14,6 +16,22 @@
 #include <rstream/core/error.hpp>
 #include <rstream/core/helpers/asio.hpp>
 #include <rstream/core/memory.hpp>
+
+class tracking_allocator : public rstream::core::allocator {
+ public:
+  void* allocate(std::size_t size) override
+  {
+    ++m_allocations;
+    return ::operator new(size);
+  }
+
+  void deallocate(void* pointer) override
+  {
+    ::operator delete(pointer);
+  }
+
+  std::size_t m_allocations = 0;
+};
 
 template <typename callback_type>
 static void expect_core_error(callback_type&& callback, rstream::core::error::code expected)
@@ -118,6 +136,26 @@ static void check_memory_copy_share_and_bounds()
                     rstream::core::error::code::invalid_size);
 }
 
+static void check_memory_shared_honors_allocator_and_null_state()
+{
+  auto memory       = rstream::core::make_memory_allocated(6);
+  const char data[] = "abcdef";
+  std::memcpy(memory.get_data(), data, 6);
+
+  auto allocator = std::make_shared<tracking_allocator>();
+  auto shared    = rstream::core::make_memory_shared(allocator, memory, 1, 4);
+  assert(allocator->m_allocations > 0);
+  assert(to_string(shared) == "bcde");
+  static_cast<char*>(shared.get_data())[0] = 'B';
+  assert(to_string(memory) == "aBcdef");
+
+  rstream::core::memory empty;
+  auto empty_shared = rstream::core::make_memory_shared(allocator, empty, 0, 0);
+  assert(!empty_shared);
+  expect_core_error([&allocator, &empty]() { (void)rstream::core::make_memory_shared(allocator, empty, 0, 1); },
+                    rstream::core::error::code::invalid_size);
+}
+
 static void check_mutable_destroy_callback_is_preserved()
 {
   bool destroyed = false;
@@ -129,6 +167,20 @@ static void check_mutable_destroy_callback_is_preserved()
       destroyed = true;
     });
     assert(to_string(memory) == "ecret");
+  }
+  assert(destroyed);
+}
+
+static void check_mutable_destroy_callback_cannot_escape_destruction()
+{
+  bool destroyed = false;
+  {
+    char raw[]  = "secret";
+    auto memory = rstream::core::make_memory_wrapped(raw, 6, 0, [&destroyed](void*) {
+      destroyed = true;
+      throw std::runtime_error("destroy callback failure");
+    });
+    assert(memory.get_size() == 6);
   }
   assert(destroyed);
 }
@@ -284,7 +336,9 @@ int main(int argc, char** argv)
   run_check("wrapped_memory_honors_offset", check_wrapped_memory_honors_offset);
   run_check("wrapped_memory_rejects_invalid_bounds", check_wrapped_memory_rejects_invalid_bounds);
   run_check("memory_copy_share_and_bounds", check_memory_copy_share_and_bounds);
+  run_check("memory_shared_honors_allocator_and_null_state", check_memory_shared_honors_allocator_and_null_state);
   run_check("mutable_destroy_callback_is_preserved", check_mutable_destroy_callback_is_preserved);
+  run_check("mutable_destroy_callback_cannot_escape_destruction", check_mutable_destroy_callback_cannot_escape_destruction);
   run_check("buffer_extract_fill_map_and_bounds", check_buffer_extract_fill_map_and_bounds);
   run_check("buffer_self_append_uses_original_snapshot", check_buffer_self_append_uses_original_snapshot);
   run_check("allocator_wrapper_rejects_overflowing_counts", check_allocator_wrapper_rejects_overflowing_counts);

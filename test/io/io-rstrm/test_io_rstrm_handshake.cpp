@@ -1,15 +1,21 @@
 // See LICENSE file in the project root for license information.
 
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <utility>
 
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/local/connect_pair.hpp>
 #include <boost/asio/local/stream_protocol.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <rstream/core/buffer.hpp>
 #include <rstream/io-rstrm/detail/handshake.hpp>
@@ -68,7 +74,7 @@ static void assert_error_code(const boost::system::error_code& actual, int value
 static rstream::core::buffer serialize_message(const protobuf::Message& message)
 {
   auto buffer = rstream::core::make_buffer_allocated(message.ByteSizeLong());
-  message.SerializeToArray(buffer.map().get_data(), buffer.get_size());
+  assert(message.SerializeToArray(buffer.map().get_data(), buffer.get_size()));
   return buffer;
 }
 
@@ -345,6 +351,74 @@ static void check_invalid_protobuf_response_is_rejected()
   assert(client_called);
 }
 
+static void check_cancellation_reaches_the_transport()
+{
+  boost::asio::io_context io_context;
+  socket_type socket_a(io_context.get_executor());
+  socket_type socket_b(io_context.get_executor());
+  boost::asio::local::connect_pair(socket_a, socket_b);
+  test_stream stream(socket_a, false);
+  rstream::io_rstrm::config config;
+  config.m_no_token = true;
+  config.m_zero_rtt = false;
+  handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
+  boost::asio::cancellation_signal cancellation;
+  boost::asio::steady_timer deadline(io_context, std::chrono::milliseconds(200));
+  payloader_type receiver(socket_b);
+  auto request          = rstream::core::make_buffer_allocated(4096);
+  bool deadline_expired = false;
+  bool handler_called   = false;
+  deadline.async_wait([&](const boost::system::error_code& error_code) {
+    if (!error_code) {
+      deadline_expired = true;
+      socket_a.close();
+    }
+  });
+  handshake.async_run(
+      handshake_type::type::stream_req, "api", boost::none,
+      boost::asio::bind_cancellation_slot(cancellation.slot(), [&](const boost::system::error_code& error_code) {
+        handler_called = true;
+        assert(!deadline_expired);
+        assert(error_code == boost::asio::error::operation_aborted);
+        deadline.cancel();
+      }));
+  receiver.async_recv(request, [&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    boost::asio::post(io_context, [&] {
+      cancellation.emit(boost::asio::cancellation_type::terminal);
+    });
+  });
+  io_context.run();
+  assert(handler_called);
+  assert(!deadline_expired);
+}
+
+static void check_deferred_handshake_is_lazy()
+{
+  boost::asio::io_context io_context;
+  socket_type socket_a(io_context.get_executor());
+  socket_type socket_b(io_context.get_executor());
+  boost::asio::local::connect_pair(socket_a, socket_b);
+  test_stream stream(socket_a, false);
+  rstream::io_rstrm::config config;
+  config.m_no_token = true;
+  handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
+  auto operation = handshake.async_run(
+      handshake_type::type::stream_req, "api", std::string("forbidden-token"),
+      boost::asio::deferred);
+  assert(io_context.poll() == 0);
+  io_context.restart();
+
+  std::size_t completion_count = 0;
+  std::move(operation)([&](const boost::system::error_code& error_code) {
+    assert_error_code(error_code, static_cast<int>(rstream::io_rstrm::error::code::protocol_error), rstream::io_rstrm::error::rstream_rstream_error_category().name());
+    ++completion_count;
+  });
+  assert(completion_count == 0);
+  io_context.run();
+  assert(completion_count == 1);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -358,5 +432,7 @@ int main(int argc, char** argv)
   check_proxy_secret_is_allowed_with_mtls_agent_auth();
   check_unexpected_response_type_is_rejected();
   check_invalid_protobuf_response_is_rejected();
+  check_cancellation_reaches_the_transport();
+  check_deferred_handshake_is_lazy();
   return 0;
 }

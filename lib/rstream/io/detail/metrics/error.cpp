@@ -9,6 +9,17 @@ namespace metrics {
 
 namespace error {
 
+category::category() noexcept
+    : boost::system::error_category(0x727374726d747263ULL)
+{
+}
+
+const category& rstream_io_detail_metrics_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::io::detail::metrics::error::category";

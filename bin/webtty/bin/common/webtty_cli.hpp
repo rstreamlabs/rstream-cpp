@@ -859,7 +859,9 @@ inline void ensure_known_fields(const YAML::Node& node, const std::set<std::stri
   for (const auto& item : node) {
     auto key = item.first.as<std::string>();
     if (known.count(key) == 0) {
-      throw std::runtime_error("unsupported WebTTY " + section + " field: " + key);
+      std::string message = "unsupported WebTTY ";
+      message.append(section).append(" field: ").append(key);
+      throw std::runtime_error(message);
     }
   }
 }

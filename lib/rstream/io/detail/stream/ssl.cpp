@@ -46,7 +46,7 @@ namespace ssl {
 
 boost::optional<ssl::config> parse_ssl_config(const boost::urls::url& url, boost::system::error_code& error_code)
 {
-  const auto& params = url.params();
+  const auto params = url_params(url);
   boost::optional<ssl::config> res;
   if (!error_code) {
     bool ssl;

@@ -1,0 +1,4 @@
+---
+InheritParentConfig: true
+Checks: >-
+  -clang-analyzer-core.NullDereference

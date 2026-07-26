@@ -38,6 +38,7 @@ class client_base {
   class transport_base {
    public:
     using ptr = std::shared_ptr<transport_base>;
+    virtual ~transport_base() = default;
     static const rstream::core::logger& logger();
     virtual executor_type get_executor() const                                                                        = 0;
     using async_send_completion_handler                                                                               = rstream::core::completion_handler<void(const boost::system::error_code&, std::size_t)>;
@@ -65,8 +66,7 @@ class client : public client_base {
   next_layer_type& next_layer();
   const next_layer_type& next_layer() const;
   template <typename request_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(request_handler), void(const boost::system::error_code&, const message&))
-  async_request(const message& message, const endpoint& endpoint, BOOST_ASIO_MOVE_ARG(request_handler) handler);
+  auto async_request(const message& message, const endpoint& endpoint, BOOST_ASIO_MOVE_ARG(request_handler) handler);
 
  private:
   class transport : public transport_base {
@@ -112,8 +112,7 @@ const typename client<socket>::next_layer_type& client<socket>::next_layer() con
 
 template <typename socket>
 template <typename request_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(request_handler), void(const boost::system::error_code&, const message&))
-client<socket>::async_request(const message& message, const endpoint& endpoint, BOOST_ASIO_MOVE_ARG(request_handler) handler)
+auto client<socket>::async_request(const message& message, const endpoint& endpoint, BOOST_ASIO_MOVE_ARG(request_handler) handler)
 {
   return boost::asio::async_initiate<request_handler, void(const boost::system::error_code&, const class message&)>(
       [this](auto&& handler, const class message& message, const client::endpoint& endpoint) {

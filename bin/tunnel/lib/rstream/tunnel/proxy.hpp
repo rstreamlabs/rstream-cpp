@@ -31,7 +31,7 @@ class proxy : public io::io_object {
 
   proxy(const executor_type& executor, const config& config, const settings_proxy& settings);
 
-  virtual ~proxy();
+  ~proxy() noexcept override;
 
   using async_run_completion_handler = core::completion_handler<void(const std::error_code&)>;
 

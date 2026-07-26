@@ -23,9 +23,9 @@ rstream-ncat - https://rstream.io/ - netcat-like utility using rstream primitive
 this program is distributed with the rstream C++ tools. See https://rstream.io/docs/integrations/cpp-sdk and https://github.com/rstreamlabs/rstream-cpp.
 
 usage:
-  rstream-ncat [options] <remote> [-i|-I] [--jobs=ARG]
-  rstream-ncat [options] -L <local> (-e=ARG|-c=ARG) [-v] [--jobs=ARG]
-  rstream-ncat [options] -L <local> -R <remote> [-v] [--jobs=ARG]
+  rstream-ncat [-v] [--buffer-size=ARG] <remote> [-i|-I] [--jobs=ARG]
+  rstream-ncat [-v] [--buffer-size=ARG] -L <local> (-e=ARG|-c=ARG) [--jobs=ARG]
+  rstream-ncat [-v] [--buffer-size=ARG] -L <local> -R <remote> [--jobs=ARG]
   rstream-ncat (-h|--help)
   rstream-ncat --version
 
@@ -59,7 +59,7 @@ int run(int argc, char** argv)
     }
   }
   if (verbose) {
-    rstream::core::log::enable_ansicolor_stdout_mt();
+    rstream::core::log::enable_ansicolor_stderr_mt();
   }
   auto jobs = std::max((long)0, args.at("--jobs").asLong());
   if (jobs == 0) {
@@ -98,7 +98,11 @@ int run(int argc, char** argv)
     };
     auto client = std::make_shared<rstream::ncat::client>(io_context.get_executor(), config, settings);
     ptr         = client;
-    signal_set.async_wait([client](const std::error_code&, int) { client->cancel(); });
+    signal_set.async_wait([client](const std::error_code& error_code, int) {
+      if (!error_code) {
+        client->cancel();
+      }
+    });
     client->async_run([&signal_set, &result](const std::error_code& error_code) {
       result = error_code;
       signal_set.cancel();
@@ -114,8 +118,8 @@ int run(int argc, char** argv)
         .m_read_downstream_buffer_size_bytes = buffer_size,
         .m_read_upstream_buffer_size_bytes   = buffer_size,
         .m_timeouts_ms                       = {
-                                  .m_start = 5000,
-                                  .m_open  = 10000,
+            .m_start = 5000,
+            .m_open  = 10000,
         },
     };
     {
@@ -127,7 +131,7 @@ int run(int argc, char** argv)
       else {
         it = args.find("--exec");
         if (it != args.end() && it->second.operator bool()) {
-          config.m_remote = (rstream::ncat::server::exec){
+          config.m_remote = rstream::ncat::server::exec{
               .m_shell = false,
               .m_cmd   = it->second.asString(),
           };
@@ -135,7 +139,7 @@ int run(int argc, char** argv)
         else {
           it = args.find("--sh-exec");
           if (it != args.end() && it->second.operator bool()) {
-            config.m_remote = (rstream::ncat::server::exec){
+            config.m_remote = rstream::ncat::server::exec{
                 .m_shell = true,
                 .m_cmd   = it->second.asString(),
             };
@@ -145,7 +149,11 @@ int run(int argc, char** argv)
     }
     auto server = std::make_shared<rstream::ncat::server>(io_context.get_executor(), config, settings);
     ptr         = server;
-    signal_set.async_wait([server](const std::error_code&, int) { server->cancel(); });
+    signal_set.async_wait([server](const std::error_code& error_code, int) {
+      if (!error_code) {
+        server->cancel();
+      }
+    });
     server->async_run([&signal_set, &result](const std::error_code& error_code) {
       result = error_code;
       signal_set.cancel();
@@ -155,8 +163,8 @@ int run(int argc, char** argv)
   if (jobs > 1) {
     auto n = jobs - 1;
     threads.reserve(n);
-    for (unsigned int i = 0; i < n; ++i) {
-      threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+    for (decltype(n) i = 0; i < n; ++i) {
+      threads.emplace_back(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
     }
   }
   io_context.run();

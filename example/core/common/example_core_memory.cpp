@@ -8,7 +8,7 @@
 
 #include <rstream/core/allocator.hpp>
 
-int main(int argc, char** argv)
+int main()
 {
   std::size_t length = 100;
 

@@ -476,7 +476,7 @@ namespace stun {
 namespace helpers {
 
 template <>
-std::size_t byte_size_long_value<header>(const header& value)
+std::size_t byte_size_long_value<header>(const header&)
 {
   std::size_t size = 0;
   size += byte_size_long_value(msg_type());

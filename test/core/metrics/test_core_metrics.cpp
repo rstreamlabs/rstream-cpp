@@ -23,12 +23,12 @@ class static_collectable : public rstream::core::metrics::collectable {
 
   void collect(metrics::metrics& out) override
   {
-    out.push_back((metrics::metric){
+    out.push_back(metrics::metric{
         .m_name    = "rstream_test_collectable",
         .m_help    = "collectable help",
         .m_type    = metrics::metric::type::gauge,
         .m_samples = {
-            (metrics::sample){
+            metrics::sample{
                 .m_value     = 12.5,
                 .m_labels    = {{"source", "custom"}},
                 .m_timestamp = std::chrono::system_clock::now(),
@@ -99,8 +99,8 @@ void test_registry_collects_registered_metrics()
   counter.labels({{"method", "GET"}}).increment(3.0);
 
   auto gauge = rstream::core::metrics::gauge("rstream_test_gauge", "gauge help", {{"base", "root"}}, registry);
-  gauge.increment();
   gauge.decrement(0.25);
+  gauge.set_current_time({{"trace", "current-time"}});
   gauge.labels({{"method", "POST"}}).set(9.5, {{"trace", "gauge"}});
 
   auto histogram = rstream::core::metrics::histogram(
@@ -146,6 +146,7 @@ void test_registry_collects_registered_metrics()
       saw_gauge = true;
       compare(metric.m_type == metrics::metric::type::gauge, true);
       compare(metric.m_samples.size(), static_cast<std::size_t>(2));
+      compare(metric.m_samples.front().m_examplar.at("trace"), std::string("current-time"));
     }
     if (metric.m_name == "rstream_test_histogram") {
       saw_hist = true;
@@ -256,6 +257,7 @@ void test_system_collector_is_thread_safe_singleton()
   std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
   std::vector<rstream::core::metrics::collectable::ptr> collectors(32);
   std::vector<std::thread> threads;
+  threads.reserve(collectors.size());
   for (std::size_t i = 0; i < collectors.size(); ++i) {
     threads.emplace_back([&collectors, i]() {
       collectors[i] = rstream::core::metrics::system_collector();

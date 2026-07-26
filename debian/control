@@ -14,7 +14,6 @@ Build-Depends:
  libboost-all-dev,
  libdocopt-dev,
  libexpected-dev,
- libgtest-dev,
  libncurses-dev,
  libprotobuf-dev,
  librange-v3-dev,

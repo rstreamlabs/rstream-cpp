@@ -46,6 +46,7 @@ class plugin {
     location m_location;
   };
   plugin(const location& location, const info& info);
+  virtual ~plugin()                = default;
   plugin(const plugin&)            = delete;
   plugin& operator=(const plugin&) = delete;
   const location& get_location() const;

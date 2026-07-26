@@ -25,6 +25,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <rstream/test/time.hpp>
 #include <rstream/webtty/client.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
@@ -213,7 +214,7 @@ static void write_message(tcp::socket& socket, const protobuf::Message& message)
   std::uint32_t frame_size = htonl(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));
   if (!payload.empty()) {
     boost::asio::write(socket, boost::asio::buffer(payload));
   }
@@ -269,13 +270,6 @@ static void to_proto(protobuf::EndpointIdentity& dst, const rstream::webtty::end
   dst.set_encryption_key_id(string_from_bytes(src.m_encryption_key_id));
   dst.set_encryption_public_key(string_from_bytes(src.m_encryption_public_key));
   dst.set_key_envelope_suite(protobuf::KEY_ENVELOPE_SUITE_HPKE_X25519_HKDF_SHA256_AES_256_GCM);
-}
-
-static void to_proto(protobuf::KeyEnvelope& dst, const rstream::webtty::key_envelope& src)
-{
-  dst.set_recipient_key_id(string_from_bytes(src.m_recipient_key_id));
-  dst.set_encapsulated_key(string_from_bytes(src.m_encapsulated_key));
-  dst.set_wrapped_key(string_from_bytes(src.m_wrapped_key));
 }
 
 static void to_proto(protobuf::PayloadCrypto& dst, const rstream::webtty::payload_crypto_metadata& src)
@@ -738,7 +732,7 @@ class fake_cancel_server {
 
   bool wait_for_ack()
   {
-    return m_ack_sent.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    return m_ack_sent.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready;
   }
 
   void join()
@@ -766,16 +760,16 @@ static rstream::webtty::client::config plain_client_config(unsigned short port)
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(port)),
       .m_websocket_target = boost::none,
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::plain,
-           .m_options       = {
-                     .m_interactive    = false,
-                     .m_allocate_tty   = false,
-                     .m_send_heartbeat = false,
+          .m_protocol_type = rstream::webtty::protocol::type::plain,
+          .m_options       = {
+              .m_interactive    = false,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = false,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
 }
@@ -786,8 +780,8 @@ static rstream::webtty::settings_client plain_client_settings()
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
@@ -808,24 +802,24 @@ static void check_plain_client_processes_server_messages()
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
       .m_websocket_target = boost::none,
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::plain,
-           .m_options       = {
-                     .m_interactive    = false,
-                     .m_allocate_tty   = false,
-                     .m_send_heartbeat = false,
+          .m_protocol_type = rstream::webtty::protocol::type::plain,
+          .m_options       = {
+              .m_interactive    = false,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = false,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
   rstream::webtty::settings_client settings = {
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },

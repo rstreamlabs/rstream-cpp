@@ -21,8 +21,9 @@ void rstream::plugin::io_generic::unix_::resolver::resolve_internal(const boost:
 {
   bool abstract_socket = false;
   {
-    auto it = url.params().find("unix.abstract");
-    if (it != url.params().end()) {
+    const auto params = rstream::io::detail::stream::url_params(url);
+    auto it           = params.find("unix.abstract");
+    if (it != params.end()) {
       rstream::io::detail::stream::parse_url_param_value(abstract_socket, *it, error_code);
     }
   }

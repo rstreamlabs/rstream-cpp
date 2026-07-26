@@ -17,7 +17,7 @@ RSTREAM_PLUGIN_STATIC_DECLARE(python_plugin_wrapper)
 RSTREAM_PLUGIN_STATIC_DECLARE(sample_plugin_3)
 #endif
 
-int main(int argc, char** argv)
+int main()
 {
   auto config = rstream::core::plugin::factory::default_config();
 #ifndef RSTREAM_ENABLE_STATIC_PLUGINS

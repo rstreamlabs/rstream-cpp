@@ -169,10 +169,6 @@ class pty_windows : public pty, public base {
 
   executor_type m_executor;
 
-  HANDLE m_in_read = nullptr;  // HPCON's STDIN
-
-  HANDLE m_out_write = nullptr;  // HPCON's STDOUT
-
   HANDLE m_in_write = nullptr;  // parent writes → HPCON
 
   HANDLE m_out_read = nullptr;  // parent reads ← HPCON
@@ -187,11 +183,15 @@ class pty_windows : public pty, public base {
 
   std::shared_ptr<read_op> m_read_op;
 
+  bool m_read_active = false;
+
   std::condition_variable m_cv_read_op;
 
   std::shared_ptr<std::thread> m_writing_thread;
 
   std::shared_ptr<write_op> m_write_op;
+
+  bool m_write_active = false;
 
   std::condition_variable m_cv_write_op;
 };
@@ -285,7 +285,7 @@ void pty_windows::on_setup(boost::process::extend::windows_executor<Char, Sequen
 }
 
 template <typename Char, typename Sequence>
-void pty_windows::on_error(boost::process::extend::windows_executor<Char, Sequence>& executor, std::error_code& error_code)
+void pty_windows::on_error(boost::process::extend::windows_executor<Char, Sequence>& executor, std::error_code&)
 {
   auto& si = executor.startup_info_ex;
 #ifdef DEBUG_BUILD
@@ -299,7 +299,7 @@ void pty_windows::on_error(boost::process::extend::windows_executor<Char, Sequen
 }
 
 template <typename Char, typename Sequence>
-void pty_windows::on_success(boost::process::extend::windows_executor<Char, Sequence>& executor, std::error_code& error_code)
+void pty_windows::on_success(boost::process::extend::windows_executor<Char, Sequence>& executor, std::error_code&)
 {
   {
     auto& si = executor.startup_info_ex;

@@ -2,4 +2,4 @@
 
 # process tests
 
-add_test_target(${PROJECT_NAME}-test-io-http-upgrade test_io_http_upgrade.cpp)
+add_test_target(${PROJECT_NAME}-test-io-http-upgrade test_io_http_upgrade.cpp ${PROJECT_NAME}::io)

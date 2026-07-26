@@ -30,7 +30,7 @@ class client : public io::io_object {
 
   client(const executor_type& executor, const config& config, const settings_client& settings);
 
-  virtual ~client();
+  ~client() noexcept override;
 
   using async_run_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&)>;
 

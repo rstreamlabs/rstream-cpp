@@ -7,7 +7,7 @@
 
 #include <rstream/io/payloader.hpp>
 
-int main(int argc, char** argv)
+int main()
 {
   boost::asio::io_context io_context;
   boost::asio::ip::tcp::socket socket(io_context);

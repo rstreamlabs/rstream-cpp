@@ -2,6 +2,7 @@
 
 #include "server.hpp"
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -9,12 +10,12 @@
 #include <sstream>
 
 #include <boost/asio/bind_executor.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/dispatch.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
 #include <boost/asio/socket_base.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core/bind_handler.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
@@ -46,7 +47,7 @@ namespace rstream {
 namespace file_server {
 
 template <class body, class allocator, class send_func>
-using endpoints_type = std::map<boost::beast::http::verb, std::map<std::string, void (*)(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&&, send_func&&)>>;
+using endpoints_type = std::map<boost::beast::http::verb, std::map<std::string, void (*)(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&, send_func&)>>;
 
 template <class body, class allocator, class send_func>
 static const endpoints_type<body, allocator, send_func> endpoints = {
@@ -193,7 +194,7 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
   void do_process_request();
 
   template <class body, class allocator, class send_func>
-  void handle_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func);
+  void handle_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func func);
 
   void on_write(bool close, const boost::system::error_code& error_code, std::size_t bytes_transferred);
 
@@ -237,9 +238,14 @@ server::server(const executor_type& executor, const config& config, const settin
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-server::~server()
+server::~server() noexcept
 {
-  m_impl->cancel();
+  try {
+    m_impl->cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void server::async_run(async_run_completion_handler&& handler)
@@ -317,7 +323,7 @@ void server::impl::arm_state_timer(unsigned int timeout_ms)
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -339,7 +345,7 @@ void server::impl::arm_state_timer(unsigned int timeout_ms)
       ptr->on_error(error::code::operation_timeout);
     }
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -715,7 +721,7 @@ void server::impl::session::do_process_request()
 #endif
   boost::system::error_code error_code;
   try {
-    handle_request(m_ctx, std::move(m_request), server::impl::session::send(shared_from_this()));
+    handle_request(m_ctx, m_request, server::impl::session::send(shared_from_this()));
   }
   catch (const boost::system::system_error& system_error) {
     error_code = system_error.code();
@@ -732,17 +738,17 @@ void server::impl::session::do_process_request()
 }
 
 template <class body, class allocator, class send_func>
-void server::impl::session::handle_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void server::impl::session::handle_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func func)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  const auto& target                                                                                                                          = request.target();
-  std::function<void(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&&, send_func&&)> func_ptr = nullptr;
+  const auto& target                                                                                                                        = request.target();
+  std::function<void(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&, send_func&)> func_ptr = nullptr;
   {
     auto method = endpoints<body, allocator, send_func>.find(request.method());
     if (method != endpoints<body, allocator, send_func>.end()) {
-      typename std::map<std::string, void (*)(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&&, send_func&&)>::const_iterator endpoint;
+      typename std::map<std::string, void (*)(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&, send_func&)>::const_iterator endpoint;
       for (endpoint = method->second.begin(); endpoint != method->second.end(); ++endpoint) {
         if (std::regex_search(std::string(target), std::regex(endpoint->first, std::regex_constants::ECMAScript))) {
           break;
@@ -754,11 +760,11 @@ void server::impl::session::handle_request(const context& ctx, boost::beast::htt
     }
   }
   if (func_ptr == nullptr) {
-    func_ptr = std::bind((void (*)(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&&, send_func&&, const std::string&))bad_request<body, allocator, send_func>, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, "Invalid Endpoint");
+    func_ptr = std::bind((void (*)(const context&, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&, send_func&, const std::string&))bad_request<body, allocator, send_func>, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, "Invalid Endpoint");
   }
   std::exception_ptr error = nullptr;
   try {
-    func_ptr(ctx, std::move(request), std::move(func));
+    func_ptr(ctx, request, func);
   }
   catch (...) {
     error = std::current_exception();
@@ -790,13 +796,13 @@ void server::impl::session::handle_request(const context& ctx, boost::beast::htt
     try {
       auto error_type = get_error_type(error);
       if (error_type == error_type::not_found) {
-        not_found(ctx, std::move(request), std::move(func));
+        not_found(ctx, request, func);
       }
       else if (error_type == error_type::forbidden) {
-        forbidden(ctx, std::move(request), std::move(func));
+        forbidden(ctx, request, func);
       }
       else {
-        internal_server_error(ctx, std::move(request), std::move(func));
+        internal_server_error(ctx, request, func);
       }
     }
     catch (...) {

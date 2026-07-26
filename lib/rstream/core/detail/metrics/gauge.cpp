@@ -85,7 +85,7 @@ void gauge::set(double value, const examplar& examplar)
 void gauge::set_current_time(const examplar& examplar)
 {
   const auto time = std::time(nullptr);
-  set(static_cast<double>(time));
+  set(static_cast<double>(time), examplar);
 }
 
 double gauge::value() const
@@ -123,7 +123,7 @@ double wrapper<gauge>::impl::value()
 sample wrapper<gauge>::impl::get_sample()
 {
   std::shared_lock lock(m_mutex);
-  return (sample){
+  return sample{
       .m_value     = m_value,
       .m_labels    = wrapper_common::get_labels(),
       .m_timestamp = m_timestamp,

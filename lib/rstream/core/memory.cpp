@@ -31,7 +31,7 @@ class RSTREAM_GNUC_INTERNAL memory::impl {
   impl(std::size_t size, allocator::ptr allocator);
   impl(void* data, std::size_t max_size, std::size_t offset, const destroy_notify_func& destroy_notify_func, allocator::ptr allocator);
   impl(const void* data, std::size_t max_size, std::size_t offset, allocator::ptr allocator);
-  impl(const impl& other, allocator::ptr allocator);
+  impl(const impl& other);
   std::size_t m_size;
   std::size_t m_offset;
   std::shared_ptr<const base> m_base;
@@ -40,6 +40,7 @@ class RSTREAM_GNUC_INTERNAL memory::impl {
 class RSTREAM_GNUC_INTERNAL memory::impl::base {
  public:
   base(allocator::ptr allocator, bool is_mutable);
+  virtual ~base() = default;
   bool is_mutable() const;
   virtual void* get_data() const;
   virtual const void* get_const_data() const = 0;
@@ -66,7 +67,7 @@ class RSTREAM_GNUC_INTERNAL memory_allocated : public memory::impl::base {
 class RSTREAM_GNUC_INTERNAL memory_wrapped_mutable : public memory::impl::base {
  public:
   memory_wrapped_mutable(void* data, std::size_t max_size, std::size_t offset, const memory::destroy_notify_func& destroy_notify_func, allocator::ptr allocator);
-  virtual ~memory_wrapped_mutable();
+  ~memory_wrapped_mutable() noexcept override;
   void* get_data() const override;
   const void* get_const_data() const override;
   std::size_t get_size() const override;
@@ -109,7 +110,9 @@ memory::memory(const void* data, std::size_t max_size, std::size_t offset, alloc
 
 memory::memory(const memory& other, allocator::ptr allocator)
 {
-  m_impl = std::allocate_shared<impl>(core::allocator::wrapper<impl>(allocator), *other.m_impl, allocator);
+  if (other.m_impl != nullptr) {
+    m_impl = std::allocate_shared<impl>(core::allocator::wrapper<impl>(allocator), *other.m_impl);
+  }
 }
 
 memory::memory(std::nullptr_t)
@@ -282,7 +285,7 @@ memory::impl::impl(const void* data, std::size_t max_size, std::size_t offset, a
   m_base = std::allocate_shared<memory_wrapped_const>(core::allocator::wrapper<memory_wrapped_const>(allocator), data, max_size, offset, allocator);
 }
 
-memory::impl::impl(const impl& other, allocator::ptr allocator)
+memory::impl::impl(const impl& other)
     : m_size(other.m_size),
       m_offset(other.m_offset),
       m_base(other.m_base)
@@ -326,10 +329,15 @@ memory_wrapped_mutable::memory_wrapped_mutable(void* data, std::size_t max_size,
 {
 }
 
-memory_wrapped_mutable::~memory_wrapped_mutable()
+memory_wrapped_mutable::~memory_wrapped_mutable() noexcept
 {
-  if (m_destroy_notify_func) {
-    m_destroy_notify_func(m_data);
+  try {
+    if (m_destroy_notify_func) {
+      m_destroy_notify_func(m_data);
+    }
+  }
+  catch (...) {
+    return;
   }
 }
 
@@ -378,7 +386,15 @@ memory make_memory_wrapped(allocator::ptr allocator, const void* data, std::size
 
 memory make_memory_shared(allocator::ptr allocator, memory& other, std::size_t offset, std::size_t size)
 {
-  return other.share(offset, size);
+  if (!other) {
+    if (offset != 0 || size != 0) {
+      throw boost::system::system_error(error::code::invalid_size);
+    }
+    return nullptr;
+  }
+  memory result(other, allocator);
+  result.resize(offset, size);
+  return result;
 }
 
 }  // namespace core

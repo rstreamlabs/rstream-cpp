@@ -130,7 +130,7 @@ jobs:
           path: |
             ~/.conan2/p
             ~/.cache/ccache
-          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
             conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-
       - name: Validate release tag
@@ -255,7 +255,10 @@ jobs:
           conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
           refs=("rstream/${VERSION}")
           if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
-            refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
+            refs+=(
+              "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}"
+              "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}"
+            )
           fi
           has_packages=$(cat <<'PY'
           import json
@@ -338,7 +341,7 @@ jobs:
           path: |
             ~/.conan2/p
             ~/.cache/ccache
-          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
@@ -442,7 +445,10 @@ jobs:
           conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
           refs=("rstream/${VERSION}")
           if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
-            refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
+            refs+=(
+              "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}"
+              "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}"
+            )
           fi
           has_packages=$(cat <<'PY'
           import json

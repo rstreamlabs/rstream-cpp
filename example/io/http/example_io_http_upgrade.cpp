@@ -1,16 +1,17 @@
 // See LICENSE file in the project root for license information.
 
+#include <chrono>
 #include <iostream>
 #include <sstream>
 #include <thread>
 
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/ssl.hpp>
 
@@ -270,7 +271,7 @@ class client : public std::enable_shared_from_this<client> {
   void do_wait()
   {
     auto self = shared_from_this();
-    m_timer.expires_from_now(boost::posix_time::milliseconds(1000));
+    m_timer.expires_after(std::chrono::milliseconds(1000));
     m_timer.async_wait([self](boost::system::error_code ec) {
         if (!ec) {
           self->do_write();
@@ -288,7 +289,7 @@ class client : public std::enable_shared_from_this<client> {
   boost::asio::ip::tcp::socket m_socket;
   boost::asio::ssl::context m_ssl_context;
   std::shared_ptr<boost::beast::ssl_stream<boost::asio::ip::tcp::socket&>> m_ssl_stream;
-  boost::asio::deadline_timer m_timer;
+  boost::asio::steady_timer m_timer;
   const boost::asio::ip::tcp::resolver::results_type m_endpoints;
   const std::string m_host;
   const std::string m_target;
@@ -348,8 +349,8 @@ int run(int argc, char** argv)
   if (jobs > 1) {
     auto n = jobs - 1;
     threads.reserve(n);
-    for (unsigned int i = 0; i < n; ++i) {
-      threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+    for (decltype(n) i = 0; i < n; ++i) {
+      threads.emplace_back(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
     }
   }
   io_context.run();

@@ -4,7 +4,7 @@
 
 #include <rstream/core/exception.hpp>
 
-int main(int argc, char** argv)
+int main()
 {
   // 1. how to convert an exception pointer into a human readable string
   auto exception_ptr = std::make_exception_ptr(std::runtime_error("this is a runtime error"));

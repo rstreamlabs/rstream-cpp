@@ -38,10 +38,54 @@ add_custom_command(
     ${proto_files}
   VERBATIM)
 
+# Generated protobuf descriptors are process-wide. A statically linked SDK and
+# runtime-loaded plugins must therefore share one copy of the generated code.
+set(PROTOBUF_LIBRARY_COMPONENT "${LIBRARY_COMPONENT}-protobuf")
+set(PROTOBUF_LIBRARY_NAME "${PROJECT_NAME}-lib-${PROTOBUF_LIBRARY_COMPONENT}")
+if(NOT BUILD_SHARED_LIBS AND NOT ENABLE_STATIC_PLUGINS)
+  set(PROTOBUF_LIBRARY_TYPE SHARED)
+endif()
+add_library(${PROTOBUF_LIBRARY_NAME} ${PROTOBUF_LIBRARY_TYPE} ${GENERATED_SOURCES})
+add_library(${PROJECT_NAME}::${PROTOBUF_LIBRARY_COMPONENT} ALIAS ${PROTOBUF_LIBRARY_NAME})
+
+set_target_properties(
+  ${PROTOBUF_LIBRARY_NAME}
+  PROPERTIES
+  VERSION ${PROJECT_VERSION}
+  OUTPUT_NAME ${PROJECT_NAME}-${PROTOBUF_LIBRARY_COMPONENT}
+  EXPORT_NAME ${PROTOBUF_LIBRARY_COMPONENT}
+  SOVERSION ${SOVERSION}
+  INTERFACE_${PROJECT_NAME}_MAJOR_VERSION ${SOVERSION}
+  APPEND PROPERTY COMPATIBLE_INTERFACE_STRING ${PROJECT_NAME}_MAJOR_VERSION)
+
+if(INSTALL_RPATH_KEYWORD)
+  set_target_properties(${PROTOBUF_LIBRARY_NAME} PROPERTIES ${INSTALL_RPATH_KEYWORD} ${RPATH_LIBRARY})
+endif()
+
+target_include_directories(
+  ${PROTOBUF_LIBRARY_NAME}
+  PRIVATE
+  ${GENERATED_SOURCE_DIR})
+
+target_compile_features(${PROTOBUF_LIBRARY_NAME} PUBLIC cxx_std_20)
+
+target_link_libraries(
+  ${PROTOBUF_LIBRARY_NAME}
+  PUBLIC
+  protobuf::libprotobuf)
+
 # library definition
 
-add_library(${LIBRARY_NAME} ${SOURCES} ${GENERATED_SOURCES} ${HEADERS})
+add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS})
 add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
+
+if(ENABLE_STRICT_WARNINGS)
+  if(MSVC)
+    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS /W0)
+  else()
+    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS -w)
+  endif()
+endif()
 
 set_target_properties(
   ${LIBRARY_NAME}
@@ -66,6 +110,8 @@ target_include_directories(
   PRIVATE
   $<BUILD_INTERFACE:${GENERATED_SOURCE_DIR}>/)
 
+target_compile_features(${LIBRARY_NAME} PUBLIC cxx_std_20)
+
 target_link_libraries(
   ${LIBRARY_NAME}
   PUBLIC
@@ -78,9 +124,15 @@ target_link_libraries(
   ${PROJECT_NAME}::io
   PRIVATE
   Boost::url
-  protobuf::libprotobuf)
+  ${PROJECT_NAME}::${PROTOBUF_LIBRARY_COMPONENT})
 
 # install the library
+
+install(TARGETS ${PROTOBUF_LIBRARY_NAME}
+  EXPORT ${CMAKE_PACKAGE_TARGETS}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 install(TARGETS ${LIBRARY_NAME}
   EXPORT ${CMAKE_PACKAGE_TARGETS}

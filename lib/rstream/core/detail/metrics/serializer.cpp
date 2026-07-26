@@ -89,7 +89,7 @@ void serialize_line_front(std::ostream& out, const std::string& name, const samp
   out << " ";
 }
 
-void serialize_line_back(std::ostream& out, const sample& sample)
+void serialize_line_back(std::ostream& out, const sample&)
 {
   //        auto epoch = std::chrono::duration_cast<std::chrono::milliseconds>(sample.m_timestamp.time_since_epoch()).count();
   //        if (epoch != 0) {
@@ -125,13 +125,13 @@ void serialize_metric_histogram(std::ostream& out, const metric& metric)
     const auto& histogram = boost::get<sample::histogram>(sample.m_value);
     auto last             = -std::numeric_limits<double>::infinity();
     for (const auto& bucket : histogram.m_buckets) {
-      serialize_line_front<double>(out, metric.m_name, sample, "_bucket", (extra_label<double>){.m_key = "le", .m_value = bucket.m_upper_bound});
+      serialize_line_front<double>(out, metric.m_name, sample, "_bucket", extra_label<double>{.m_key = "le", .m_value = bucket.m_upper_bound});
       last = bucket.m_upper_bound;
       serialize_value(out, bucket.m_cumulative_count);
       serialize_line_back(out, sample);
     }
     if (last != std::numeric_limits<double>::infinity()) {
-      serialize_line_front<std::string>(out, metric.m_name, sample, "_bucket", (extra_label<std::string>){.m_key = "le", .m_value = "+Inf"});
+      serialize_line_front<std::string>(out, metric.m_name, sample, "_bucket", extra_label<std::string>{.m_key = "le", .m_value = "+Inf"});
       out << histogram.m_sample_count;
       serialize_line_back(out, sample);
     }
@@ -150,7 +150,7 @@ void serialize_metric_summary(std::ostream& out, const metric& metric)
   for (const auto& sample : metric.m_samples) {
     const auto& summary = boost::get<sample::summary>(sample.m_value);
     for (const auto& quantile : summary.m_quantiles) {
-      serialize_line_front<double>(out, metric.m_name, sample, "", (extra_label<double>){.m_key = "quantile", .m_value = quantile.m_quantile});
+      serialize_line_front<double>(out, metric.m_name, sample, "", extra_label<double>{.m_key = "quantile", .m_value = quantile.m_quantile});
       serialize_value(out, quantile.m_value);
       serialize_line_back(out, sample);
     }

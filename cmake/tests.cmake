@@ -8,11 +8,34 @@ enable_testing()
 
 set(BIN_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test")
 
+set(RSTREAM_TEST_TIMEOUT_SCALE "1" CACHE STRING "Timeout scale for instrumented tests")
+set(RSTREAM_TEST_TIMEOUT_SECONDS "120" CACHE STRING "Maximum duration of one CTest test")
+
+if(NOT RSTREAM_TEST_TIMEOUT_SCALE MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "RSTREAM_TEST_TIMEOUT_SCALE must be a positive integer.")
+endif()
+
+if(NOT RSTREAM_TEST_TIMEOUT_SECONDS MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "RSTREAM_TEST_TIMEOUT_SECONDS must be a positive integer.")
+endif()
+
+function(rstream_configure_test name)
+  set_tests_properties(${name} PROPERTIES TIMEOUT ${RSTREAM_TEST_TIMEOUT_SECONDS})
+endfunction()
+
 macro(add_test_target name sources)
   add_executable(${name} ${sources})
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_OUT_DIR})
-  target_link_libraries(${name} Boost::boost GTest::GTest ${PROJECT_NAME}::${PROJECT_NAME})
+  if(MSVC)
+    target_compile_options(${name} PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(${name} PRIVATE -UNDEBUG)
+  endif()
+  target_compile_definitions(${name} PRIVATE RSTREAM_TEST_TIMEOUT_SCALE=${RSTREAM_TEST_TIMEOUT_SCALE})
+  target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/test/support)
+  target_link_libraries(${name} PRIVATE Boost::boost ${ARGN})
   add_test(NAME ${name} WORKING_DIRECTORY ${BIN_OUT_DIR} COMMAND ${name})
+  rstream_configure_test(${name})
   set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS ${name})
 endmacro()
 

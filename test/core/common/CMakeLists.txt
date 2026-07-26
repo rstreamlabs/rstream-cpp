@@ -2,8 +2,14 @@
 
 # process tests
 
-add_test_target(${PROJECT_NAME}-test-core-executor-binder test_core_executor_binder.cpp)
-add_test_target(${PROJECT_NAME}-test-core-memory-buffer test_core_memory_buffer.cpp)
-add_test_target(${PROJECT_NAME}-test-core-exception-system test_core_exception_system.cpp)
-add_test_target(${PROJECT_NAME}-test-core-plugin-version test_core_plugin_version.cpp)
-add_test_target(${PROJECT_NAME}-test-core-random test_core_random.cpp)
+add_test_target(${PROJECT_NAME}-test-core-executor-binder test_core_executor_binder.cpp ${PROJECT_NAME}::core)
+add_test_target(${PROJECT_NAME}-test-core-error test_core_error.cpp ${PROJECT_NAME}::core)
+if(WIN32)
+  add_test_target(${PROJECT_NAME}-test-core-windows-blocking-handle test_core_windows_blocking_handle.cpp ${PROJECT_NAME}::core)
+endif()
+add_test_target(${PROJECT_NAME}-test-core-memory-buffer test_core_memory_buffer.cpp ${PROJECT_NAME}::core)
+add_test_target(${PROJECT_NAME}-test-core-protobuf test_core_protobuf.cpp ${PROJECT_NAME}::core)
+add_test_target(${PROJECT_NAME}-test-core-exception-system test_core_exception_system.cpp ${PROJECT_NAME}::core)
+add_test_target(${PROJECT_NAME}-test-core-plugin-version test_core_plugin_version.cpp ${PROJECT_NAME}::io)
+add_test_target(${PROJECT_NAME}-test-core-plugin-registry test_core_plugin_registry.cpp ${PROJECT_NAME}::core)
+add_test_target(${PROJECT_NAME}-test-core-random test_core_random.cpp ${PROJECT_NAME}::core)

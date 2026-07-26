@@ -13,11 +13,14 @@ source_dir="${source_dir:-${script_dir}}"
 build_jobs="${build_jobs:-}"
 clean_first="${clean_first:-0}"
 ctest_parallel_level="${ctest_parallel_level:-}"
+build_shared="${build_shared:-on}"
+plugin_mode="${plugin_mode:-auto}"
+enable_strict_warnings="${enable_strict_warnings:-on}"
+warnings_as_errors="${warnings_as_errors:-off}"
 cmake_args=(
   -G "${cmake_generator}"
   -DCMAKE_INSTALL_PREFIX="${release_dir}"
   -DCMAKE_BUILD_TYPE="${build_type}"
-  -DBUILD_SHARED_LIBS=TRUE
 )
 build_args=()
 build_parallel_args=()
@@ -38,6 +41,44 @@ is_truthy() {
   *) return 1 ;;
   esac
 }
+
+cmake_bool() {
+  if is_truthy "$1"; then
+    echo ON
+  else
+    echo OFF
+  fi
+}
+
+case "${plugin_mode}" in
+auto)
+  if is_truthy "${build_shared}"; then
+    static_plugins=off
+  else
+    static_plugins=on
+  fi
+  ;;
+static)
+  static_plugins=on
+  ;;
+dynamic)
+  static_plugins=off
+  ;;
+*)
+  echo "plugin_mode must be auto, static, or dynamic." >&2
+  exit 1
+  ;;
+esac
+if is_truthy "${warnings_as_errors}" && ! is_truthy "${enable_strict_warnings}"; then
+  echo "warnings_as_errors requires enable_strict_warnings." >&2
+  exit 1
+fi
+cmake_args+=(
+  -DBUILD_SHARED_LIBS="$(cmake_bool "${build_shared}")"
+  -DENABLE_STATIC_PLUGINS="$(cmake_bool "${static_plugins}")"
+  -DENABLE_STRICT_WARNINGS="$(cmake_bool "${enable_strict_warnings}")"
+  -DWARNINGS_AS_ERRORS="$(cmake_bool "${warnings_as_errors}")"
+)
 
 sanitize_env_flags() {
   local name="$1"
