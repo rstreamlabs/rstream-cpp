@@ -25,7 +25,7 @@ quantile::quantile(double quantile_)
 {
 }
 
-ckms_quantiles::item::item(double value, int lower_delta, int delta)
+ckms_quantiles::item::item(double value, std::size_t lower_delta, std::size_t delta)
     : m_value(value),
       m_g(lower_delta),
       m_delta(delta)
@@ -56,10 +56,10 @@ double ckms_quantiles::get(double q)
   if (m_sample.empty()) {
     return std::numeric_limits<double>::quiet_NaN();
   }
-  int rank_min       = 0;
-  const auto desired = static_cast<int>(q * m_count);
-  const auto bound   = desired + (allowable_error(desired) / 2);
-  auto it            = m_sample.begin();
+  std::size_t rank_min = 0;
+  const auto desired   = static_cast<std::size_t>(q * static_cast<double>(m_count));
+  const auto bound     = desired + (allowable_error(desired) / 2);
+  auto it              = m_sample.begin();
   decltype(it) prev;
   auto cur = it++;
   while (it != m_sample.end()) {
@@ -80,17 +80,18 @@ void ckms_quantiles::reset()
   m_buffer_count = 0;
 }
 
-double ckms_quantiles::allowable_error(int rank)
+double ckms_quantiles::allowable_error(std::size_t rank)
 {
-  auto size        = m_sample.size();
-  double min_error = size + 1;
+  const auto size       = static_cast<double>(m_sample.size());
+  const auto rank_value = static_cast<double>(rank);
+  double min_error      = size + 1.0;
   for (const auto& q : m_quantiles) {
     double error;
-    if (rank <= q.m_quantile * size) {
-      error = q.m_u * (size - rank);
+    if (rank_value <= q.m_quantile * size) {
+      error = q.m_u * (size - rank_value);
     }
     else {
-      error = q.m_v * rank;
+      error = q.m_v * rank_value;
     }
     if (error < min_error) {
       min_error = error;
@@ -121,12 +122,12 @@ bool ckms_quantiles::insert_batch()
     if (m_sample[item].m_value > v) {
       --idx;
     }
-    int delta;
+    std::size_t delta;
     if (idx - 1 == 0 || idx + 1 == m_sample.size()) {
       delta = 0;
     }
     else {
-      delta = static_cast<int>(std::floor(allowable_error(idx + 1))) + 1;
+      delta = static_cast<std::size_t>(std::floor(allowable_error(idx + 1))) + 1;
     }
     m_sample.emplace(m_sample.begin() + idx, v, 1, delta);
     m_count++;

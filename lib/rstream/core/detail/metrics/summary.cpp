@@ -86,7 +86,7 @@ void wrapper<summary>::impl::observe(double value, const examplar& examplar)
 
 sample wrapper<summary>::impl::get_sample()
 {
-  std::shared_lock lock(m_mutex);
+  std::unique_lock lock(m_mutex);
   sample::summary value = {
       .m_sample_count = m_count,
       .m_sample_sum   = m_sum,
