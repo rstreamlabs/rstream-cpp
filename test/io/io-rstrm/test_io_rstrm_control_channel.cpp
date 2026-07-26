@@ -25,6 +25,7 @@
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
@@ -166,6 +167,17 @@ static void wait_for_peer_close(tcp::socket& socket)
       check(error.code() == boost::asio::error::eof || error.code() == boost::asio::error::connection_reset, "unexpected transport error while waiting for the peer to close");
       return;
     }
+  }
+}
+
+static void wait_until_ready(const std::atomic_bool& ready, const std::string& timeout_message)
+{
+  const auto deadline = std::chrono::steady_clock::now() + kFakeEngineIoTimeout;
+  while (!ready.load(std::memory_order_acquire)) {
+    if (std::chrono::steady_clock::now() >= deadline) {
+      throw std::runtime_error(timeout_message);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 }
 
@@ -548,21 +560,6 @@ static void check_client_connect_honors_immediate_cancellation()
 static void check_client_create_tunnel_honors_cancellation()
 {
   fake_engine engine;
-  engine.start([](tcp::socket& socket) {
-    auto open_request = read_message(socket);
-    assert(open_request.has_open_control_channel_req());
-    write_message(socket, open_control_response());
-    auto tunnel_request = read_message(socket);
-    assert(tunnel_request.has_open_tunnel_req());
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    write_message(socket, open_tunnel_response(tunnel_request.open_tunnel_req()));
-    auto close_tunnel_request = read_message(socket);
-    assert(close_tunnel_request.has_close_tunnel_req());
-    write_message(socket, close_tunnel_response("tunnel-1"));
-    auto close_request = read_message(socket);
-    assert(close_request.has_close_control_channel_req());
-    write_message(socket, close_control_response());
-  });
   boost::asio::io_context io_context;
   rstream::io_rstrm::config_client config;
   config.m_no_token              = true;
@@ -570,13 +567,30 @@ static void check_client_create_tunnel_honors_cancellation()
   config.m_connection_timeout_ms = kControlChannelTimeoutMs;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
   boost::asio::cancellation_signal cancellation;
-  boost::asio::steady_timer cancellation_timer(io_context);
-  boost::asio::steady_timer close_timer(io_context);
   boost::system::error_code completion_error;
-  std::size_t completion_count = 0;
+  std::size_t completion_count            = 0;
+  std::atomic_bool cancellation_completed = false;
+  engine.start([&](tcp::socket& socket) {
+    auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing open control channel request");
+    write_message(socket, open_control_response());
+    auto tunnel_request = read_message(socket);
+    check(tunnel_request.has_open_tunnel_req(), "missing open tunnel request");
+    boost::asio::post(io_context, [&cancellation] { cancellation.emit(boost::asio::cancellation_type::all); });
+    wait_until_ready(cancellation_completed, "tunnel creation cancellation did not complete");
+    write_message(socket, open_tunnel_response(tunnel_request.open_tunnel_req()));
+    auto close_tunnel_request = read_message(socket);
+    check(close_tunnel_request.has_close_tunnel_req(), "client did not close the tunnel created after cancellation");
+    check(close_tunnel_request.close_tunnel_req().tunnel_id() == "tunnel-1", "client closed the wrong tunnel after cancellation");
+    write_message(socket, close_tunnel_response("tunnel-1"));
+    boost::asio::post(io_context, [&client] { client.close(); });
+    auto close_request = read_message(socket);
+    check(close_request.has_close_control_channel_req(), "missing close control channel request");
+    write_message(socket, close_control_response());
+  });
   watchdog test_watchdog(io_context);
   client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
-    assert(!error_code);
+    check(!error_code, "client failed to connect");
     rstream::io_rstrm::tunnel_properties properties;
     properties.m_name = "api";
     client.async_create_tunnel(
@@ -587,24 +601,15 @@ static void check_client_create_tunnel_honors_cancellation()
           if (tunnel) {
             tunnel.close();
           }
+          cancellation_completed.store(true, std::memory_order_release);
         }));
-    cancellation_timer.expires_after(std::chrono::milliseconds(20));
-    cancellation_timer.async_wait([&](const boost::system::error_code& timer_error) {
-      assert(!timer_error);
-      cancellation.emit(boost::asio::cancellation_type::all);
-    });
-    close_timer.expires_after(std::chrono::milliseconds(200));
-    close_timer.async_wait([&](const boost::system::error_code& timer_error) {
-      assert(!timer_error);
-      client.close();
-    });
   });
   io_context.run();
   test_watchdog.complete();
   engine.join();
-  assert(!test_watchdog.timed_out());
-  assert(completion_count == 1);
-  assert(completion_error == boost::asio::error::operation_aborted);
+  check(!test_watchdog.timed_out(), "tunnel creation cancellation check timed out");
+  check(completion_count == 1, "tunnel creation cancellation completed more than once");
+  check(completion_error == boost::asio::error::operation_aborted, "tunnel creation cancellation returned the wrong error");
 }
 
 static void check_tunnel_accept_honors_cancellation()
