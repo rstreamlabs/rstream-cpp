@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -277,6 +278,47 @@ void test_system_collector_is_thread_safe_singleton()
   }
 }
 
+void test_summary_concurrent_collection()
+{
+  std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
+  auto summary = rstream::core::metrics::summary(
+      "rstream_test_concurrent_summary",
+      "summary help",
+      {},
+      nullptr,
+      {{0.5}, {0.9}},
+      std::chrono::milliseconds(2),
+      2);
+  for (std::size_t i = 0; i < 499; ++i) {
+    summary.observe(static_cast<double>(i));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  std::atomic<bool> start{false};
+  std::vector<std::thread> threads;
+  threads.reserve(16);
+  for (std::size_t i = 0; i < 16; ++i) {
+    threads.emplace_back([&summary, &start]() {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (std::size_t j = 0; j < 100; ++j) {
+        (void)summary.get_sample();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    });
+  }
+  start.store(true, std::memory_order_release);
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  const auto sample = summary.get_sample();
+  const auto* value = boost::get<metrics::sample::summary>(&sample.m_value);
+  compare(value != nullptr, true);
+  compare(value->m_sample_count, static_cast<std::uint64_t>(499));
+}
+
 void run()
 {
   test_1();
@@ -286,6 +328,7 @@ void run()
   test_histogram_and_info_reject_invalid_inputs();
   test_collectable_and_system_registry();
   test_system_collector_is_thread_safe_singleton();
+  test_summary_concurrent_collection();
 }
 
 int main(int argc, char** argv)

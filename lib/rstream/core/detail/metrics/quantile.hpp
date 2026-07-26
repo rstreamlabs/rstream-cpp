@@ -32,12 +32,12 @@ class ckms_quantiles {
 
  private:
   struct item {
-    item(double value, int lower_delta, int delta);
+    item(double value, std::size_t lower_delta, std::size_t delta);
     double m_value;
-    int m_g;
-    int m_delta;
+    std::size_t m_g;
+    std::size_t m_delta;
   };
-  double allowable_error(int rank);
+  double allowable_error(std::size_t rank);
   bool insert_batch();
   void compress();
   const quantiles m_quantiles;
