@@ -57,6 +57,8 @@ void serialize_json_value(nlohmann::json& json, const T& src)
 
 class basic_message {
  public:
+  virtual ~basic_message() = default;
+
   virtual std::size_t byte_size_long() const                   = 0;
   virtual void serialize(void* dst, std::size_t& offset) const = 0;
   virtual void serialize_json(nlohmann::json& json) const      = 0;

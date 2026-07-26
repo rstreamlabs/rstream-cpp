@@ -11,12 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
-#ifdef _WIN32
 #define INIT_NPERF_OPTION(value) (1U << value)
-#else
-#define INIT_NPERF_OPTION(value) \
-  (unsigned int) { 1U << value }
-#endif
 
 namespace rstream {
 namespace nperf {

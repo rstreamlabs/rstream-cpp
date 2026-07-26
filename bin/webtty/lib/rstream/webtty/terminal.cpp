@@ -115,19 +115,21 @@ void terminal::reset()
 
 terminal::size terminal::get_size(std::error_code& error_code)
 {
-  size result;
+  size result = {};
 #ifdef _WIN32
   {
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    CONSOLE_SCREEN_BUFFER_INFO csbi = {};
     if (!::GetConsoleScreenBufferInfo(m_handle, &csbi)) {
       error_code = std::error_code(::GetLastError(), std::system_category());
     }
-    result = (size){
-        .m_row    = static_cast<unsigned short>(csbi.srWindow.Bottom - csbi.srWindow.Top + 1),
-        .m_col    = static_cast<unsigned short>(csbi.srWindow.Right - csbi.srWindow.Left + 1),
-        .m_xpixel = 0,
-        .m_ypixel = 0,
-    };
+    else {
+      result = size{
+          .m_row    = static_cast<unsigned short>(csbi.srWindow.Bottom - csbi.srWindow.Top + 1),
+          .m_col    = static_cast<unsigned short>(csbi.srWindow.Right - csbi.srWindow.Left + 1),
+          .m_xpixel = 0,
+          .m_ypixel = 0,
+      };
+    }
   }
 #else
   {
@@ -136,7 +138,7 @@ terminal::size terminal::get_size(std::error_code& error_code)
       error_code = std::error_code(errno, std::system_category());
     }
     else {
-      result = (size){
+      result = size{
           .m_row    = winsize.ws_row,
           .m_col    = winsize.ws_col,
           .m_xpixel = winsize.ws_xpixel,

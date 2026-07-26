@@ -13,6 +13,8 @@
 #include <rstream/core/error.hpp>
 #include <rstream/core/log.hpp>
 
+#include "registry.hpp"
+
 #define STR(var)                   #var
 #define XSTR(var)                  STR(var)
 #define RSTREAM_PLUGIN_SYMBOL_NAME XSTR(RSTREAM_PLUGIN_SYMBOL)
@@ -173,6 +175,7 @@ std::list<plugin::extended_info> factory::impl::get_plugins() const
 
 plugin::extended_info factory::impl::get_plugin(const plugin::name& name, boost::system::error_code& error_code) const
 {
+  error_code.clear();
   plugin::extended_info res = {};
   auto it                   = m_plugins.find(name);
   if (it == m_plugins.end()) {
@@ -220,14 +223,58 @@ element::ptr factory::impl::create(const element::name& name, boost::system::err
 
 void factory::impl::register_plugin(const plugin::ptr& plugin, const shared_library& object, boost::system::error_code& error_code)
 {
+  error_code.clear();
+  if (!plugin) {
+    error_code = error::code::object_null;
+    return;
+  }
+  const auto& name = plugin->get_info().m_name;
+  if (m_plugins.find(name) != m_plugins.end()) {
+    error_code = error::code::plugin_already_registered;
+    return;
+  }
   auto ptr = object ? plugin::ptr(plugin.get(), object_deleter(plugin, object)) : plugin;
-  ptr->initialize(m_config, object);
-  ptr->init();
-  m_plugins.insert(std::make_pair(plugin->get_info().m_name, std::make_pair(ptr, object)));
+  try {
+    ptr->initialize(m_config, object);
+    ptr->init();
+  }
+  catch (const boost::system::system_error& error) {
+    error_code = error.code();
+    m_logger->warn("failed to initialize plugin '{}': {}", name, error.what());
+    return;
+  }
+  catch (const std::exception& error) {
+    error_code = error::code::plugin_initialization_failed;
+    m_logger->warn("failed to initialize plugin '{}': {}", name, error.what());
+    return;
+  }
+  catch (...) {
+    error_code = error::code::plugin_initialization_failed;
+    m_logger->warn("failed to initialize plugin '{}': unknown exception", name);
+    return;
+  }
+  m_plugins.emplace(name, std::make_pair(ptr, object));
 }
 
 void factory::impl::init()
 {
+  for (const auto provider : get_static_plugins()) {
+    boost::system::error_code error_code;
+    try {
+      register_plugin(provider(), nullptr, error_code);
+    }
+    catch (const std::exception& error) {
+      m_logger->warn("failed to create static plugin: {}", error.what());
+      continue;
+    }
+    catch (...) {
+      m_logger->warn("failed to create static plugin: unknown exception");
+      continue;
+    }
+    if (error_code) {
+      m_logger->warn("failed to register static plugin [error_code: {}]", error_code.message());
+    }
+  }
   auto pattern      = m_config.find("pattern");
   auto search_paths = m_config.find("search_paths");
   if (pattern == m_config.end()
@@ -286,6 +333,7 @@ void factory::impl::deinit()
 
 std::pair<factory::impl::plugins::const_iterator, elements::const_iterator> factory::impl::find_element(const element::name& name, boost::system::error_code& error_code) const
 {
+  error_code.clear();
   for (auto it_1 = m_plugins.begin(); it_1 != m_plugins.end(); ++it_1) {
     const auto& elements = it_1->second.first->get_elements();
     auto it_2            = elements.find(name);

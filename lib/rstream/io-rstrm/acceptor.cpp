@@ -2,18 +2,18 @@
 
 #include "acceptor.hpp"
 
-#include <algorithm>
-#include <cctype>
-#include <iomanip>
+#include <atomic>
+#include <chrono>
 #include <mutex>
-#include <random>
-#include <sstream>
-#include <vector>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/asio/associated_allocator.hpp>
+#include <boost/asio/associated_cancellation_slot.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/bind_executor.hpp>
-#include <boost/asio/deadline_timer.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/dispatch.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/optional.hpp>
 #include <boost/utility/in_place_factory.hpp>
@@ -24,96 +24,12 @@
 #include <rstream/core/memory.hpp>
 
 #include "client.hpp"
+#include "detail/stable_domain.hpp"
 #include "error.hpp"
 #include "tunnel.hpp"
 
 namespace rstream {
 namespace io_rstrm {
-
-static std::string join_labels(const std::vector<std::string>& labels, std::size_t offset)
-{
-  std::string out;
-  for (std::size_t i = offset; i < labels.size(); ++i) {
-    if (!out.empty()) {
-      out += ".";
-    }
-    out += labels[i];
-  }
-  return out;
-}
-
-static std::vector<std::string> split_labels(const std::string& host)
-{
-  std::vector<std::string> labels;
-  std::string label;
-  std::istringstream stream(host);
-  while (std::getline(stream, label, '.')) {
-    labels.push_back(label);
-  }
-  return labels;
-}
-
-static bool is_stable_domain_label(const std::string& label)
-{
-  if (label.empty() || label.size() > 63 || label.front() == '-' || label.back() == '-') {
-    return false;
-  }
-  return std::all_of(label.begin(), label.end(), [](unsigned char c) {
-    return std::islower(c) || std::isdigit(c) || c == '-';
-  });
-}
-
-static std::string random_stable_domain_slug()
-{
-  std::random_device random_device;
-  std::uniform_int_distribution<unsigned int> dist(0, 255);
-  std::ostringstream out;
-  out << 'r' << std::hex << std::setfill('0');
-  for (int i = 0; i < 4; ++i) {
-    out << std::setw(2) << dist(random_device);
-  }
-  return out.str();
-}
-
-static boost::optional<std::string> generate_stable_domain(const io::address& server_address)
-{
-  std::string host = server_address.host();
-  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-  while (!host.empty() && host.back() == '.') {
-    host.pop_back();
-  }
-  if (host.empty() || host.find(':') != std::string::npos) {
-    return {};
-  }
-  auto labels = split_labels(host);
-  if (labels.size() < 2) {
-    return {};
-  }
-  const auto& project_endpoint = labels.front();
-  const auto cluster_domain    = join_labels(labels, 1);
-  if (!is_stable_domain_label(project_endpoint)) {
-    return {};
-  }
-  for (const auto& label : split_labels(cluster_domain)) {
-    if (!is_stable_domain_label(label)) {
-      return {};
-    }
-  }
-  if (project_endpoint.size() >= 63) {
-    return {};
-  }
-  const auto max_slug_len = 63 - project_endpoint.size() - 1;
-  if (max_slug_len < 9) {
-    return {};
-  }
-  auto slug = random_stable_domain_slug();
-  if (slug.size() > max_slug_len) {
-    slug.resize(max_slug_len);
-  }
-  return slug + "-" + project_endpoint + ".t." + cluster_domain;
-}
 
 static void maybe_set_generated_stable_domain(tunnel_properties& properties,
                                               const io::address& server_address,
@@ -129,7 +45,7 @@ static void maybe_set_generated_stable_domain(tunnel_properties& properties,
     return;
   }
   if (!generated_stable_domain) {
-    generated_stable_domain = generate_stable_domain(server_address);
+    generated_stable_domain = detail::generate_stable_domain(server_address);
   }
   if (generated_stable_domain) {
     properties.m_hostname = generated_stable_domain.value();
@@ -171,12 +87,20 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
   struct accept_op {
     using ptr = std::shared_ptr<accept_op>;
     accept_op(socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler);
+    std::atomic_bool m_cancelled;
+    bool m_completed;
+    bool m_accepting;
     socket& m_peer;
     endpoint& m_endpoint;
     async_accept_completion_handler m_handler;
+    boost::asio::cancellation_signal m_cancellation;
   };
 
-  void async_accept_internal(socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler);
+  void async_accept_internal(const accept_op::ptr& op);
+
+  void cancel_accept(const accept_op::ptr& op);
+
+  void complete_accept(const accept_op::ptr& op, const boost::system::error_code& error_code);
 
   void do_connect();
 
@@ -192,7 +116,7 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
 
   void do_accept();
 
-  void on_accept(const boost::system::error_code& error_code);
+  void on_accept(const accept_op::ptr& op, const boost::system::error_code& error_code);
 
   void on_timer_cb(const boost::system::error_code& error_code);
 
@@ -212,7 +136,7 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
 
   state m_state;
 
-  bool m_closing;
+  std::atomic_bool m_closing;
 
   core::allocator::ptr m_allocator;
 
@@ -220,7 +144,7 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
 
   boost::asio::strand<executor_type> m_strand;
 
-  boost::asio::deadline_timer m_timer;
+  boost::asio::steady_timer m_timer;
 
   std::shared_ptr<client> m_client;
 
@@ -246,7 +170,10 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
 };
 
 acceptor::impl::accept_op::accept_op(socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler)
-    : m_peer(peer),
+    : m_cancelled(false),
+      m_completed(false),
+      m_accepting(false),
+      m_peer(peer),
       m_endpoint(endpoint),
       m_handler(std::move(handler))
 {
@@ -363,6 +290,9 @@ void acceptor::impl::open(const endpoint& endpoint, boost::system::error_code& e
 void acceptor::impl::close(boost::system::error_code& error_code)
 {
   (void)error_code;
+  if (m_closing.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
   boost::asio::dispatch(m_strand, std::bind_front(&impl::close_internal, shared_from_this()));
 }
 
@@ -395,15 +325,44 @@ endpoint acceptor::impl::local_endpoint(boost::system::error_code& error_code)
 
 void acceptor::impl::async_accept(socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front(&impl::async_accept_internal, shared_from_this(), std::ref(peer), std::ref(endpoint), std::move(handler)));
+  if (!handler) {
+    return;
+  }
+  auto allocator         = boost::asio::get_associated_allocator(handler);
+  const auto op          = std::allocate_shared<accept_op>(allocator, peer, endpoint, std::move(handler));
+  auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
+  if (cancellation_slot.is_connected()) {
+    const std::weak_ptr<impl> weak_self    = shared_from_this();
+    const std::weak_ptr<accept_op> weak_op = op;
+    cancellation_slot.assign([weak_self, weak_op](boost::asio::cancellation_type type) {
+      if (type == boost::asio::cancellation_type::none) {
+        return;
+      }
+      const auto op = weak_op.lock();
+      if (!op) {
+        return;
+      }
+      op->m_cancelled.store(true, std::memory_order_release);
+      const auto self = weak_self.lock();
+      if (self) {
+        boost::asio::dispatch(self->m_strand, [self, op] { self->cancel_accept(op); });
+      }
+    });
+  }
+  boost::asio::dispatch(
+      m_strand,
+      core::bind_handler_allocator(
+          allocator,
+          [self = shared_from_this(), op] { self->async_accept_internal(op); }));
 }
 
-void acceptor::impl::async_accept_internal(socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler)
+void acceptor::impl::async_accept_internal(const accept_op::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (!handler) {
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    complete_accept(op, boost::asio::error::operation_aborted);
     return;
   }
   boost::system::error_code error_code;
@@ -429,13 +388,13 @@ void acceptor::impl::async_accept_internal(socket& peer, endpoint& endpoint, asy
     }
   }
   if (error_code) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error_code);
+    complete_accept(op, error_code);
   }
   else {
     if (m_client == nullptr) {
       m_client = std::allocate_shared<client>(core::allocator::wrapper<impl>(m_allocator), m_executor, m_settings.m_config, m_allocator);
     }
-    m_accept_op = std::allocate_shared<accept_op>(core::allocator::wrapper<impl>(m_allocator), peer, endpoint, std::move(handler));
+    m_accept_op = op;
     if (m_state == state::idle) {
       do_connect();
     }
@@ -443,6 +402,39 @@ void acceptor::impl::async_accept_internal(socket& peer, endpoint& endpoint, asy
       do_accept();
     }
   }
+}
+
+void acceptor::impl::cancel_accept(const accept_op::ptr& op)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!op || !op->m_cancelled.load(std::memory_order_acquire) || op->m_completed) {
+    return;
+  }
+  if (m_accept_op != op) {
+    complete_accept(op, boost::asio::error::operation_aborted);
+  }
+  else if (op->m_accepting) {
+    op->m_cancellation.emit(boost::asio::cancellation_type::all);
+  }
+  else {
+    m_accept_op = nullptr;
+    complete_accept(op, boost::asio::error::operation_aborted);
+  }
+}
+
+void acceptor::impl::complete_accept(const accept_op::ptr& op, const boost::system::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!op || op->m_completed) {
+    return;
+  }
+  op->m_completed = true;
+  rstream::core::invoke_completion_handler(m_executor, std::move(op->m_handler), error_code);
+  op->m_handler = nullptr;
 }
 
 void acceptor::impl::do_connect()
@@ -454,7 +446,7 @@ void acceptor::impl::do_connect()
     return;
   }
   m_state                = state::connecting;
-  auto control_callbacks = (client::control_callbacks){
+  auto control_callbacks = client::control_callbacks{
       .m_on_disconnection_cb = [ptr = shared_from_this()](const boost::system::error_code& error_code) { boost::asio::dispatch(ptr->m_strand, std::bind(&acceptor::impl::on_client_disconnection, ptr, error_code)); },
       .m_on_status_cb        = [ptr = shared_from_this()](const status& status) { boost::asio::dispatch(ptr->m_strand, std::bind(&acceptor::impl::on_client_status, ptr, status)); },
   };
@@ -478,7 +470,7 @@ void acceptor::impl::do_reconnect()
   if (m_state != state::idle) {
     return;
   }
-  m_timer.expires_from_now(boost::posix_time::milliseconds(m_settings.m_reconnect_timeout_ms));
+  m_timer.expires_after(std::chrono::milliseconds(m_settings.m_reconnect_timeout_ms));
   auto completion_handler = std::bind(&impl::on_timer_cb, shared_from_this(), std::placeholders::_1);
   m_timer.async_wait(boost::asio::bind_executor(m_strand, completion_handler));
 }
@@ -565,10 +557,10 @@ void acceptor::impl::do_recreate_tunnel()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state != state::connected) {
+  if (m_state != state::connected || m_closing) {
     return;
   }
-  m_timer.expires_from_now(boost::posix_time::milliseconds(m_settings.m_recreate_tunnel_timeout_ms));
+  m_timer.expires_after(std::chrono::milliseconds(m_settings.m_recreate_tunnel_timeout_ms));
   auto completion_handler = std::bind(&impl::on_timer_cb, shared_from_this(), std::placeholders::_1);
   m_timer.async_wait(boost::asio::bind_executor(m_strand, completion_handler));
 }
@@ -597,6 +589,9 @@ void acceptor::impl::on_create_tunnel(const boost::system::error_code& error_cod
     if (m_control_callbacks.m_on_status_cb) {
       m_control_callbacks.m_on_status_cb(m_status);
     }
+    if (m_state != state::connected || m_closing) {
+      return;
+    }
     if (m_settings.m_auto_recreate_tunnel) {
       do_recreate_tunnel();
     }
@@ -611,6 +606,9 @@ void acceptor::impl::on_create_tunnel(const boost::system::error_code& error_cod
     }
     else if (m_control_callbacks.m_on_tunnel_properties_cb) {
       m_control_callbacks.m_on_tunnel_properties_cb(properties);
+    }
+    if (m_state != state::connected || m_closing) {
+      return;
     }
     m_status = status_extd{
         status{m_server_status},
@@ -628,6 +626,9 @@ void acceptor::impl::on_create_tunnel(const boost::system::error_code& error_cod
     if (m_control_callbacks.m_on_status_cb) {
       m_control_callbacks.m_on_status_cb(m_status);
     }
+    if (m_state != state::connected || m_closing) {
+      return;
+    }
     if (m_accept_op) {
       do_accept();
     }
@@ -639,18 +640,31 @@ void acceptor::impl::do_accept()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state != state::connected) {
+  if (m_state != state::connected || m_closing || !m_accept_op || m_accept_op->m_completed || m_accept_op->m_accepting) {
     return;
   }
-  auto completion_handler = std::bind(&impl::on_accept, shared_from_this(), std::placeholders::_1);
-  m_tunnel.async_accept(m_accept_op->m_peer, m_accept_op->m_endpoint, boost::asio::bind_executor(m_strand, completion_handler));
+  const auto op           = m_accept_op;
+  op->m_accepting         = true;
+  auto completion_handler = std::bind(&impl::on_accept, shared_from_this(), op, std::placeholders::_1);
+  m_tunnel.async_accept(
+      op->m_peer,
+      op->m_endpoint,
+      boost::asio::bind_cancellation_slot(op->m_cancellation.slot(), boost::asio::bind_executor(m_strand, completion_handler)));
 }
 
-void acceptor::impl::on_accept(const boost::system::error_code& error_code)
+void acceptor::impl::on_accept(const accept_op::ptr& op, const boost::system::error_code& error_code)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  op->m_accepting = false;
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    if (m_accept_op == op) {
+      m_accept_op = nullptr;
+    }
+    complete_accept(op, boost::asio::error::operation_aborted);
+    return;
+  }
   if (m_state != state::connected) {
     return;
   }
@@ -677,8 +691,10 @@ void acceptor::impl::on_accept(const boost::system::error_code& error_code)
     }
   }
   else {
-    rstream::core::invoke_completion_handler(m_executor, std::move(m_accept_op->m_handler), error_code);
-    m_accept_op = nullptr;
+    if (m_accept_op == op) {
+      m_accept_op = nullptr;
+    }
+    complete_accept(op, error_code);
   }
 }
 
@@ -767,6 +783,7 @@ void acceptor::impl::close_internal()
   assert(m_strand.running_in_this_thread());
 #endif
   if (m_state == state::null) {
+    m_closing.store(false, std::memory_order_release);
     return;
   }
 #ifdef DEBUG_BUILD
@@ -775,8 +792,7 @@ void acceptor::impl::close_internal()
   if (m_state == state::idle) {
     on_close(boost::system::error_code());
   }
-  else if (!m_closing) {
-    m_closing = true;
+  else {
     m_client->close();
   }
 }
@@ -803,14 +819,11 @@ void acceptor::impl::on_close(const boost::system::error_code& error_code)
 #ifdef DEBUG_BUILD
   m_logger->trace("acceptor closed");
 #endif
-  m_state   = state::null;
-  m_closing = false;
-  m_tunnel  = nullptr;
-  m_status  = {};
-  {
-    boost::system::error_code tmp;
-    m_timer.cancel(tmp);
-  }
+  m_state = state::null;
+  m_closing.store(false, std::memory_order_release);
+  m_tunnel = nullptr;
+  m_status = {};
+  m_timer.cancel();
   m_client->close();
   m_client = nullptr;
   {
@@ -820,7 +833,7 @@ void acceptor::impl::on_close(const boost::system::error_code& error_code)
     m_control_callbacks = {};
   }
   if (m_accept_op) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(m_accept_op->m_handler), error_code ? error_code : error::code::operation_aborted);
+    complete_accept(m_accept_op, error_code ? error_code : error::code::operation_aborted);
     m_accept_op = nullptr;
   }
 }

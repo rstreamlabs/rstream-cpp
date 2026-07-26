@@ -37,7 +37,7 @@ void prepare_response(request&& req, response&& res)
 }
 
 template <class body, class allocator, class send_func>
-void send_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func, const boost::beast::http::status& status, const std::string& error_message)
+void send_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func, const boost::beast::http::status& status, const std::string& error_message)
 {
   boost::beast::http::response<boost::beast::http::string_body> response;
   prepare_response(request, response);
@@ -46,7 +46,7 @@ void send_error(const context& ctx, boost::beast::http::request<body, boost::bea
 }
 
 template <class body, class allocator, class send_func>
-void send_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func, const boost::beast::http::status& status)
+void send_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func, const boost::beast::http::status& status)
 {
   boost::beast::http::response<boost::beast::http::string_body> response;
   prepare_response(request, response);
@@ -55,55 +55,55 @@ void send_error(const context& ctx, boost::beast::http::request<body, boost::bea
 }
 
 template <class body, class allocator, class send_func>
-void bad_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func, const std::string& error_message)
+void bad_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func, const std::string& error_message)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::bad_request, error_message);
+  return send_error(ctx, request, func, boost::beast::http::status::bad_request, error_message);
 }
 
 template <class body, class allocator, class send_func>
-void bad_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void bad_request(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::bad_request);
+  return send_error(ctx, request, func, boost::beast::http::status::bad_request);
 }
 
 template <class body, class allocator, class send_func>
-void forbidden(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func, const std::string& error_message)
+void forbidden(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func, const std::string& error_message)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::forbidden, error_message);
+  return send_error(ctx, request, func, boost::beast::http::status::forbidden, error_message);
 }
 
 template <class body, class allocator, class send_func>
-void forbidden(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void forbidden(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::forbidden);
+  return send_error(ctx, request, func, boost::beast::http::status::forbidden);
 }
 
 template <class body, class allocator, class send_func>
-void not_found(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func, const std::string& error_message)
+void not_found(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func, const std::string& error_message)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::not_found, error_message);
+  return send_error(ctx, request, func, boost::beast::http::status::not_found, error_message);
 }
 
 template <class body, class allocator, class send_func>
-void not_found(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void not_found(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::not_found);
+  return send_error(ctx, request, func, boost::beast::http::status::not_found);
 }
 
 template <class body, class allocator, class send_func>
-void internal_server_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func, const std::string& error_message)
+void internal_server_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func, const std::string& error_message)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::internal_server_error, error_message);
+  return send_error(ctx, request, func, boost::beast::http::status::internal_server_error, error_message);
 }
 
 template <class body, class allocator, class send_func>
-void internal_server_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void internal_server_error(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
-  return send_error(ctx, std::move(request), func, boost::beast::http::status::internal_server_error);
+  return send_error(ctx, request, func, boost::beast::http::status::internal_server_error);
 }
 
 template <class body, class allocator, class send_func>
-void api_redirect_www(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void api_redirect_www(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
   boost::beast::http::response<boost::beast::http::string_body> response;
   prepare_response(request, response);
@@ -112,7 +112,7 @@ void api_redirect_www(const context& ctx, boost::beast::http::request<body, boos
 }
 
 template <class body, class allocator, class send_func>
-void api_www(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void api_www(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
   boost::beast::http::response<boost::beast::http::string_body> response;
   prepare_response(request, response);
@@ -121,11 +121,11 @@ void api_www(const context& ctx, boost::beast::http::request<body, boost::beast:
 }
 
 template <class body, class allocator, class send_func>
-void api_get_file(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>&& request, send_func&& func)
+void api_get_file(const context& ctx, boost::beast::http::request<body, boost::beast::http::basic_fields<allocator>>& request, send_func& func)
 {
   auto path = parse_path(std::string(request.target()), "/api/file/", ctx.m_workdir);
   if (boost::filesystem::relative(path, ctx.m_workdir).string().rfind("..", 0) == 0) {
-    not_found(ctx, std::move(request), func);
+    not_found(ctx, request, func);
   }
   else {
     auto skip = [&path]() {
@@ -138,21 +138,21 @@ void api_get_file(const context& ctx, boost::beast::http::request<body, boost::b
       }
     };
     if (skip()) {
-      forbidden(ctx, std::move(request), func);
+      forbidden(ctx, request, func);
     }
     else {
-      auto filename = path.string();
+      const auto& filename = path.string();
       boost::beast::error_code error_code;
       boost::beast::http::file_body::value_type file;
       file.open(filename.c_str(), boost::beast::file_mode::scan, error_code);
       if (error_code == boost::beast::errc::no_such_file_or_directory) {
-        not_found(ctx, std::move(request), func);
+        not_found(ctx, request, func);
       }
       else if (error_code == boost::beast::errc::permission_denied) {
-        forbidden(ctx, std::move(request), func);
+        forbidden(ctx, request, func);
       }
       else if (error_code) {
-        internal_server_error(ctx, std::move(request), func, error_code.message());
+        internal_server_error(ctx, request, func, error_code.message());
       }
       else {
         auto const size = file.size();

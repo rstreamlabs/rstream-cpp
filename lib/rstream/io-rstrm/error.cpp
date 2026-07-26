@@ -7,6 +7,17 @@ namespace io_rstrm {
 
 namespace error {
 
+category::category() noexcept
+    : boost::system::error_category(0x7273747272737472ULL)
+{
+}
+
+const category& rstream_rstream_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::io-rstrm::error::category";

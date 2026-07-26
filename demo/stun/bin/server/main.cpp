@@ -129,7 +129,7 @@ int run(int argc, char** argv)
   if (jobs > 1) {
     auto n = jobs - 1;
     threads.reserve(n);
-    for (unsigned int i = 0; i < n; ++i) {
+    for (decltype(n) i = 0; i < n; ++i) {
       threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
     }
   }

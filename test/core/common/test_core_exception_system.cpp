@@ -34,6 +34,7 @@ static void check_system_error_what_is_thread_safe()
       "while checking concurrent readers");
   const auto expected = std::string(error.what());
   std::vector<std::thread> threads;
+  threads.reserve(8);
   for (std::size_t i = 0; i < 8; ++i) {
     threads.emplace_back([&error, &expected]() {
       for (std::size_t j = 0; j < 1000; ++j) {

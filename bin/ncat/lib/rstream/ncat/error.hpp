@@ -25,11 +25,7 @@ enum class code {
   operation_timeout
 };
 
-extern inline const category& rstream_ncat_error_category()
-{
-  static class category category;
-  return category;
-}
+const category& rstream_ncat_error_category() noexcept;
 
 inline boost::system::error_code make_error_code(code code)
 {

@@ -69,7 +69,8 @@ static void check_format_forwarding_address_for_published_webtty_tunnel()
 static void check_format_forwarding_address_for_published_tcp_tunnel()
 {
   rstream::io_rstrm::tunnel_properties properties;
-  properties.m_protocol = rstream::io_rstrm::protocol::tcp;
+  boost::optional<std::string> protocol{std::string(rstream::io_rstrm::protocol::tcp)};
+  properties.m_protocol.swap(protocol);
   properties.m_hostname = "tcp.example";
   properties.m_port     = 10042;
   auto formatted        = rstream::io_rstrm::format_forwarding_address(properties);

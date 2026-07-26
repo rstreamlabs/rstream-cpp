@@ -19,6 +19,7 @@
 #include <rstream/nperf/client.hpp>
 #include <rstream/nperf/error.hpp>
 #include <rstream/nperf/server.hpp>
+#include <rstream/test/time.hpp>
 
 namespace nperf = rstream::nperf;
 using tcp       = boost::asio::ip::tcp;
@@ -34,7 +35,7 @@ static void wait_until_tcp_accepting(unsigned short port)
 {
   boost::asio::io_context io_context;
   tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), port);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(5));
   boost::system::error_code error_code;
   do {
     tcp::socket socket(io_context);
@@ -103,11 +104,11 @@ class nperf_server_fixture {
         m_settings({
             .m_common = {
                 .m_buffer_size            = 16 * 1024,
-                .m_timeouts_max_time_ms   = 5000,
-                .m_timeouts_open_close_ms = 5000,
+                .m_timeouts_max_time_ms   = rstream::test::timeout_ms(5000),
+                .m_timeouts_open_close_ms = rstream::test::timeout_ms(5000),
                 .m_protocol               = protocol,
             },
-            .m_timeouts_start_ms = 5000,
+            .m_timeouts_start_ms = rstream::test::timeout_ms(5000),
         }),
         m_server(std::make_shared<nperf::server>(m_io_context.get_executor(), config(), m_settings))
   {
@@ -177,8 +178,8 @@ static nperf::settings_client client_settings(nperf::protocol protocol)
   return {
       .m_common = {
           .m_buffer_size            = 16 * 1024,
-          .m_timeouts_max_time_ms   = 5000,
-          .m_timeouts_open_close_ms = 5000,
+          .m_timeouts_max_time_ms   = rstream::test::timeout_ms(5000),
+          .m_timeouts_open_close_ms = rstream::test::timeout_ms(5000),
           .m_protocol               = protocol,
       },
       .m_execution_count   = 1,
@@ -206,7 +207,7 @@ static observed_metrics run_client(unsigned short port, nperf::protocol protocol
   bool timed_out = false;
 
   boost::asio::steady_timer deadline(io_context);
-  deadline.expires_after(std::chrono::seconds(10));
+  deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
   deadline.async_wait([&](const boost::system::error_code& error_code) {
     if (!error_code && !done) {
       timed_out = true;
@@ -227,6 +228,9 @@ static observed_metrics run_client(unsigned short port, nperf::protocol protocol
   io_context.run();
   assert(done);
   assert(!timed_out);
+  if (result) {
+    std::cerr << "nperf client failed [category: " << result.category().name() << ", value: " << result.value() << "]: " << result.message() << std::endl;
+  }
   assert(!result);
   return observed;
 }
@@ -312,7 +316,7 @@ static void check_client_cancel_stops_running_measurement()
   });
 
   boost::asio::steady_timer deadline(io_context);
-  deadline.expires_after(std::chrono::seconds(5));
+  deadline.expires_after(rstream::test::timeout(std::chrono::seconds(5)));
   deadline.async_wait([&](const boost::system::error_code& error_code) {
     if (!error_code && !done) {
       timed_out = true;
@@ -328,6 +332,9 @@ static void check_client_cancel_stops_running_measurement()
   io_context.run();
   assert(done);
   assert(!timed_out);
+  if (result != nperf::error::make_error_code(nperf::error::code::operation_aborted)) {
+    std::cerr << "nperf cancellation completed with an unexpected result [category: " << result.category().name() << ", value: " << result.value() << "]: " << result.message() << std::endl;
+  }
   assert(result == nperf::error::make_error_code(nperf::error::code::operation_aborted));
 }
 

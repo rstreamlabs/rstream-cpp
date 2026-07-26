@@ -23,12 +23,12 @@ class stream_socket;
 namespace ssl {
 
 struct config {
-  bool m_tlsv12;
-  bool m_tlsv13;
-  bool m_peer_verification;
-  bool m_request_peer_cert;  // for acceptor only
-  bool m_client_rpk;
-  bool m_server_rpk;
+  bool m_tlsv12            = false;
+  bool m_tlsv13            = false;
+  bool m_peer_verification = true;
+  bool m_request_peer_cert = true;  // for acceptor only
+  bool m_client_rpk        = false;
+  bool m_server_rpk        = false;
   boost::optional<std::string> m_key;
   boost::optional<std::string> m_key_file;
   boost::optional<std::string> m_key_type;

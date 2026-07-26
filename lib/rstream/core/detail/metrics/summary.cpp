@@ -94,12 +94,12 @@ sample wrapper<summary>::impl::get_sample()
   };
   value.m_quantiles.reserve(m_quantiles.size());
   for (const auto& quantile : m_quantiles) {
-    value.m_quantiles.push_back(std::move((sample::quantile){
+    value.m_quantiles.push_back(sample::quantile{
         .m_quantile = quantile.m_quantile,
         .m_value    = m_time_window_quantiles.get(quantile.m_quantile),
-    }));
+    });
   }
-  return (sample){
+  return sample{
       .m_value     = std::move(value),
       .m_labels    = wrapper_common::get_labels(),
       .m_timestamp = m_timestamp,

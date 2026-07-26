@@ -21,6 +21,15 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/.git/)
     execute_process(
       COMMAND ${GIT_EXECUTABLE} -C ${PROJECT_SOURCE_DIR} diff-index --quiet HEAD --
       RESULT_VARIABLE RSTREAM_GIT_UNSTAGED_CHANGES)
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E env TZ=UTC ${GIT_EXECUTABLE} -C ${PROJECT_SOURCE_DIR}
+              log -1 "--format=%cd" "--date=format:%Y-%m-%d %H:%M:%S UTC"
+      OUTPUT_VARIABLE RSTREAM_BUILD_DATE
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE RSTREAM_BUILD_DATE_RESULT)
+    if(NOT RSTREAM_BUILD_DATE_RESULT EQUAL 0)
+      unset(RSTREAM_BUILD_DATE)
+    endif()
   endif()
 endif()
 
@@ -28,7 +37,10 @@ if(NOT DEFINED Git_FOUND)
   set(Git_FOUND FALSE)
 endif()
 
-string(TIMESTAMP RSTREAM_BUILD_DATE "%Y-%m-%d %H:%M:%S UTC" UTC)
+if(NOT RSTREAM_BUILD_DATE)
+  string(TIMESTAMP RSTREAM_BUILD_DATE "%Y-%m-%d %H:%M:%S UTC" UTC)
+  set(RSTREAM_BUILD_DATE "${RSTREAM_BUILD_DATE}" CACHE INTERNAL "rstream build date")
+endif()
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in
   ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
@@ -52,6 +64,8 @@ target_include_directories(
   ${PROJECT_NAME}
   INTERFACE
   $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/>)
+
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 
 target_link_libraries(
   ${PROJECT_NAME}
@@ -86,6 +100,10 @@ configure_package_config_file(
   ${CMAKE_PACKAGE_NAME}Config.cmake.in
   ${CMAKE_PACKAGE_NAME}Config.cmake
   INSTALL_DESTINATION ${INSTALL_PATH_CMAKE_CONFIG})
+configure_file(
+  ${PROJECT_SOURCE_DIR}/cmake/plugins.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}Plugins.cmake
+  COPYONLY)
 
 install(EXPORT ${CMAKE_PACKAGE_TARGETS}
   FILE ${CMAKE_PACKAGE_TARGETS}.cmake
@@ -98,5 +116,6 @@ install(FILES ${CMAKE_MODULE_FILES} DESTINATION ${INSTALL_PATH_CMAKE_CONFIG})
 install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}Config.cmake
   ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}ConfigVersion.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}Plugins.cmake
   DESTINATION ${INSTALL_PATH_CMAKE_CONFIG}
   COMPONENT Devel)

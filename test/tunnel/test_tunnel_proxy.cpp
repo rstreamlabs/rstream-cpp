@@ -26,13 +26,14 @@
 #include <arpa/inet.h>
 
 #include <rstream/io-rstrm/protobuf/messages.pb.h>
+#include <rstream/test/time.hpp>
 #include <rstream/tunnel/error.hpp>
 #include <rstream/tunnel/proxy.hpp>
 
 namespace protobuf = rstream::io_rstrm::protobuf;
 using tcp          = boost::asio::ip::tcp;
 
-static constexpr unsigned int kTimeoutSeconds = 30;
+static constexpr auto kTimeout = rstream::test::timeout(std::chrono::seconds(30));
 
 [[noreturn]] static void fail(const std::string& message)
 {
@@ -68,7 +69,7 @@ static void write_message(tcp::socket& socket, const protobuf::Message& message)
   std::uint32_t frame_size = htonl(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));
   if (!payload.empty()) {
     boost::asio::write(socket, boost::asio::buffer(payload));
   }
@@ -155,7 +156,7 @@ static protobuf::Message close_control_response()
 template <class Predicate>
 static void run_until(boost::asio::io_context& io_context, Predicate&& predicate)
 {
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kTimeoutSeconds);
+  const auto deadline = std::chrono::steady_clock::now() + kTimeout;
   while (!predicate() && std::chrono::steady_clock::now() < deadline) {
     io_context.run_one_for(std::chrono::milliseconds(50));
   }
@@ -329,7 +330,7 @@ static void check_proxy_forwards_engine_stream_to_upstream_and_back()
   config.m_target_address                                     = rstream::io::make_address("tcp://" + upstream.address());
   config.m_settings_acceptor.m_config.m_no_token              = true;
   config.m_settings_acceptor.m_config.m_hearbeat              = false;
-  config.m_settings_acceptor.m_config.m_connection_timeout_ms = 10000;
+  config.m_settings_acceptor.m_config.m_connection_timeout_ms = rstream::test::timeout_ms(10000);
   config.m_settings_acceptor.m_auto_reconnect                 = false;
   config.m_settings_acceptor.m_auto_recreate_tunnel           = false;
   config.m_settings_acceptor.m_tunnel_properties.m_type       = "bytestream";
@@ -339,7 +340,7 @@ static void check_proxy_forwards_engine_stream_to_upstream_and_back()
   rstream::tunnel::settings_proxy settings = {
       .m_read_downstream_buffer_size_bytes = 1024,
       .m_read_upstream_buffer_size_bytes   = 1024,
-      .m_timeouts_ms                       = {.m_open = 10000},
+      .m_timeouts_ms                       = {.m_open = rstream::test::timeout_ms(10000)},
   };
 
   rstream::tunnel::proxy proxy(io_context.get_executor(), config, settings);
@@ -362,7 +363,7 @@ static void check_proxy_forwards_engine_stream_to_upstream_and_back()
   };
 
   proxy.async_run(callbacks, [&](const boost::system::error_code& error_code) {
-    check(!error_code, std::string("proxy stopped with error: ") + error_code.message());
+    check(!error_code, std::string("forwarding proxy stopped with error: ") + error_code.message());
     proxy_stopped = true;
   });
 
@@ -399,7 +400,7 @@ static void check_proxy_rejects_second_run_while_active()
   config.m_target_address                                     = rstream::io::make_address("tcp://" + upstream.address());
   config.m_settings_acceptor.m_config.m_no_token              = true;
   config.m_settings_acceptor.m_config.m_hearbeat              = false;
-  config.m_settings_acceptor.m_config.m_connection_timeout_ms = 10000;
+  config.m_settings_acceptor.m_config.m_connection_timeout_ms = rstream::test::timeout_ms(10000);
   config.m_settings_acceptor.m_auto_reconnect                 = false;
   config.m_settings_acceptor.m_auto_recreate_tunnel           = false;
   config.m_settings_acceptor.m_tunnel_properties.m_type       = "bytestream";
@@ -409,14 +410,14 @@ static void check_proxy_rejects_second_run_while_active()
   rstream::tunnel::settings_proxy settings = {
       .m_read_downstream_buffer_size_bytes = 1024,
       .m_read_upstream_buffer_size_bytes   = 1024,
-      .m_timeouts_ms                       = {.m_open = 10000},
+      .m_timeouts_ms                       = {.m_open = rstream::test::timeout_ms(10000)},
   };
 
   rstream::tunnel::proxy proxy(io_context.get_executor(), config, settings);
   bool rejected_second_run = false;
   bool proxy_stopped       = false;
   proxy.async_run({}, [&](const boost::system::error_code& error_code) {
-    check(!error_code, std::string("proxy stopped with error: ") + error_code.message());
+    check(!error_code, std::string("active proxy stopped with error: ") + error_code.message());
     proxy_stopped = true;
   });
   run_until(io_context, [&] { return stream_exchanged.load(); });
@@ -463,14 +464,14 @@ static void check_proxy_default_tunnel_request_leaves_public_policy_to_server()
   config.m_target_address                                     = rstream::io::make_address("tcp://127.0.0.1:9");
   config.m_settings_acceptor.m_config.m_no_token              = true;
   config.m_settings_acceptor.m_config.m_hearbeat              = false;
-  config.m_settings_acceptor.m_config.m_connection_timeout_ms = 10000;
+  config.m_settings_acceptor.m_config.m_connection_timeout_ms = rstream::test::timeout_ms(10000);
   config.m_settings_acceptor.m_auto_reconnect                 = false;
   config.m_settings_acceptor.m_auto_recreate_tunnel           = false;
 
   rstream::tunnel::settings_proxy settings = {
       .m_read_downstream_buffer_size_bytes = 1024,
       .m_read_upstream_buffer_size_bytes   = 1024,
-      .m_timeouts_ms                       = {.m_open = 10000},
+      .m_timeouts_ms                       = {.m_open = rstream::test::timeout_ms(10000)},
   };
 
   rstream::tunnel::proxy proxy(io_context.get_executor(), config, settings);
@@ -484,7 +485,7 @@ static void check_proxy_default_tunnel_request_leaves_public_policy_to_server()
     }
   };
   proxy.async_run(callbacks, [&](const boost::system::error_code& error_code) {
-    check(!error_code, std::string("proxy stopped with error: ") + error_code.message());
+    check(!error_code, std::string("private proxy stopped with error: ") + error_code.message());
     proxy_stopped = true;
   });
 

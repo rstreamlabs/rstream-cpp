@@ -18,14 +18,14 @@ class client : private boost::noncopyable {
  public:
   struct config {
     io::address m_address;
-    boost::optional<std::string> m_websocket_target;
-    boost::optional<std::string> m_auth_token;
+    boost::optional<std::string> m_websocket_target = boost::none;
+    boost::optional<std::string> m_auth_token       = boost::none;
     protocol::config m_protocol_config;
   };
 
   client(const executor_type& executor, const config& config, const settings_client& settings);
 
-  virtual ~client();
+  virtual ~client() noexcept;
 
   using async_run_completion_handler = rstream::core::completion_handler<void(const std::error_code&, int)>;
 

@@ -15,9 +15,9 @@ namespace tcp {
 }  // namespace rstream
 
 template <>
-void rstream::plugin::io_generic::tcp::acceptor::configure_internal(const boost::asio::ip::tcp::endpoint& endpoint, const boost::urls::url& url, boost::system::error_code& error_code)
+void rstream::plugin::io_generic::tcp::acceptor::configure_internal(const boost::asio::ip::tcp::endpoint&, const boost::urls::url& url, boost::system::error_code& error_code)
 {
-  const auto& params = url.params();
+  const auto params  = rstream::io::detail::stream::url_params(url);
   bool reuse_address = true;
   if (!error_code) {
     auto it = params.find("tcp.reuse_address");

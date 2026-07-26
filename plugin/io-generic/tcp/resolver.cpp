@@ -40,24 +40,25 @@ void rstream::plugin::io_generic::tcp::resolver::async_resolve_internal(const bo
   bool inet4      = false;
   bool inet6      = false;
   bool no_resolve = false;
-  const auto host = url.host();
-  const auto port = url.port();
+  const std::string host(url.host());
+  const std::string port(url.port());
   boost::system::error_code error_code;
+  const auto params = rstream::io::detail::stream::url_params(url);
   if (!error_code) {
-    auto it = url.params().find("tcp.inet4");
-    if (it != url.params().end()) {
+    auto it = params.find("tcp.inet4");
+    if (it != params.end()) {
       rstream::io::detail::stream::parse_url_param_value(inet4, *it, error_code);
     }
   }
   if (!error_code) {
-    auto it = url.params().find("tcp.inet6");
-    if (it != url.params().end()) {
+    auto it = params.find("tcp.inet6");
+    if (it != params.end()) {
       rstream::io::detail::stream::parse_url_param_value(inet6, *it, error_code);
     }
   }
   if (!error_code) {
-    auto it = url.params().find("tcp.no_resolve");
-    if (it != url.params().end()) {
+    auto it = params.find("tcp.no_resolve");
+    if (it != params.end()) {
       rstream::io::detail::stream::parse_url_param_value(no_resolve, *it, error_code);
     }
   }

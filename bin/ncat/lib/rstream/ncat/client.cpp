@@ -3,7 +3,6 @@
 #include "client.hpp"
 
 #include <sstream>
-#include <system_error>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
@@ -17,7 +16,7 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #ifdef _WIN32
-#include <boost/asio/windows/stream_handle.hpp>
+#include <rstream/core/windows/blocking_handle.hpp>
 #else
 #include <boost/asio/posix/stream_descriptor.hpp>
 
@@ -47,39 +46,6 @@
 namespace rstream {
 namespace ncat {
 
-static bool is_eof_error(const boost::system::error_code& error_code)
-{
-  if (!error_code) {
-    return false;
-  }
-  if (error_code == boost::system::error_code(boost::asio::error::eof)) {
-    return true;
-  }
-#ifdef _WIN32
-  if (error_code == boost::system::error_code(boost::asio::error::broken_pipe)) {
-    return true;
-  }
-  if (error_code.value() == ERROR_BROKEN_PIPE && error_code.category() == std::system_category()) {
-    return true;
-  }
-#endif
-  return false;
-}
-
-#ifdef _WIN32
-static HANDLE duplicate_handle(HANDLE handle)
-{
-  HANDLE dup = nullptr;
-  if (!handle || handle == INVALID_HANDLE_VALUE) {
-    return nullptr;
-  }
-  if (!::DuplicateHandle(::GetCurrentProcess(), handle, ::GetCurrentProcess(), &dup, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-    return nullptr;
-  }
-  return dup;
-}
-#endif
-
 class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<impl> {
  public:
   impl(const executor_type& executor, const config& config, const settings_client& settings);
@@ -102,7 +68,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   using socket_type = protocol_type::socket;
 
 #ifdef _WIN32
-  using stream_type = boost::asio::windows::stream_handle;
+  using stream_type = rstream::core::windows::blocking_handle;
 #else
   using stream_type = boost::asio::posix::stream_descriptor;
 #endif
@@ -194,9 +160,14 @@ client::client(const executor_type& executor, const config& config, const settin
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-client::~client()
+client::~client() noexcept
 {
-  m_impl->cancel();
+  try {
+    m_impl->cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void client::async_run(async_run_completion_handler&& handler)
@@ -219,8 +190,8 @@ client::impl::impl(const executor_type& executor, const config& config, const se
       m_resolver(executor),
       m_socket(executor),
 #ifdef _WIN32
-      m_stream_std_in(executor, duplicate_handle(::GetStdHandle(STD_INPUT_HANDLE))),
-      m_stream_std_out(executor, duplicate_handle(::GetStdHandle(STD_OUTPUT_HANDLE))),
+      m_stream_std_in(executor),
+      m_stream_std_out(executor),
 #else
       m_stream_std_in(executor, ::dup(STDIN_FILENO)),
       m_stream_std_out(executor, ::dup(STDOUT_FILENO)),
@@ -234,6 +205,16 @@ client::impl::impl(const executor_type& executor, const config& config, const se
   if (!m_config.m_interactive && !m_config.m_non_interactive) {
     m_interactive = true;
   }
+#ifdef _WIN32
+  boost::system::error_code error_code;
+  m_stream_std_out.open(::GetStdHandle(STD_OUTPUT_HANDLE), stream_type::access::write, error_code);
+  if (!error_code && m_interactive) {
+    m_stream_std_in.open(::GetStdHandle(STD_INPUT_HANDLE), stream_type::access::read, error_code);
+  }
+  if (error_code) {
+    throw boost::system::system_error(error_code);
+  }
+#endif
 }
 
 void client::impl::async_run(async_run_completion_handler&& handler)
@@ -398,7 +379,7 @@ void client::impl::on_read_socket(const boost::system::error_code& error_code, s
     return;
   }
   if (error_code) {
-    if (is_eof_error(error_code)) {
+    if (core::helpers::is_eof_error(error_code)) {
       on_close(boost::system::error_code());
     }
     else {
@@ -420,7 +401,11 @@ void client::impl::do_write_stdout()
     return;
   }
   auto completion_handler = std::bind(&impl::on_write_stdout, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
+#ifdef _WIN32
+  m_stream_std_out.async_write(boost::asio::const_buffer(m_buffer_socket.map().get_const_data(), m_buffer_socket.get_size()), boost::asio::bind_executor(m_strand, completion_handler));
+#else
   boost::asio::async_write(m_stream_std_out, core::helpers::const_memory_sequence(m_buffer_socket), boost::asio::bind_executor(m_strand, completion_handler));
+#endif
 }
 
 void client::impl::on_write_stdout(const boost::system::error_code& error_code, std::size_t size)
@@ -463,7 +448,7 @@ void client::impl::on_read_std_in(const boost::system::error_code& error_code, s
   }
   bool eos = false;
   if (error_code) {
-    eos = is_eof_error(error_code);
+    eos = core::helpers::is_eof_error(error_code);
   }
   if (error_code && !eos) {
     on_error(error_code);
@@ -562,8 +547,13 @@ void client::impl::on_close(const boost::system::error_code& error_code)
     boost::system::error_code tmp;
     m_resolver.cancel();
     m_socket.close(tmp);
+#ifdef _WIN32
+    m_stream_std_in.close();
+    m_stream_std_out.close();
+#else
     m_stream_std_in.close(tmp);
     m_stream_std_out.close(tmp);
+#endif
   }
   if (m_handler) {
     rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), cause);

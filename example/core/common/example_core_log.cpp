@@ -5,7 +5,7 @@
 
 static const rstream::core::logger g_logger({"rstream", "example", "log"});
 
-int main(int argc, char** argv)
+int main()
 {
   rstream::core::log::enable_ansicolor_stdout_mt();
   g_logger->trace("welcome to rstream {}", RSTREAM_VERSION);

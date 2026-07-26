@@ -14,6 +14,8 @@ build_type=Release
 [tool_requires]
 [conf]
 tools.build.cross_building:can_run=False
-[runenv]
-CC=/usr/bin/clang -arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
-CXX=/usr/bin/clang++ -arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+[buildenv]
+CFLAGS=-arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+CXXFLAGS=-arch x86_64 -march={{ compiler_target_cpu }} -mtune=generic
+CC=/usr/bin/clang
+CXX=/usr/bin/clang++

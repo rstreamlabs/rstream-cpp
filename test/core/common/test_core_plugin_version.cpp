@@ -28,16 +28,39 @@ class sample_element : public core_plugin::element {
  public:
   static core_plugin::element::info get_element_info()
   {
-    return (core_plugin::element::info){
+    return core_plugin::element::info{
         .m_name        = "sample.element",
         .m_description = "sample element",
     };
   }
 };
 
+class failing_plugin : public detail_plugin::plugin_simple {
+ public:
+  failing_plugin()
+      : detail_plugin::plugin_simple(
+            core_plugin::plugin::location(),
+            core_plugin::make_plugin_descriptor(
+                core_plugin::plugin::info{
+                    .m_name         = "failing.plugin",
+                    .m_description  = "failing plugin",
+                    .m_version      = "1.0.0",
+                    .m_license      = "Apache-2.0",
+                    .m_release_date = boost::gregorian::from_simple_string("2026-May-10"),
+                }))
+  {
+  }
+
+ private:
+  void init() override
+  {
+    throw std::runtime_error("initialization failure");
+  }
+};
+
 static core_plugin::plugin::info sample_plugin_info()
 {
-  return (core_plugin::plugin::info){
+  return core_plugin::plugin::info{
       .m_name         = "sample.plugin",
       .m_description  = "sample plugin",
       .m_version      = "1.2.3",
@@ -176,6 +199,7 @@ static void check_plugin_factory_registration_and_lookup()
   assert(uninitialized_failed);
 
   boost::system::error_code error_code;
+  error_code = rstream::core::error::code::plugin_not_found;
   factory.register_plugin(plugin, error_code);
   assert(!error_code);
 
@@ -202,6 +226,17 @@ static void check_plugin_factory_registration_and_lookup()
   assert(!error_code);
   assert(created);
   assert(core_plugin::dynamic_element_cast<sample_element>(created));
+
+  factory.register_plugin(nullptr, error_code);
+  assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::object_null));
+
+  factory.register_plugin(plugin, error_code);
+  assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::plugin_already_registered));
+  assert(factory.get_plugins().size() == 1);
+
+  factory.register_plugin(std::make_shared<failing_plugin>(), error_code);
+  assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::plugin_initialization_failed));
+  assert(factory.get_plugins().size() == 1);
 
   auto missing = factory.create("missing.element", error_code);
   assert(!missing);

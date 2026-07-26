@@ -25,7 +25,7 @@ class exposer : public io_object {
 
   exposer(const executor_type& executor, const config& config, const settings_exposer& settings);
 
-  virtual ~exposer();
+  ~exposer() noexcept override;
 
   void add_collectable(core::metrics::collectable::ptr collectable, const std::string& target = "/metrics");
 

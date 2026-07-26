@@ -102,7 +102,7 @@ double wrapper<counter>::impl::value()
 sample wrapper<counter>::impl::get_sample()
 {
   std::shared_lock lock(m_mutex);
-  return (sample){
+  return sample{
       .m_value     = m_value,
       .m_labels    = wrapper_common::get_labels(),
       .m_timestamp = m_timestamp,

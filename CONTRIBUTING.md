@@ -30,6 +30,18 @@ If you use the repository helper script, the equivalent flow is:
 ./build.sh
 ```
 
+Use `build-conan-cross.sh` for distributable Linux, Windows, and macOS
+profiles. Library linkage and plugin loading are independent dimensions:
+
+```bash
+OSS="linux" \
+LINUX_ARCHS="x86_64" \
+LINUX_TCLIBCS="glibc musl" \
+LINUX_BUILD_SHARED="on off" \
+LINUX_PLUGIN_MODES="static dynamic" \
+./build-conan-cross.sh build
+```
+
 If a change affects examples, documentation, packaging metadata, or generated files, update the corresponding files in the same pull request.
 
 Public pull requests do not automatically run the repository release/build workflows. Maintainers run CI after reviewing the change; include the local commands you ran in the PR description.
@@ -38,10 +50,21 @@ Public pull requests do not automatically run the repository release/build workf
 
 Keep changes focused, explicit, and idiomatic for the existing codebase.
 
-- prefer small pull requests over broad refactors
-- keep public API changes intentional and documented
-- update the README or `docs/` when user-facing behavior changes
-- avoid mixing unrelated cleanups with behavioral changes
+- Prefer small pull requests over broad refactors.
+- Keep public API and ABI changes intentional and documented.
+- Preserve associated executors, allocators, cancellation slots, and move-only
+  handlers in asynchronous APIs.
+- Serialize mutable asynchronous state with an executor or strand. Use a mutex
+  only for state also accessed synchronously.
+- Never invoke external callbacks while holding a lock.
+- Complete each asynchronous operation exactly once, including cancellation
+  and destruction paths.
+- Keep blocking I/O off Asio event-loop threads and bounded in time and memory.
+- Handle partial I/O, malformed input, resource exhaustion, and repeated
+  cancellation explicitly.
+- Add deterministic failure and concurrency tests for changed state machines;
+  do not rely on sleeps for ordering.
+- Update the README or `docs/` when user-facing behavior changes.
 
 ## Generated and packaged content
 

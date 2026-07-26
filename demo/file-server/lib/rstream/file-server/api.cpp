@@ -106,7 +106,7 @@ boost::filesystem::path parse_path(const std::string& src, const std::string& pr
   return boost::filesystem::canonical(subdir, workdir);
 }
 
-void error_response(const context& ctx, boost::beast::http::response<boost::beast::http::string_body>& response, const boost::beast::http::status& status, const std::string& error_message)
+void error_response(const context&, boost::beast::http::response<boost::beast::http::string_body>& response, const boost::beast::http::status& status, const std::string& error_message)
 {
   response.result(status);
   response.set(boost::beast::http::field::content_type, "text/html");
@@ -121,7 +121,7 @@ void error_response(const context& ctx, boost::beast::http::response<boost::beas
   error_response(ctx, response, status, str.str());
 }
 
-void redirect(const context& ctx, boost::beast::http::response<boost::beast::http::string_body>& response, const std::string& location)
+void redirect(const context&, boost::beast::http::response<boost::beast::http::string_body>& response, const std::string& location)
 {
   response.result(boost::beast::http::status::moved_permanently);
   response.set(boost::beast::http::field::location, location);

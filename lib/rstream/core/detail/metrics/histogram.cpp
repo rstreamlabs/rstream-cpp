@@ -104,14 +104,14 @@ sample wrapper<histogram>::impl::get_sample()
   std::uint64_t cumulative_count = 0;
   for (auto it = m_bukets.cbegin(); it != m_bukets.cend(); ++it) {
     cumulative_count += *it;
-    auto index = std::distance(m_bukets.cbegin(), it);
-    value.m_buckets.push_back(std::move((sample::bucket){
+    const auto index = static_cast<std::size_t>(std::distance(m_bukets.cbegin(), it));
+    value.m_buckets.push_back(sample::bucket{
         .m_cumulative_count = cumulative_count,
         .m_upper_bound      = (index == m_upper_boundaries.size() ? std::numeric_limits<double>::infinity() : m_upper_boundaries.at(index)),
-    }));
+    });
   }
   value.m_sample_count = cumulative_count;
-  return (sample){
+  return sample{
       .m_value     = std::move(value),
       .m_labels    = wrapper_common::get_labels(),
       .m_timestamp = m_timestamp,

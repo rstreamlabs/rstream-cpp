@@ -9,7 +9,7 @@ namespace unix_ {
 
 rstream::core::plugin::element::info stream::get_stream_info()
 {
-  return (rstream::core::plugin::element::info){.m_name = "unix", .m_description = "UNIX sockets transport layer"};
+  return rstream::core::plugin::element::info{.m_name = "unix", .m_description = "UNIX sockets transport layer"};
 }
 
 }  // namespace unix_

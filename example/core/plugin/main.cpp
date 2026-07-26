@@ -11,7 +11,7 @@ RSTREAM_PLUGIN_STATIC_DECLARE(sample_plugin_1)
 RSTREAM_PLUGIN_STATIC_DECLARE(sample_plugin_2)
 #endif
 
-int main(int argc, char** argv)
+int main()
 {
   auto config = rstream::core::plugin::factory::default_config();
 #ifndef RSTREAM_ENABLE_STATIC_PLUGINS

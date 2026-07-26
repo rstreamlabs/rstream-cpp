@@ -28,11 +28,7 @@ enum class code {
   unknown_stun_method
 };
 
-extern inline const category& rstream_io_stun_error_category()
-{
-  static class category category;
-  return category;
-}
+const category& rstream_io_stun_error_category() noexcept;
 
 inline boost::system::error_code make_error_code(code code)
 {

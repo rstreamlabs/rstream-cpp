@@ -42,7 +42,11 @@ using str_sink = std::function<void(const std::string&)>;
 
 str_sink enable_ansicolor_stdout_mt(bool color = true);
 
+str_sink enable_ansicolor_stderr_mt(bool color = true);
+
 str_sink enable_json_stdout_mt(bool pretty = false);
+
+str_sink enable_json_stderr_mt(bool pretty = false);
 
 }  // namespace log
 

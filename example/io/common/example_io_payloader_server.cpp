@@ -84,7 +84,7 @@ struct server : public std::enable_shared_from_this<server> {
   boost::asio::ip::tcp::acceptor m_acceptor;
 };
 
-int main(int argc, char** argv)
+int main()
 {
   boost::asio::io_context io_context;
   std::make_shared<server>(io_context.get_executor(), g_port)->run();

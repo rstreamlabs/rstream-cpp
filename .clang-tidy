@@ -1,0 +1,25 @@
+---
+Checks: >-
+  -*,
+  clang-analyzer-core.*,
+  -clang-analyzer-core.StackAddressEscape,
+  clang-analyzer-cplusplus.*,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
+  clang-analyzer-deadcode.*,
+  clang-analyzer-unix.*,
+  -clang-analyzer-unix.BlockInCriticalSection,
+  bugprone-dangling-handle,
+  bugprone-infinite-loop,
+  bugprone-suspicious-*,
+  bugprone-unused-raii,
+  bugprone-use-after-move,
+  performance-inefficient-*,
+  performance-move-const-arg,
+  performance-move-constructor-init,
+  performance-no-int-to-ptr,
+  performance-unnecessary-copy-initialization,
+  portability-std-allocator-const
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^.*/(benchmark|bin|demo|example|lib|plugin|test)/.*'
+SystemHeaders: false
+FormatStyle: file

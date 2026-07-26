@@ -8,10 +8,6 @@
 #include "element.hpp"
 #include "error.hpp"
 
-#ifdef RSTREAM_ENABLE_STATIC_PLUGINS
-#include <rstream/static-plugins/static-plugins.hpp>
-#endif
-
 namespace rstream {
 namespace io {
 namespace detail {
@@ -27,8 +23,6 @@ class RSTREAM_GNUC_INTERNAL factory::impl {
 
  private:
   element_const_ptr get(const endpoint_base::protocol_type& protocol, boost::system::error_code& error_code);
-
-  void init();
 
   rstream::core::plugin::factory m_factory;
 };
@@ -63,7 +57,6 @@ factory::ptr default_factory()
 factory::impl::impl(const core::plugin::config& config)
     : m_factory(config)
 {
-  init();
 }
 
 resolver_ptr factory::impl::resolver(const executor_type& executor, const endpoint_base::protocol_type& protocol, boost::system::error_code& error_code)
@@ -94,15 +87,6 @@ element_const_ptr factory::impl::get(const endpoint_base::protocol_type& protoco
     ptr = std::dynamic_pointer_cast<class element>(m_factory.create(std::string(RSTREAM_STREAM_PREFIX) + protocol.value(), error_code));
   }
   return ptr;
-}
-
-void factory::impl::init()
-{
-#ifdef RSTREAM_ENABLE_STATIC_PLUGINS
-  for (const auto& plugin : rstream::static_plugins::get_io_plugins()) {
-    m_factory.register_plugin(plugin);
-  }
-#endif
 }
 
 }  // namespace stream

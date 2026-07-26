@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <type_traits>
 
 #include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
@@ -18,8 +19,11 @@
 #include <rstream/io/address.hpp>
 #include <rstream/io/detail/metrics/error.hpp>
 #include <rstream/io/metrics.hpp>
+#include <rstream/test/time.hpp>
 
 using tcp = boost::asio::ip::tcp;
+
+static_assert(std::is_nothrow_destructible_v<rstream::io::metrics::exposer>);
 
 static unsigned short unused_tcp_port()
 {
@@ -49,7 +53,8 @@ static boost::beast::http::response<boost::beast::http::string_body> request(uns
 static boost::beast::http::response<boost::beast::http::string_body> request_with_retry(unsigned short port, boost::beast::http::verb verb, const std::string& target)
 {
   std::exception_ptr last_exception;
-  for (int i = 0; i < 250; ++i) {
+  const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(5));
+  while (std::chrono::steady_clock::now() < deadline) {
     try {
       return request(port, verb, target);
     }
@@ -78,7 +83,7 @@ static void check_metrics_exposer_http_paths()
 
   rstream::io::metrics::exposer::config config;
   config.m_address = rstream::io::make_address("127.0.0.1:" + std::to_string(port));
-  rstream::io::metrics::settings_exposer settings{.m_timeouts_start_ms = 10000};
+  rstream::io::metrics::settings_exposer settings{.m_timeouts_start_ms = rstream::test::timeout_ms(10000)};
   rstream::io::metrics::exposer exposer(io_context.get_executor(), config, settings);
   exposer.add_collectable(registry, "/custom");
 
@@ -123,7 +128,7 @@ static void check_metrics_exposer_rejects_double_start()
 
   rstream::io::metrics::exposer::config config;
   config.m_address = rstream::io::make_address("127.0.0.1:" + std::to_string(port));
-  rstream::io::metrics::settings_exposer settings{.m_timeouts_start_ms = 10000};
+  rstream::io::metrics::settings_exposer settings{.m_timeouts_start_ms = rstream::test::timeout_ms(10000)};
   rstream::io::metrics::exposer exposer(io_context.get_executor(), config, settings);
 
   boost::system::error_code second_start;
@@ -140,11 +145,26 @@ static void check_metrics_exposer_rejects_double_start()
   assert_metrics_error(second_start, rstream::io::detail::metrics::error::code::invalid_state);
 }
 
+static void check_metrics_exposer_destruction_after_executor_stop()
+{
+  boost::asio::io_context io_context;
+  const auto port = unused_tcp_port();
+
+  rstream::io::metrics::exposer::config config;
+  config.m_address = rstream::io::make_address("127.0.0.1:" + std::to_string(port));
+  rstream::io::metrics::settings_exposer settings{.m_timeouts_start_ms = rstream::test::timeout_ms(10000)};
+  auto exposer = std::make_unique<rstream::io::metrics::exposer>(io_context.get_executor(), config, settings);
+  exposer->async_run([](const boost::system::error_code&) {});
+  io_context.stop();
+  exposer.reset();
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
   check_metrics_exposer_http_paths();
   check_metrics_exposer_rejects_double_start();
+  check_metrics_exposer_destruction_after_executor_stop();
   return 0;
 }

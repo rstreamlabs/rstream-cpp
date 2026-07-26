@@ -449,6 +449,35 @@ void test_9()
   json << copy;
 }
 
+void test_10()
+{
+  std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
+  auto check = [](std::uint32_t value, const nlohmann::json& expected) {
+    attribute_value_change_request change_request;
+    change_request.get_value() = value;
+    nlohmann::json json;
+    rstream::stun::helpers::serialize_json_value(json, change_request);
+    compare(json, expected);
+  };
+  check(0, nullptr);
+  check(attribute_value_change_request::change_ip, nlohmann::json::parse(R"({"flags":["change_ip"]})"));
+  check(attribute_value_change_request::change_port, nlohmann::json::parse(R"({"flags":["change_port"]})"));
+  check(attribute_value_change_request::change_ip | attribute_value_change_request::change_port, nlohmann::json::parse(R"({"flags":["change_ip","change_port"]})"));
+}
+
+void test_11()
+{
+  std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
+  header message_header;
+  compare(message_header.get_type(), static_cast<msg_type>(0));
+  compare(message_header.get_payload_length(), static_cast<std::uint16_t>(0));
+  compare(message_header.get_magic(), static_cast<msg_magic>(0));
+  compare(message_header.get_transaction_id(), msg_transaction_id{});
+  attribute_header attribute;
+  compare(attribute.get_type(), static_cast<msg_type>(0));
+  compare(attribute.get_length(), static_cast<std::uint16_t>(0));
+}
+
 void run()
 {
   test_1();
@@ -460,6 +489,8 @@ void run()
   test_7();
   test_8();
   test_9();
+  test_10();
+  test_11();
 }
 
 int main(int argc, char** argv)

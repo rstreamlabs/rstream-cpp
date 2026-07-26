@@ -49,30 +49,33 @@ class resolver_base : public io_object {
 
   using async_resolve_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&, const results_type&)>;
   template <typename resolve_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(resolve_handler), void(const boost::system::error_code&, const results_type&))
-  async_resolve(const boost::urls::url& url, BOOST_ASIO_MOVE_ARG(resolve_handler) handler)
+  auto async_resolve(const boost::urls::url& url, BOOST_ASIO_MOVE_ARG(resolve_handler) handler)
   {
-    return boost::asio::async_initiate<resolve_handler, void(const boost::system::error_code&, const results_type&)>([this](auto&& handler, const boost::urls::url& url) { async_resolve_internal(url, std::forward<decltype(handler)>(handler)); }, handler, url);
+    return boost::asio::async_initiate<resolve_handler, void(const boost::system::error_code&, const results_type&)>(
+        [this](auto&& handler, const boost::urls::url& url) {
+          async_resolve_internal(url, std::forward<decltype(handler)>(handler));
+        },
+        handler, url);
   }
 
   template <typename resolve_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(resolve_handler), void(const boost::system::error_code&, const results_type&))
-  async_resolve(const std::string& uri, BOOST_ASIO_MOVE_ARG(resolve_handler) handler)
+  auto async_resolve(const std::string& uri, BOOST_ASIO_MOVE_ARG(resolve_handler) handler)
   {
-    auto url = boost::urls::parse_uri(uri);
-    if (url.has_error()) {
+    return boost::asio::async_initiate<resolve_handler, void(const boost::system::error_code&, const results_type&)>(
+        [this](auto&& handler, const std::string& uri) {
+          auto url = boost::urls::parse_uri(uri);
+          if (!url.has_error()) {
+            async_resolve_internal(url.value(), std::forward<decltype(handler)>(handler));
+            return;
+          }
 #ifdef DEBUG_BUILD
-      rstream::core::default_logger()->warn("URL is not valid [uri: {}, error_code: {}]", uri, url.error().message());
+          rstream::core::default_logger()->warn("URL is not valid [uri: {}, error_code: {}]", uri, url.error().message());
 #endif
-      return boost::asio::async_initiate<resolve_handler, void(const boost::system::error_code&, const results_type&)>(
-          [this, error_code = url.error()](auto&& handler) {
-            rstream::core::invoke_completion_handler(get_executor(), std::move(handler), error_code, results_type());
-          },
-          handler);
-    }
-    else {
-      return async_resolve(url.value(), std::forward<decltype(handler)>(handler));
-    }
+          rstream::core::invoke_completion_handler(
+              get_executor(), std::forward<decltype(handler)>(handler), url.error(),
+              results_type());
+        },
+        handler, uri);
   }
 
   virtual void cancel() = 0;

@@ -2,6 +2,8 @@
 
 #include "client.hpp"
 
+#include <chrono>
+
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/stun/attribute.hpp>
@@ -131,14 +133,14 @@ void client::setup_timeout()
   if (m_config.m_timeout_ms == 0) {
     return;
   }
-  m_timer.expires_from_now(boost::posix_time::milliseconds(m_config.m_timeout_ms));
+  m_timer.expires_after(std::chrono::milliseconds(m_config.m_timeout_ms));
   auto completion_handler = std::bind(&client::on_timer_cb, shared_from_this(), std::placeholders::_1);
   m_timer.async_wait(completion_handler);
 }
 
 void client::on_timer_cb(const boost::system::error_code& error_code)
 {
-  if (m_complete) {
+  if (error_code || m_complete) {
     return;
   }
   m_error_code = (m_error_code ? m_error_code : rstream::io::error::code::operation_timeout);

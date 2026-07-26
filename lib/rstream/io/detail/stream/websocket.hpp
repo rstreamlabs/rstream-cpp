@@ -32,7 +32,9 @@ template <class teardown_handler>
 void async_teardown(role_type role, rstream::io::detail::stream::stream_socket& socket, teardown_handler&& handler)
 {
   (void)role;
-  rstream::core::invoke_completion_handler(socket.get_executor(), std::move(handler), boost::system::error_code());
+  rstream::core::invoke_completion_handler(
+      socket.get_executor(), std::forward<teardown_handler>(handler),
+      boost::system::error_code());
 }
 
 }  // namespace websocket

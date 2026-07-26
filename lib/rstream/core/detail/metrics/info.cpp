@@ -72,7 +72,7 @@ sample wrapper<info>::impl::get_sample()
   std::shared_lock lock(m_mutex);
   auto labels = wrapper_common::get_labels();
   labels.insert(m_value.cbegin(), m_value.cend());
-  return (sample){
+  return sample{
       .m_value     = {},
       .m_labels    = labels,
       .m_timestamp = m_timestamp,
