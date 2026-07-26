@@ -62,8 +62,9 @@ const logger& default_logger();
 template <class Clock>
 std::string format_timestamp(const std::chrono::time_point<Clock>& time_point)
 {
-  const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(time_point.time_since_epoch()).count() % 1000;
-  const auto time_t       = Clock::to_time_t(time_point);
+  const auto milliseconds = static_cast<unsigned long>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(time_point.time_since_epoch()).count() % 1000);
+  const auto time_t = Clock::to_time_t(time_point);
   return format_timestamp(milliseconds, time_t);
 }
 
