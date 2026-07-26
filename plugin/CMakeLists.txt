@@ -17,7 +17,7 @@ if(ENABLE_STATIC_PLUGINS)
     target_link_libraries(
       ${PROJECT_NAME}
       INTERFACE
-      "/WHOLEARCHIVE:$<TARGET_FILE:${PROJECT_NAME}::static-plugins>"
+      "-WHOLEARCHIVE:$<TARGET_FILE:${PROJECT_NAME}::static-plugins>"
       ${PROJECT_NAME}::static-plugins)
   else()
     target_link_libraries(
