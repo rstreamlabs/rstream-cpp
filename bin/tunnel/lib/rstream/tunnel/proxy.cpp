@@ -314,7 +314,7 @@ void proxy::impl::async_run_internal(const callbacks& callbacks, async_run_compl
 #endif
   if (!handler) {
 #ifdef DEBUG_BUILD
-    m_logger->warn("method '{}' called without completion handler", __PRETTY_FUNCTION__);
+    m_logger->warn("method '{}' called without completion handler", RSTREAM_STRFUNC);
 #endif
     return;
   }
