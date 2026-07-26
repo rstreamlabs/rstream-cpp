@@ -132,6 +132,8 @@ static void check_system_identity_is_normalized()
 {
   const auto info = rstream::core::get_system_info();
   assert(!info.m_sysname.empty());
+  assert(!info.m_release.empty());
+  assert(!info.m_version.empty());
   assert(!info.m_machine.empty());
 
   const auto runtime = rstream::core::get_runtime_identity();
