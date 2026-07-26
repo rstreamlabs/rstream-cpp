@@ -3,11 +3,14 @@
 #include "system.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstring>
 #include <sstream>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <winternl.h>
 #else
 #include <sys/utsname.h>
 #endif
@@ -78,9 +81,9 @@ namespace rstream {
 namespace core {
 
 #ifdef _WIN32
-inline std::string get_processor_architecture(WORD wProcessorArchitecture)
+inline std::string get_processor_architecture(WORD processor_architecture)
 {
-  switch (wProcessorArchitecture) {
+  switch (processor_architecture) {
     case PROCESSOR_ARCHITECTURE_AMD64:
       return "x86_64";
     case PROCESSOR_ARCHITECTURE_INTEL:
@@ -93,35 +96,47 @@ inline std::string get_processor_architecture(WORD wProcessorArchitecture)
       return "unknown";
   }
 }
+
+using rtl_get_version_fn = NTSTATUS(WINAPI*)(PRTL_OSVERSIONINFOW);
+
+inline rtl_get_version_fn get_rtl_get_version()
+{
+  const auto module = ::GetModuleHandleW(L"ntdll.dll");
+  if (module == nullptr) {
+    return nullptr;
+  }
+  const auto procedure = ::GetProcAddress(module, "RtlGetVersion");
+  static_assert(sizeof(procedure) == sizeof(rtl_get_version_fn));
+  rtl_get_version_fn function = nullptr;
+  std::memcpy(&function, &procedure, sizeof(function));
+  return function;
+}
 #endif
 
 system_info get_system_info()
 {
 #ifdef _WIN32
-  OSVERSIONINFOEX osver;
-  ::ZeroMemory(&osver, sizeof(osver));
-  osver.dwOSVersionInfoSize = sizeof(osver);
-  ::GetVersionEx(reinterpret_cast<LPOSVERSIONINFO>(&osver));
-  SYSTEM_INFO sysInfo;
-  ::GetSystemInfo(&sysInfo);
-  TCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1];
-  DWORD size = sizeof(computerName) / sizeof(computerName[0]);
-  ::GetComputerName(computerName, &size);
-  std::ostringstream releaseStream;
-  releaseStream << osver.dwMajorVersion << "." << osver.dwMinorVersion;
-  std::ostringstream versionStream;
-  versionStream << osver.dwBuildNumber;
+  RTL_OSVERSIONINFOW osver{};
+  osver.dwOSVersionInfoSize  = sizeof(osver);
+  const auto rtl_get_version = get_rtl_get_version();
+  const auto version_status  = rtl_get_version == nullptr ? -1 : rtl_get_version(&osver);
+  SYSTEM_INFO sys_info{};
+  ::GetNativeSystemInfo(&sys_info);
+  std::array<char, MAX_COMPUTERNAME_LENGTH + 1> computer_name{};
+  DWORD computer_name_size     = static_cast<DWORD>(computer_name.size());
+  const auto has_computer_name = ::GetComputerNameA(computer_name.data(), &computer_name_size) != FALSE;
+  std::ostringstream release_stream;
+  std::ostringstream version_stream;
+  if (version_status >= 0) {
+    release_stream << osver.dwMajorVersion << "." << osver.dwMinorVersion;
+    version_stream << osver.dwBuildNumber;
+  }
   system_info info;
-  info.m_sysname = "windows";
-#ifdef UNICODE
-  std::wstring wstrComputerName(computerName);
-  info.m_nodename = std::string(wstrComputerName.begin(), wstrComputerName.end());
-#else
-  info.m_nodename = std::string(computerName);
-#endif
-  info.m_release = releaseStream.str();
-  info.m_version = versionStream.str();
-  info.m_machine = get_processor_architecture(sysInfo.wProcessorArchitecture);
+  info.m_sysname  = "windows";
+  info.m_nodename = has_computer_name ? std::string(computer_name.data(), computer_name_size) : std::string();
+  info.m_release  = release_stream.str();
+  info.m_version  = version_stream.str();
+  info.m_machine  = get_processor_architecture(sys_info.wProcessorArchitecture);
   return info;
 #else
   utsname uts;
