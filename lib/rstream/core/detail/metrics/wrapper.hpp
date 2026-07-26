@@ -107,7 +107,7 @@ class wrapper<T>::handle : public wrapper_base<T> {
 };
 
 template <class T>
-class wrapper<T>::handle::parent : public wrapper_base<T>, public std::enable_shared_from_this<wrapper<T>::handle::parent> {
+class wrapper<T>::handle::parent : public wrapper_base<T>, public std::enable_shared_from_this<parent> {
  public:
   template <class... Args>
   parent(const wrapper_common::description& description, const detail::metrics::labels& labels, Args&&... args);
@@ -349,7 +349,7 @@ T wrapper<T>::handle::parent::labels(const detail::metrics::labels& labels)
     }
   }
   check_label_name_overlap(labels, m_labels);
-  auto child = m_create_child_func(std::enable_shared_from_this<wrapper<T>::handle::parent>::shared_from_this(), labels);
+  auto child = m_create_child_func(this->shared_from_this(), labels);
   m_childs.insert(std::make_pair(labels, std::dynamic_pointer_cast<wrapper_common>(child.m_impl)));
   return child;
 }

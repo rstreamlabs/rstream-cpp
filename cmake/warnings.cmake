@@ -1,5 +1,10 @@
 # See LICENSE file in the project root for license information.
 
+if(ENABLE_STRICT_WARNINGS AND MSVC)
+  string(REGEX REPLACE "[/-]W[0-4]" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  string(REGEX REPLACE "[/-]W[0-4]" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+endif()
+
 function(rstream_collect_project_targets directory output)
   get_property(targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
   get_property(subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
