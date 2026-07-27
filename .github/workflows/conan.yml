@@ -17,7 +17,7 @@ jobs:
     env:
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
-      CCACHE_DIR: ${{ github.workspace }}/../rstream-ccache
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
       fail-fast: false
       matrix:
@@ -153,7 +153,7 @@ jobs:
     env:
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
-      CCACHE_DIR: ${{ github.workspace }}/../rstream-ccache
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
       fail-fast: false
       matrix:
@@ -262,7 +262,7 @@ jobs:
     env:
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
-      CCACHE_DIR: ${{ github.workspace }}/../rstream-ccache
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
       fail-fast: false
       matrix:
