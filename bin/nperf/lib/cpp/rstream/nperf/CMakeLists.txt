@@ -51,6 +51,14 @@ if(ENABLE_STRICT_WARNINGS)
   endif()
 endif()
 
+if(ENABLE_STRICT_WARNINGS AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # GCC 13 reports Boost.Asio's type-erased executor storage as potentially
+  # uninitialized while instantiating the Beast websocket read operation.
+  set_source_files_properties(
+    client.cpp
+    PROPERTIES COMPILE_OPTIONS -Wno-maybe-uninitialized)
+endif()
+
 set_target_properties(
   ${LIBRARY_NAME}
   PROPERTIES
