@@ -1,14 +1,16 @@
 // See LICENSE file in the project root for license information.
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
-#include <filesystem>
 #include <list>
 #include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/system/system_error.hpp>
@@ -253,18 +255,36 @@ static void check_plugin_factory_registration_and_lookup()
   assert(throwing_lookup_failed);
 }
 
-static void check_plugin_factory_ignores_libraries_without_plugin_entrypoint()
+#ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
+static void check_plugin_factory_loads_dynamic_libraries_concurrently()
 {
-  const std::filesystem::path plugin(RSTREAM_TEST_PLUGIN_WITHOUT_ENTRYPOINT_PATH);
-  assert(std::filesystem::is_regular_file(plugin));
-  core_plugin::factory factory({
-      {"pattern", "^rstream-test-plugin-without-entrypoint(.*)$"},
-      {"search_paths", {plugin.parent_path().string()}},
-  });
-  assert(factory.get_plugins().empty());
+  constexpr std::size_t thread_count = 8;
+  std::atomic<std::size_t> ready{0};
+  std::atomic<bool> start{false};
+  std::vector<std::thread> threads;
+  threads.reserve(thread_count);
+  for (std::size_t index = 0; index < thread_count; ++index) {
+    threads.emplace_back([&ready, &start]() {
+      ready.fetch_add(1, std::memory_order_release);
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      core_plugin::factory factory(core_plugin::factory::default_config());
+      boost::system::error_code error_code;
+      auto element = factory.create("io.stream.tcp", error_code);
+      assert(!error_code);
+      assert(element);
+    });
+  }
+  while (ready.load(std::memory_order_acquire) != thread_count) {
+    std::this_thread::yield();
+  }
+  start.store(true, std::memory_order_release);
+  for (auto& thread : threads) {
+    thread.join();
+  }
 }
 
-#ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
 static void check_plugin_factory_reuses_dynamic_libraries()
 {
   for (std::size_t iteration = 0; iteration < 8; ++iteration) {
@@ -323,8 +343,8 @@ int main(int argc, char** argv)
   check_object_id_shape_and_uniqueness();
   check_version_serialization();
   check_plugin_factory_registration_and_lookup();
-  check_plugin_factory_ignores_libraries_without_plugin_entrypoint();
 #ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
+  check_plugin_factory_loads_dynamic_libraries_concurrently();
   check_plugin_factory_reuses_dynamic_libraries();
 #endif
   check_plugin_serialization();

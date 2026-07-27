@@ -17,11 +17,12 @@ set_target_properties(
   PROPERTIES
     PREFIX ""
     OUTPUT_NAME "${PROJECT_NAME}-test-plugin-without-entrypoint")
-add_test_target(${PROJECT_NAME}-test-core-plugin-version test_core_plugin_version.cpp ${PROJECT_NAME}::io)
+add_test_target(${PROJECT_NAME}-test-core-plugin-loader test_core_plugin_loader.cpp ${PROJECT_NAME}::core)
 target_compile_definitions(
-  ${PROJECT_NAME}-test-core-plugin-version
+  ${PROJECT_NAME}-test-core-plugin-loader
   PRIVATE RSTREAM_TEST_PLUGIN_WITHOUT_ENTRYPOINT_PATH="$<TARGET_FILE:${PROJECT_NAME}-test-plugin-without-entrypoint>")
-add_dependencies(${PROJECT_NAME}-test-core-plugin-version ${PROJECT_NAME}-test-plugin-without-entrypoint)
+add_dependencies(${PROJECT_NAME}-test-core-plugin-loader ${PROJECT_NAME}-test-plugin-without-entrypoint)
+add_test_target(${PROJECT_NAME}-test-core-plugin-version test_core_plugin_version.cpp ${PROJECT_NAME}::io)
 if(NOT ENABLE_STATIC_PLUGINS)
   target_compile_definitions(${PROJECT_NAME}-test-core-plugin-version PRIVATE RSTREAM_TEST_DYNAMIC_PLUGINS)
   rstream_enable_runtime_plugins(
