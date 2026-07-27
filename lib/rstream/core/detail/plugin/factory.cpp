@@ -3,6 +3,7 @@
 #include "factory.hpp"
 
 #include <map>
+#include <mutex>
 #include <regex>
 
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -23,6 +24,30 @@ namespace rstream {
 namespace core {
 namespace detail {
 namespace plugin {
+
+namespace {
+
+struct library_cache {
+  std::mutex m_mutex;
+  std::map<boost::filesystem::path, shared_library> m_libraries;
+};
+
+std::pair<shared_library, bool> load_library(const boost::filesystem::path& path)
+{
+  static library_cache cache;
+  const auto canonical_path = boost::filesystem::weakly_canonical(path);
+  std::lock_guard lock(cache.m_mutex);
+  const auto existing = cache.m_libraries.find(canonical_path);
+  if (existing != cache.m_libraries.end()) {
+    return {existing->second, false};
+  }
+  auto library = std::make_shared<boost::dll::shared_library>(canonical_path, boost::dll::load_mode::rtld_lazy);
+  (void)library->get_alias<plugin::ptr()>(RSTREAM_PLUGIN_SYMBOL_NAME);
+  cache.m_libraries.emplace(canonical_path, library);
+  return {std::move(library), true};
+}
+
+}  // namespace
 
 class RSTREAM_GNUC_INTERNAL factory::impl {
  public:
@@ -298,30 +323,28 @@ void factory::impl::init()
       }
     }
   }
-#ifdef DEBUG_BUILD
-  struct RSTREAM_GNUC_INTERNAL shared_library_deleter {
-    void operator()(boost::dll::shared_library* ptr)
-    {
-      boost::filesystem::path location = ptr->location();
-      std::default_delete<boost::dll::shared_library>()(ptr);
-      rstream::core::default_logger()->trace("shared library '{}' unloaded", location.string());
-    }
-  };
-#endif
   for (const auto& path : plugins) {
+    try {
+      auto [library, loaded] = load_library(path);
 #ifdef DEBUG_BUILD
-    auto library = std::shared_ptr<boost::dll::shared_library>(new boost::dll::shared_library(path, boost::dll::load_mode::rtld_lazy), shared_library_deleter());
+      if (loaded) {
+        rstream::core::default_logger()->trace("shared library '{}' loaded", path.string());
+      }
 #else
-    auto library = std::make_shared<boost::dll::shared_library>(path, boost::dll::load_mode::rtld_lazy);
+      (void)loaded;
 #endif
-#ifdef DEBUG_BUILD
-    rstream::core::default_logger()->trace("shared library '{}' loaded", library->location().string());
-#endif
-    auto plugin = library->get_alias<plugin::ptr()>(RSTREAM_PLUGIN_SYMBOL_NAME)();
-    boost::system::error_code error_code;
-    register_plugin(plugin, library, error_code);
-    if (error_code) {
-      rstream::core::default_logger()->warn("failed to register plugin [error_code: {}]", error_code.message());
+      auto plugin = library->get_alias<plugin::ptr()>(RSTREAM_PLUGIN_SYMBOL_NAME)();
+      boost::system::error_code error_code;
+      register_plugin(plugin, library, error_code);
+      if (error_code) {
+        m_logger->warn("failed to register plugin '{}' [error_code: {}]", path.string(), error_code.message());
+      }
+    }
+    catch (const std::exception& error) {
+      m_logger->warn("failed to load plugin '{}': {}", path.string(), error.what());
+    }
+    catch (...) {
+      m_logger->warn("failed to load plugin '{}': unknown exception", path.string());
     }
   }
 }

@@ -12,5 +12,12 @@ add_test_target(${PROJECT_NAME}-test-core-memory-buffer test_core_memory_buffer.
 add_test_target(${PROJECT_NAME}-test-core-protobuf test_core_protobuf.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-exception-system test_core_exception_system.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-plugin-version test_core_plugin_version.cpp ${PROJECT_NAME}::io)
+if(NOT ENABLE_STATIC_PLUGINS)
+  target_compile_definitions(${PROJECT_NAME}-test-core-plugin-version PRIVATE RSTREAM_TEST_DYNAMIC_PLUGINS)
+  rstream_enable_runtime_plugins(
+    ${PROJECT_NAME}-test-core-plugin-version
+    ${PROJECT_NAME}-plugin-io-generic
+    ${PROJECT_NAME}-plugin-io-rstrm)
+endif()
 add_test_target(${PROJECT_NAME}-test-core-plugin-registry test_core_plugin_registry.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-random test_core_random.cpp ${PROJECT_NAME}::core)

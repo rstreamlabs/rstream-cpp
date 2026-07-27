@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           pipx install "conan==${CONAN_VERSION}"
-          echo "${HOME}/.local/bin" >> $GITHUB_PATH
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Configure Conan
         shell: bash
         run: |

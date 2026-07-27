@@ -17,6 +17,7 @@ set(RSTREAM_COPYING "Apache License 2.0")
 # CXX declarations
 
 if(WIN32)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
   add_compile_definitions(_WIN32_WINNT=0x0A00)
   add_compile_definitions(NTDDI_VERSION=0x0A000006)
   if(MSVC)

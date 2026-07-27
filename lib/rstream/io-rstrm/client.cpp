@@ -934,12 +934,15 @@ void client::impl::async_create_tunnel_internal(const create_tunnel_op_type::ptr
       complete_create_tunnel(op, error::code::invalid_configuration, nullptr);
       return;
     }
-    create_tunnel_ops_type::iterator op_it;
-    bool inserted = false;
-    while (!inserted) {
-      std::tie(op_it, inserted) = m_create_tunnel_ops.emplace(generate_request_id(), op);
+    constexpr std::size_t max_request_id_attempts = 32;
+    for (std::size_t attempt = 0; attempt < max_request_id_attempts; ++attempt) {
+      const auto [op_it, inserted] = m_create_tunnel_ops.emplace(generate_request_id(), op);
+      if (inserted) {
+        do_create_tunnel(op_it);
+        return;
+      }
     }
-    do_create_tunnel(op_it);
+    complete_create_tunnel(op, error::code::internal, nullptr);
   }
 }
 

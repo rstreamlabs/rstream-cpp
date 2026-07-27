@@ -46,6 +46,12 @@ If a change affects examples, documentation, packaging metadata, or generated fi
 
 Public pull requests do not automatically run the repository release/build workflows. Maintainers run CI after reviewing the change; include the local commands you ran in the PR description.
 
+Changes to asynchronous code, dependencies, plugins, build profiles, or
+packaging must satisfy the complete
+[SDK engineering contract](./docs/SDK_ENGINEERING.md). It defines the
+supported platform and topology matrix, Conan dependency policy, constrained
+runtime requirements, and release validation gates.
+
 ## Style
 
 Keep changes focused, explicit, and idiomatic for the existing codebase.

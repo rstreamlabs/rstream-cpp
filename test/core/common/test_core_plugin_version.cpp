@@ -2,6 +2,8 @@
 
 #include <cassert>
 #include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <list>
 #include <memory>
 #include <set>
@@ -252,6 +254,48 @@ static void check_plugin_factory_registration_and_lookup()
   assert(throwing_lookup_failed);
 }
 
+static void check_plugin_factory_ignores_invalid_dynamic_libraries()
+{
+  const auto directory = std::filesystem::temp_directory_path() / ("rstream-plugin-test-" + rstream::core::object_id());
+  std::filesystem::create_directories(directory);
+#ifdef _WIN32
+  const auto plugin = directory / "rstream-plugin-invalid.dll";
+#else
+  const auto plugin = directory / "rstream-plugin-invalid.so";
+#endif
+  {
+    std::ofstream stream(plugin.string(), std::ios::binary);
+    stream << "invalid shared library";
+  }
+  core_plugin::factory factory({
+#ifdef _WIN32
+      {"pattern", "^rstream-plugin(.*).dll$"},
+#else
+      {"pattern", "^rstream-plugin(.*).so$"},
+#endif
+      {"search_paths", {directory.string()}},
+  });
+  assert(factory.get_plugins().empty());
+  std::filesystem::remove_all(directory);
+}
+
+#ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
+static void check_plugin_factory_reuses_dynamic_libraries()
+{
+  for (std::size_t iteration = 0; iteration < 8; ++iteration) {
+    core_plugin::element::ptr element;
+    {
+      core_plugin::factory factory(core_plugin::factory::default_config());
+      boost::system::error_code error_code;
+      element = factory.create("io.stream.tcp", error_code);
+      assert(!error_code);
+      assert(element);
+    }
+    element.reset();
+  }
+}
+#endif
+
 static void check_plugin_serialization()
 {
   auto info = sample_plugin_info();
@@ -294,6 +338,10 @@ int main(int argc, char** argv)
   check_object_id_shape_and_uniqueness();
   check_version_serialization();
   check_plugin_factory_registration_and_lookup();
+  check_plugin_factory_ignores_invalid_dynamic_libraries();
+#ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
+  check_plugin_factory_reuses_dynamic_libraries();
+#endif
   check_plugin_serialization();
   check_metrics_error_messages();
   return 0;
