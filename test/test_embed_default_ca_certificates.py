@@ -16,6 +16,12 @@ SPEC.loader.exec_module(GENERATOR)
 
 
 class CertificateBundleGeneratorTest(unittest.TestCase):
+    def test_repository_bundle_matches_checksum(self):
+        bundle_path = REPOSITORY_ROOT / "lib" / "rstream" / "io" / "data" / "cacert.pem"
+        checksum_path = bundle_path.with_suffix(".pem.sha256")
+        bundle = GENERATOR.load_certificate_bundle(bundle_path, checksum_path)
+        self.assertGreater(len(bundle), 0)
+
     def test_generates_deterministic_cpp_from_verified_bundle(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
