@@ -13,8 +13,9 @@ int main(int argc, char** argv)
   (void)argv;
   const std::filesystem::path plugin(RSTREAM_TEST_PLUGIN_WITHOUT_ENTRYPOINT_PATH);
   assert(std::filesystem::is_regular_file(plugin));
+  const auto pattern = "^" + plugin.stem().string() + "\\" + plugin.extension().string() + "$";
   rstream::core::plugin::factory factory({
-      {"pattern", "^rstream-test-plugin-without-entrypoint(.*)$"},
+      {"pattern", pattern},
       {"search_paths", {plugin.parent_path().string()}},
   });
   assert(factory.get_plugins().empty());
