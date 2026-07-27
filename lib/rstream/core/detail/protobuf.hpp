@@ -18,6 +18,13 @@ inline bool is_protobuf_buffer_size_valid(std::size_t size) noexcept
   return size <= static_cast<std::size_t>(std::numeric_limits<int>::max());
 }
 
+template <typename Message>
+inline bool parse_protobuf_message(Message& message, const void* data, std::size_t size)
+{
+  return is_protobuf_buffer_size_valid(size)
+         && message.ParseFromArray(data, static_cast<int>(size));
+}
+
 inline bool serialize_protobuf_message(const google::protobuf::Message& message, buffer& output, allocator::ptr allocator = nullptr)
 {
   if (!message.IsInitialized()) {

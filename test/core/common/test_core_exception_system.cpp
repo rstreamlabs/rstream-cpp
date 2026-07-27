@@ -1,6 +1,7 @@
 // See LICENSE file in the project root for license information.
 
 #include <cassert>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -147,6 +148,32 @@ static void check_system_identity_is_normalized()
   assert(rstream::core::get_compiletime_arch() == compiletime.m_arch);
 }
 
+static void check_environment_variable_is_copied()
+{
+  const std::string name = "RSTREAM_CPP_SYSTEM_TEST_VALUE";
+#ifdef _WIN32
+  assert(::_putenv_s(name.c_str(), "first") == 0);
+#else
+  assert(::setenv(name.c_str(), "first", 1) == 0);
+#endif
+  const auto first = rstream::core::get_environment_variable(name);
+  assert(first && first.value() == "first");
+#ifdef _WIN32
+  assert(::_putenv_s(name.c_str(), "second") == 0);
+#else
+  assert(::setenv(name.c_str(), "second", 1) == 0);
+#endif
+  const auto second = rstream::core::get_environment_variable(name);
+  assert(first.value() == "first");
+  assert(second && second.value() == "second");
+#ifdef _WIN32
+  assert(::_putenv_s(name.c_str(), "") == 0);
+#else
+  assert(::unsetenv(name.c_str()) == 0);
+#endif
+  assert(!rstream::core::get_environment_variable(name));
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -158,5 +185,6 @@ int main(int argc, char** argv)
   check_throwable_rejects_null_access();
   check_nested_error_keeps_original_context();
   check_system_identity_is_normalized();
+  check_environment_variable_is_copied();
   return 0;
 }

@@ -22,8 +22,7 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/write.hpp>
-
-#include <arpa/inet.h>
+#include <boost/endian/conversion.hpp>
 
 #include <rstream/io-rstrm/protobuf/messages.pb.h>
 #include <rstream/test/time.hpp>
@@ -52,7 +51,7 @@ static protobuf::Message read_message(tcp::socket& socket)
 {
   std::uint32_t network_size = 0;
   boost::asio::read(socket, boost::asio::buffer(&network_size, sizeof(network_size)));
-  const auto size = ntohl(network_size);
+  const auto size = boost::endian::big_to_native(network_size);
   check(size <= 1024 * 1024, "framed protobuf message is too large");
   std::vector<char> payload(size);
   if (size > 0) {
@@ -66,7 +65,7 @@ static protobuf::Message read_message(tcp::socket& socket)
 static void write_message(tcp::socket& socket, const protobuf::Message& message)
 {
   const auto size          = static_cast<std::uint32_t>(message.ByteSizeLong());
-  std::uint32_t frame_size = htonl(size);
+  std::uint32_t frame_size = boost::endian::native_to_big(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
   assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));

@@ -11,7 +11,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Default values
 default_build_type="Release"
-default_clean_conan_workdirs="on"
 default_enable_strict_warnings="on"
 default_compose_file="${script_dir}/conan/compose.yaml"
 default_export_package_name="rstream-utils"
@@ -35,7 +34,6 @@ default_patched_conan_channel="conan/stable"
 default_patched_boost_version="1.85.0"
 default_patched_ncurses_version="6.5"
 docker_conan_config_synced="off"
-linux_toolchain_recipe_exported="off"
 patched_conan_recipes_exported="off"
 package_name_cache=""
 package_version_cache=""
@@ -69,11 +67,6 @@ function docker_run_builder {
 
 # Allow overrides from environment variables
 build_type="${BUILD_TYPE:-${default_build_type}}"
-clean_conan_workdirs="${CLEAN_CONAN_WORKDIRS:-${default_clean_conan_workdirs}}"
-if [ "${clean_conan_workdirs}" != "on" ] && [ "${clean_conan_workdirs}" != "off" ]; then
-  echo "CLEAN_CONAN_WORKDIRS must be 'on' or 'off'." >&2
-  exit 1
-fi
 enable_strict_warnings="${ENABLE_STRICT_WARNINGS:-${default_enable_strict_warnings}}"
 docker_compose_file="${DOCKER_COMPOSE_FILE-${default_compose_file}}"
 export_package_name="${EXPORT_PACKAGE_NAME:-${default_export_package_name}}"
@@ -439,20 +432,6 @@ function export_patched_conan_recipes {
   patched_conan_recipes_exported="on"
 }
 
-function export_linux_toolchain_recipe {
-  if [ "${linux_toolchain}" != "yocto-toolchain" ] || [ "${linux_toolchain_recipe_exported}" = "on" ]; then
-    return
-  fi
-  local recipe_dir="${script_dir}/conan/recipes/yocto-toolchain"
-  if [ "${use_docker}" = "on" ]; then
-    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
-      "conan export /source/conan/recipes/yocto-toolchain --version '${linux_toolchain_version}' --build-require" || exit 1
-  else
-    conan export "${recipe_dir}" --version "${linux_toolchain_version}" --build-require
-  fi
-  linux_toolchain_recipe_exported="on"
-}
-
 function linux_run_build {
   if [ "${use_docker}" = "on" ]; then
     export SRC_PATH=/source
@@ -483,24 +462,6 @@ function windows_run_build {
   else
     export SRC_PATH=${script_dir}
     bash -c "$(call_os cmd_build)"
-  fi
-}
-
-function cleanup_conan_workdirs {
-  if [ "${clean_conan_workdirs}" != "on" ]; then
-    return
-  fi
-  local command='conan cache clean "*" --build --temp'
-  if [ "${use_docker}" = "on" ] && { [ "${OS}" = "linux" ] || [ "${OS}" = "windows" ]; }; then
-    call_os run_docker "${command}"
-  else
-    bash -c "${command}"
-  fi
-}
-
-function cleanup_after_build {
-  if [ "${CMD}" = "build" ]; then
-    cleanup_conan_workdirs
   fi
 }
 
@@ -625,11 +586,9 @@ function linux_run {
         for plugin_mode in "${linux_plugin_modes[@]}"; do
           echo "Running ${CMD}: os=${OS} arch=${arch} libc=${libc} shared=${build_shared} plugins=${plugin_mode}"
           if ! ARCH=${arch} LIBC=${libc} BUILD_SHARED=${build_shared} PLUGIN_MODE=${plugin_mode} call_os "run_${CMD}"; then
-            cleanup_after_build
             echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared} and ${plugin_mode} plugins"
             exit 1
           fi
-          cleanup_after_build
         done
       done
     done
@@ -651,11 +610,9 @@ function macos_run {
       for plugin_mode in "${macos_plugin_modes[@]}"; do
         echo "Running ${CMD}: os=${OS} arch=${arch} shared=${build_shared} plugins=${plugin_mode}"
         if ! ARCH=${arch} BUILD_SHARED=${build_shared} PLUGIN_MODE=${plugin_mode} call_os "run_${CMD}"; then
-          cleanup_after_build
           echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared} and ${plugin_mode} plugins"
           exit 1
         fi
-        cleanup_after_build
       done
     done
   done
@@ -676,11 +633,9 @@ function windows_run {
       for plugin_mode in "${windows_plugin_modes[@]}"; do
         echo "Running ${CMD}: os=${OS} arch=${arch} shared=${build_shared} plugins=${plugin_mode}"
         if ! ARCH=${arch} BUILD_SHARED=${build_shared} PLUGIN_MODE=${plugin_mode} call_os "run_${CMD}"; then
-          cleanup_after_build
           echo "Failed to ${CMD} for ${config} with shared libraries ${build_shared} and ${plugin_mode} plugins"
           exit 1
         fi
-        cleanup_after_build
       done
     done
   done
@@ -704,9 +659,6 @@ function run {
   fi
   export_patched_conan_recipes
   for os in "${oss[@]}"; do
-    if [ "${os}" = "linux" ]; then
-      export_linux_toolchain_recipe
-    fi
     OS=${os} call_os run
   done
 }
@@ -724,7 +676,6 @@ function show_help {
   echo "Environment Variables:"
   echo ""
   echo "  BUILD_TYPE             : Set the CMake build type (default: ${default_build_type})."
-  echo "  CLEAN_CONAN_WORKDIRS    : Clean reproducible Conan work directories after each build (default: ${default_clean_conan_workdirs})."
   echo "  DOCKER_COMPOSE_FILE     : Set the docker-compose file to use (linux)."
   echo "  CONAN_DOCKER_IMAGE      : Set the Conan builder image name."
   echo "  CONAN_DOCKER_PLATFORM   : Set its host platform (default: linux/amd64)."

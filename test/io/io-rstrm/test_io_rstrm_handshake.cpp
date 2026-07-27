@@ -12,19 +12,19 @@
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/local/connect_pair.hpp>
-#include <boost/asio/local/stream_protocol.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <rstream/core/buffer.hpp>
+#include <rstream/core/detail/protobuf.hpp>
 #include <rstream/io-rstrm/detail/handshake.hpp>
 #include <rstream/io-rstrm/error.hpp>
 #include <rstream/io-rstrm/protobuf/messages.pb.h>
+#include <rstream/test/stream_pair.hpp>
 
 namespace protobuf = rstream::io_rstrm::protobuf;
 
-using socket_type    = boost::asio::local::stream_protocol::socket;
+using socket_type    = rstream::test::stream_socket;
 using payloader_type = rstream::io::payloader<socket_type&>;
 
 class test_stream {
@@ -73,8 +73,8 @@ static void assert_error_code(const boost::system::error_code& actual, int value
 
 static rstream::core::buffer serialize_message(const protobuf::Message& message)
 {
-  auto buffer = rstream::core::make_buffer_allocated(message.ByteSizeLong());
-  assert(message.SerializeToArray(buffer.map().get_data(), buffer.get_size()));
+  rstream::core::buffer buffer;
+  assert(rstream::core::detail::serialize_protobuf_message(message, buffer));
   return buffer;
 }
 
@@ -100,7 +100,7 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, true);
   rstream::io_rstrm::config config;
   config.m_token     = "secret-token";
@@ -117,7 +117,7 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
     auto buffer = rstream::core::make_buffer_allocated(4096);
     co_await payloader.async_recv(buffer, boost::asio::use_awaitable);
     protobuf::Message message;
-    const auto parsed = message.ParseFromArray(buffer.map().get_const_data(), buffer.get_size());
+    const auto parsed = rstream::core::detail::parse_protobuf_message(message, buffer.map().get_const_data(), buffer.get_size());
     assert(parsed);
     assert(message.has_stream_req());
     assert(message.stream_req().tunnel_id_name() == "api");
@@ -138,7 +138,7 @@ static void check_stream_response_must_have_payload()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token  = true;
@@ -165,7 +165,7 @@ static void check_stream_response_error_is_mapped()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token  = true;
@@ -194,7 +194,7 @@ static void check_stream_success_response_completes()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token  = true;
@@ -223,7 +223,7 @@ static void check_proxy_success_response_completes()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token  = true;
@@ -240,7 +240,7 @@ static void check_proxy_success_response_completes()
     auto request = rstream::core::make_buffer_allocated(4096);
     co_await payloader.async_recv(request, boost::asio::use_awaitable);
     protobuf::Message message;
-    const auto parsed = message.ParseFromArray(request.map().get_const_data(), request.get_size());
+    const auto parsed = rstream::core::detail::parse_protobuf_message(message, request.map().get_const_data(), request.get_size());
     assert(parsed);
     assert(message.has_proxy_req());
     assert(message.proxy_req().stream_id() == "stream-123");
@@ -261,7 +261,7 @@ static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, true);
   rstream::io_rstrm::config config;
   config.m_token     = "agent-token";
@@ -278,7 +278,7 @@ static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
     auto request = rstream::core::make_buffer_allocated(4096);
     co_await payloader.async_recv(request, boost::asio::use_awaitable);
     protobuf::Message message;
-    const auto parsed = message.ParseFromArray(request.map().get_const_data(), request.get_size());
+    const auto parsed = rstream::core::detail::parse_protobuf_message(message, request.map().get_const_data(), request.get_size());
     assert(parsed);
     assert(message.has_proxy_req());
     assert(message.proxy_req().stream_id() == "stream-123");
@@ -299,7 +299,7 @@ static void check_unexpected_response_type_is_rejected()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token  = true;
@@ -328,7 +328,7 @@ static void check_invalid_protobuf_response_is_rejected()
   boost::asio::io_context io_context;
   auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token  = true;
@@ -356,7 +356,7 @@ static void check_cancellation_reaches_the_transport()
   boost::asio::io_context io_context;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   test_stream stream(socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token = true;
@@ -398,7 +398,7 @@ static void check_deferred_handshake_is_lazy()
   boost::asio::io_context io_context;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   test_stream stream(socket_a, false);
   rstream::io_rstrm::config config;
   config.m_no_token = true;

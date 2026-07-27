@@ -11,8 +11,6 @@
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/local/connect_pair.hpp>
-#include <boost/asio/local/stream_protocol.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -25,6 +23,7 @@
 #include <rstream/core/memory.hpp>
 #include <rstream/core/random.hpp>
 #include <rstream/io/detail/http/upgrade.hpp>
+#include <rstream/test/stream_pair.hpp>
 
 static const std::size_t g_buffer_size = 200;
 
@@ -67,12 +66,12 @@ static void check_handshake_rejects_non_upgrade_response()
   namespace http = boost::beast::http;
 
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   auto socket_a      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_a     = std::make_shared<adaptor_type>(*socket_a);
   auto socket_b      = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
 
   bool client_called = false;
   adaptor_a->async_handshake("host", "/", [&](const boost::system::error_code& error_code) {
@@ -94,12 +93,12 @@ static void check_accept_rejects_non_upgrade_request()
   namespace http = boost::beast::http;
 
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   auto socket_a      = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_b     = std::make_shared<adaptor_type>(*socket_b);
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
 
   bool server_called = false;
   adaptor_b->async_accept([&](const boost::system::error_code& error_code) {
@@ -128,12 +127,12 @@ static void check_accept_rejects_non_upgrade_request()
 static void check_handshake_cancellation_reaches_the_transport()
 {
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
   adaptor_type adaptor(socket_a);
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   boost::asio::cancellation_signal cancellation;
   boost::asio::steady_timer deadline(io_context, std::chrono::milliseconds(200));
   bool deadline_expired = false;
@@ -163,12 +162,12 @@ static void check_handshake_cancellation_reaches_the_transport()
 static void check_accept_cancellation_reaches_the_transport()
 {
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
   adaptor_type adaptor(socket_a);
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   boost::asio::cancellation_signal cancellation;
   boost::asio::steady_timer deadline(io_context, std::chrono::milliseconds(200));
   bool deadline_expired = false;
@@ -197,13 +196,13 @@ static void check_accept_cancellation_reaches_the_transport()
 static void check_decorators_are_applied()
 {
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
   adaptor_type adaptor_a(socket_a);
   adaptor_type adaptor_b(socket_b);
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   bool request_decorated  = false;
   bool response_decorated = false;
   bool client_called      = false;
@@ -236,7 +235,7 @@ static void check_decorators_are_applied()
 static void check_request_decorator_exception_completes_handshake()
 {
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   socket_type socket(io_context.get_executor());
   adaptor_type adaptor(socket);
@@ -258,13 +257,13 @@ static void check_upgrade_roundtrip()
 {
   rstream::core::log::enable_ansicolor_stdout_mt();
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   auto socket_a      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_a     = std::make_shared<adaptor_type>(*socket_a);
   auto socket_b      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_b     = std::make_shared<adaptor_type>(*socket_b);
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   auto run_a = [socket = socket_a, adaptor = adaptor_a]() -> boost::asio::awaitable<void> {
     std::cout << "async handshake..." << std::endl;
     co_await adaptor->async_handshake("host", "/", boost::asio::use_awaitable);
@@ -301,11 +300,11 @@ static void check_upgrade_roundtrip()
 static void check_deferred_upgrade_is_lazy()
 {
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   adaptor_type adaptor_a(socket_a);
   adaptor_type adaptor_b(socket_b);
   auto handshake_operation = adaptor_a.async_handshake("host", "/", boost::asio::deferred);

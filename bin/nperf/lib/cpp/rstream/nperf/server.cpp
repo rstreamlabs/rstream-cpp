@@ -920,7 +920,7 @@ void server::impl::session::on_read_incoming_protobuf_data(const boost::system::
   }
   else {
     rstream::nperf::protobuf::Message message;
-    if (message.ParseFromArray(m_buffer.get_const_data(), m_buffer.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer.get_const_data(), m_buffer.get_size())) {
       on_read_incoming_protobuf_message(message, loop);
     }
     else {

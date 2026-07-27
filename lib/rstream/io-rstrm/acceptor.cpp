@@ -90,6 +90,9 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
     std::atomic_bool m_cancelled;
     bool m_completed;
     bool m_accepting;
+    bool m_reserved;
+    boost::system::error_code m_initiation_error;
+    endpoint m_initial_endpoint;
     socket& m_peer;
     endpoint& m_endpoint;
     async_accept_completion_handler m_handler;
@@ -99,6 +102,8 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
   void async_accept_internal(const accept_op::ptr& op);
 
   void cancel_accept(const accept_op::ptr& op);
+
+  void release_accept_reservation(const accept_op::ptr& op);
 
   void complete_accept(const accept_op::ptr& op, const boost::system::error_code& error_code);
 
@@ -158,6 +163,8 @@ class RSTREAM_GNUC_INTERNAL acceptor::impl : public std::enable_shared_from_this
 
   bool m_is_state_non_null;
 
+  bool m_start_pending;
+
   control_callbacks m_control_callbacks;
 
   boost::optional<endpoint> m_local_endpoint;
@@ -173,6 +180,7 @@ acceptor::impl::accept_op::accept_op(socket& peer, endpoint& endpoint, async_acc
     : m_cancelled(false),
       m_completed(false),
       m_accepting(false),
+      m_reserved(false),
       m_peer(peer),
       m_endpoint(endpoint),
       m_handler(std::move(handler))
@@ -248,13 +256,15 @@ acceptor::impl::impl(const executor_type& executor, core::allocator::ptr allocat
       m_executor(executor),
       m_strand(executor),
       m_timer(executor),
-      m_is_state_non_null(false)
+      m_is_state_non_null(false),
+      m_start_pending(false)
 {
 }
 
 void acceptor::impl::set_control_callbacks(const control_callbacks& callbacks, boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -265,14 +275,15 @@ void acceptor::impl::set_control_callbacks(const control_callbacks& callbacks, b
 
 settings_acceptor acceptor::impl::settings(boost::system::error_code& error_code)
 {
-  (void)error_code;
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   return m_settings;
 }
 
 void acceptor::impl::settings(const settings_acceptor& settings, boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -284,12 +295,12 @@ void acceptor::impl::settings(const settings_acceptor& settings, boost::system::
 void acceptor::impl::open(const endpoint& endpoint, boost::system::error_code& error_code)
 {
   (void)endpoint;
-  (void)error_code;
+  error_code.clear();
 }
 
 void acceptor::impl::close(boost::system::error_code& error_code)
 {
-  (void)error_code;
+  error_code.clear();
   if (m_closing.exchange(true, std::memory_order_acq_rel)) {
     return;
   }
@@ -299,6 +310,7 @@ void acceptor::impl::close(boost::system::error_code& error_code)
 void acceptor::impl::bind(const endpoint& endpoint, boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -310,12 +322,13 @@ void acceptor::impl::bind(const endpoint& endpoint, boost::system::error_code& e
 void acceptor::impl::listen(int backlog, boost::system::error_code& error_code)
 {
   (void)backlog;
-  (void)error_code;
+  error_code.clear();
 }
 
 endpoint acceptor::impl::local_endpoint(boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_local_endpoint) {
     return m_local_endpoint.get();
   }
@@ -328,8 +341,30 @@ void acceptor::impl::async_accept(socket& peer, endpoint& endpoint, async_accept
   if (!handler) {
     return;
   }
-  auto allocator         = boost::asio::get_associated_allocator(handler);
-  const auto op          = std::allocate_shared<accept_op>(allocator, peer, endpoint, std::move(handler));
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<accept_op>(allocator, peer, endpoint, std::move(handler));
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_start_pending) {
+      op->m_initiation_error = error::code::operation_in_progress;
+    }
+    else if (!m_is_state_non_null) {
+      if (!m_local_endpoint) {
+        op->m_initiation_error = error::code::no_valid_endpoint;
+      }
+      else {
+        op->m_initial_endpoint = m_local_endpoint.get();
+        if (op->m_initial_endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
+          op->m_initiation_error = error::code::invalid_configuration;
+        }
+        else {
+          m_is_state_non_null = true;
+          m_start_pending     = true;
+          op->m_reserved      = true;
+        }
+      }
+    }
+  }
   auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
   if (cancellation_slot.is_connected()) {
     const std::weak_ptr<impl> weak_self    = shared_from_this();
@@ -362,29 +397,25 @@ void acceptor::impl::async_accept_internal(const accept_op::ptr& op)
   assert(m_strand.running_in_this_thread());
 #endif
   if (op->m_cancelled.load(std::memory_order_acquire)) {
+    release_accept_reservation(op);
     complete_accept(op, boost::asio::error::operation_aborted);
     return;
   }
-  boost::system::error_code error_code;
-  if (m_accept_op) {
+  auto error_code = op->m_initiation_error;
+  if (!error_code && m_accept_op) {
     error_code = error::code::operation_in_progress;
   }
-  else if (m_state == state::null) {
-    {
-      std::lock_guard<std::mutex> lock(m_mutex);
-      if (m_local_endpoint) {
-        m_endpoint          = m_local_endpoint.get();
-        m_is_state_non_null = true;
-        if (m_endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
-          error_code = error::code::invalid_configuration;
-        }
-      }
-      else {
-        error_code = error::code::no_valid_endpoint;
-      }
+  else if (!error_code && m_state == state::null) {
+    if (!op->m_reserved) {
+      error_code = error::code::invalid_state;
     }
-    if (!error_code) {
-      m_state = state::idle;
+    else {
+      {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_start_pending = false;
+      }
+      m_endpoint = op->m_initial_endpoint;
+      m_state    = state::idle;
     }
   }
   if (error_code) {
@@ -413,6 +444,7 @@ void acceptor::impl::cancel_accept(const accept_op::ptr& op)
     return;
   }
   if (m_accept_op != op) {
+    release_accept_reservation(op);
     complete_accept(op, boost::asio::error::operation_aborted);
   }
   else if (op->m_accepting) {
@@ -421,6 +453,19 @@ void acceptor::impl::cancel_accept(const accept_op::ptr& op)
   else {
     m_accept_op = nullptr;
     complete_accept(op, boost::asio::error::operation_aborted);
+  }
+}
+
+void acceptor::impl::release_accept_reservation(const accept_op::ptr& op)
+{
+  if (!op || !op->m_reserved || m_state != state::null) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (op->m_reserved && m_start_pending) {
+    m_start_pending     = false;
+    m_is_state_non_null = false;
+    op->m_reserved      = false;
   }
 }
 
@@ -830,6 +875,7 @@ void acceptor::impl::on_close(const boost::system::error_code& error_code)
     std::lock_guard<std::mutex> lock(m_mutex);
     m_local_endpoint.reset();
     m_is_state_non_null = false;
+    m_start_pending     = false;
     m_control_callbacks = {};
   }
   if (m_accept_op) {

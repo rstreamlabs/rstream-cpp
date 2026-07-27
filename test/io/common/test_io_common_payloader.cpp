@@ -6,8 +6,6 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/local/connect_pair.hpp>
-#include <boost/asio/local/stream_protocol.hpp>
 
 #include <rstream/core/crc32.hpp>
 #include <rstream/core/exception.hpp>
@@ -15,6 +13,7 @@
 #include <rstream/core/memory.hpp>
 #include <rstream/core/random.hpp>
 #include <rstream/io/payloader.hpp>
+#include <rstream/test/stream_pair.hpp>
 
 static const std::size_t g_buffer_size = 200;
 static const int g_count               = 500;
@@ -25,13 +24,13 @@ int main(int argc, char** argv)
   (void)argv;
   rstream::core::log::enable_ansicolor_stdout_mt();
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   auto socket_a        = std::make_shared<socket_type>(io_context.get_executor());
   auto payloader_a     = std::make_shared<payloader_type>(*socket_a);
   auto socket_b        = std::make_shared<socket_type>(io_context.get_executor());
   auto payloader_b     = std::make_shared<payloader_type>(*socket_b);
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   auto run_a = [socket = socket_a, payloader = payloader_a]() -> boost::asio::awaitable<void> {
     try {
       auto memory = rstream::core::make_memory_allocated(g_buffer_size);

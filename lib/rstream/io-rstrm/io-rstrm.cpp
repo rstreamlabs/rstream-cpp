@@ -687,21 +687,21 @@ static bool parse_config_yaml(const std::string& content, config_file& cfg)
 
 static std::string getenv_trim(const char* key)
 {
-  const char* value = std::getenv(key);
+  const auto value = rstream::core::get_environment_variable(key);
   if (!value) {
     return "";
   }
-  return trim(value);
+  return trim(value.value());
 }
 
 boost::system::result<boost::filesystem::path> get_home_path()
 {
-  char const* home = std::getenv("HOME");
-  if (home == nullptr) {
-    home = std::getenv("USERPROFILE");
+  auto home = rstream::core::get_environment_variable("HOME");
+  if (!home) {
+    home = rstream::core::get_environment_variable("USERPROFILE");
   }
   if (home) {
-    return boost::filesystem::path(home);
+    return boost::filesystem::path(home.value());
   }
   else {
 #ifdef DEBUG_BUILD
@@ -713,9 +713,9 @@ boost::system::result<boost::filesystem::path> get_home_path()
 
 boost::system::result<boost::filesystem::path> get_rstream_config_path()
 {
-  const char* env_path = std::getenv("RSTREAM_CONFIG");
-  if (env_path && env_path[0] != '\0') {
-    return boost::filesystem::path(env_path).parent_path();
+  const auto env_path = rstream::core::get_environment_variable("RSTREAM_CONFIG");
+  if (env_path && !env_path->empty()) {
+    return boost::filesystem::path(env_path.value()).parent_path();
   }
   auto home = get_home_path();
   if (home) {
@@ -734,9 +734,9 @@ boost::system::result<boost::filesystem::path> get_rstream_config_file_path(cons
   if (config_path && !config_path.value().empty()) {
     return boost::filesystem::path(config_path.value());
   }
-  const char* env_path = std::getenv("RSTREAM_CONFIG");
-  if (env_path && env_path[0] != '\0') {
-    return boost::filesystem::path(env_path);
+  const auto env_path = rstream::core::get_environment_variable("RSTREAM_CONFIG");
+  if (env_path && !env_path->empty()) {
+    return boost::filesystem::path(env_path.value());
   }
   auto config_path_default = get_rstream_config_path();
   if (config_path_default) {

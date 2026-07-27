@@ -8,6 +8,10 @@
 
 #include <rstream/io-rstrm/detail/convert.hpp>
 
+#ifdef GetMessage
+#undef GetMessage
+#endif
+
 namespace protobuf = rstream::io_rstrm::protobuf;
 
 static void check_ip_address_roundtrip()

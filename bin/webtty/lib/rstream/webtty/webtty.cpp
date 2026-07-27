@@ -379,21 +379,20 @@ std::pair<std::string, std::string> windows_version()
   OSVERSIONINFOEXW info    = {};
   info.dwOSVersionInfoSize = sizeof(info);
   auto module              = ::GetModuleHandleW(L"ntdll.dll");
-  if (module) {
+  bool version_available   = false;
+  if (module != nullptr) {
     using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
     auto fn               = reinterpret_cast<RtlGetVersionFn>(::GetProcAddress(module, "RtlGetVersion"));
-    if (fn) {
-      fn(reinterpret_cast<PRTL_OSVERSIONINFOW>(&info));
-    }
-    else {
-      ::GetVersionExW(reinterpret_cast<LPOSVERSIONINFOW>(&info));
+    if (fn != nullptr) {
+      version_available = fn(reinterpret_cast<PRTL_OSVERSIONINFOW>(&info)) == 0;
     }
   }
-  else {
-    ::GetVersionExW(reinterpret_cast<LPOSVERSIONINFOW>(&info));
+  std::string version;
+  if (version_available) {
+    std::ostringstream version_stream;
+    version_stream << info.dwMajorVersion << "." << info.dwMinorVersion << "." << info.dwBuildNumber;
+    version = version_stream.str();
   }
-  std::ostringstream version_stream;
-  version_stream << info.dwMajorVersion << "." << info.dwMinorVersion << "." << info.dwBuildNumber;
   auto product_info = windows_product_info();
   std::string pretty;
   if (!product_info.first.empty() && !product_info.second.empty()) {
@@ -402,7 +401,7 @@ std::pair<std::string, std::string> windows_version()
   else if (!product_info.first.empty()) {
     pretty = product_info.first;
   }
-  return {version_stream.str(), pretty};
+  return {version, pretty};
 }
 #endif
 
@@ -526,10 +525,10 @@ void parse_environment(env_vars& dst, const std::vector<std::string>& src)
       value = str.substr(pos + delimiter.size());
     }
     else {
-      key      = str;
-      auto env = std::getenv(key.c_str());
-      if (env != nullptr) {
-        value = env;
+      key            = str;
+      const auto env = rstream::core::get_environment_variable(key);
+      if (env) {
+        value = env.value();
       }
       else {
         continue;
@@ -574,9 +573,9 @@ void add_environment_variable(std::list<environment>& dst, const std::string& ke
 
 void add_environment_variable(env_vars& dst, const std::string& key, bool force)
 {
-  auto value = std::getenv(key.c_str());
-  if (value != nullptr) {
-    add_environment_variable(dst, key, value, force);
+  const auto value = rstream::core::get_environment_variable(key);
+  if (value) {
+    add_environment_variable(dst, key, value.value(), force);
   }
 }
 
@@ -636,7 +635,7 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
   if (error_code) {
     return;
   }
-  const char* userprofile = getenv("USERPROFILE");
+  const auto userprofile = rstream::core::get_environment_variable("USERPROFILE");
   if (!userprofile) {
 #ifdef DEBUG_BUILD
     g_logger->warn("USERPROFILE environment variable is not set");
@@ -646,7 +645,7 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
   if (error_code) {
     return;
   }
-  const char* comspec = std::getenv("ComSpec");
+  const auto comspec = rstream::core::get_environment_variable("ComSpec");
   if (!comspec) {
 #ifdef DEBUG_BUILD
     g_logger->warn("ComSpec environment variable is not set");
@@ -655,8 +654,8 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
   }
   user_info = {
       .m_name  = username,
-      .m_shell = comspec,
-      .m_home  = userprofile,
+      .m_shell = comspec.value(),
+      .m_home  = userprofile.value(),
   };
 }
 

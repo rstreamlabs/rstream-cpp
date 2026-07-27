@@ -14,8 +14,6 @@
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/local/connect_pair.hpp>
-#include <boost/asio/local/stream_protocol.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/steady_timer.hpp>
 
@@ -23,6 +21,7 @@
 #include <rstream/core/error.hpp>
 #include <rstream/io/error.hpp>
 #include <rstream/io/payloader.hpp>
+#include <rstream/test/stream_pair.hpp>
 
 struct allocation_state {
   std::atomic_size_t m_allocations   = 0;
@@ -203,11 +202,11 @@ static void check_oversized_payload_is_rejected_before_write()
 static void check_payload_larger_than_buffer_is_rejected()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   auto socket_a        = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b        = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   payloader_type sender(*socket_a);
   payloader_type receiver(*socket_b);
   auto send_buffer     = rstream::core::make_buffer_allocated(16);
@@ -230,11 +229,11 @@ static void check_payload_larger_than_buffer_is_rejected()
 static void check_lvalue_handlers_are_supported()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   payloader_type sender(socket_a);
   payloader_type receiver(socket_b);
   auto send_buffer   = rstream::core::make_buffer_allocated(16);
@@ -259,11 +258,11 @@ static void check_lvalue_handlers_are_supported()
 static void check_deferred_send_and_receive_are_lazy()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   payloader_type sender(socket_a);
   payloader_type receiver(socket_b);
   auto send_buffer    = rstream::core::make_buffer_allocated(16);
@@ -291,11 +290,11 @@ static void check_deferred_send_and_receive_are_lazy()
 static void check_receive_cancellation_reaches_the_transport()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   auto socket_a        = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b        = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   payloader_type receiver(*socket_b);
   auto recv_buffer = rstream::core::make_buffer_allocated(4);
   boost::asio::cancellation_signal cancellation;
@@ -325,11 +324,11 @@ static void check_receive_cancellation_reaches_the_transport()
 static void check_send_cancellation_reaches_the_transport()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   auto socket_a        = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b        = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   socket_a->set_option(boost::asio::socket_base::send_buffer_size(1024));
   payloader_type sender(*socket_a);
   auto send_buffer = rstream::core::make_buffer_allocated(1024 * 1024);
@@ -360,11 +359,11 @@ static void check_send_cancellation_reaches_the_transport()
 static void check_control_callback_system_error_completes_receive()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   payloader_type sender(socket_a);
   payloader_type receiver(socket_b);
   receiver.set_control_callback(
@@ -388,11 +387,11 @@ static void check_control_callback_system_error_completes_receive()
 static void check_control_callback_unknown_exception_completes_receive()
 {
   boost::asio::io_context io_context;
-  using socket_type    = boost::asio::local::stream_protocol::socket;
+  using socket_type    = rstream::test::stream_socket;
   using payloader_type = rstream::io::payloader<socket_type&>;
   socket_type socket_a(io_context.get_executor());
   socket_type socket_b(io_context.get_executor());
-  boost::asio::local::connect_pair(socket_a, socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
   payloader_type sender(socket_a);
   payloader_type receiver(socket_b);
   receiver.set_control_callback(

@@ -13,6 +13,7 @@
 
 #include <boost/asio/associated_cancellation_slot.hpp>
 #include <boost/asio/error.hpp>
+#include <boost/asio/executor_work_guard.hpp>
 
 // clang-format off
 // To be included after boost headers.
@@ -54,6 +55,7 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
 
   void open(native_handle_type handle, access access, boost::system::error_code& error_code)
   {
+    error_code.clear();
     HANDLE duplicate = nullptr;
     if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
       error_code = boost::asio::error::bad_descriptor;
@@ -94,13 +96,13 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
   void async_read_some(const boost::asio::mutable_buffer& buffer, completion_handler&& handler)
   {
     auto operation_allocator = boost::asio::get_associated_allocator(handler);
-    submit(std::allocate_shared<operation>(operation_allocator, operation::type::read, buffer, std::move(handler)));
+    submit(std::allocate_shared<operation>(operation_allocator, operation::type::read, buffer, m_executor, std::move(handler)));
   }
 
   void async_write(const boost::asio::const_buffer& buffer, completion_handler&& handler)
   {
     auto operation_allocator = boost::asio::get_associated_allocator(handler);
-    submit(std::allocate_shared<operation>(operation_allocator, operation::type::write, buffer, std::move(handler)));
+    submit(std::allocate_shared<operation>(operation_allocator, operation::type::write, buffer, m_executor, std::move(handler)));
   }
 
   void cancel()
@@ -145,16 +147,18 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
       write
     };
 
-    operation(type type, const boost::asio::mutable_buffer& buffer, completion_handler&& handler)
+    operation(type type, const boost::asio::mutable_buffer& buffer, const executor_type& executor, completion_handler&& handler)
         : m_type(type),
           m_mutable_buffer(buffer),
+          m_work_guard(boost::asio::make_work_guard(boost::asio::get_associated_executor(handler, executor))),
           m_handler(std::move(handler))
     {
     }
 
-    operation(type type, const boost::asio::const_buffer& buffer, completion_handler&& handler)
+    operation(type type, const boost::asio::const_buffer& buffer, const executor_type& executor, completion_handler&& handler)
         : m_type(type),
           m_const_buffer(buffer),
+          m_work_guard(boost::asio::make_work_guard(boost::asio::get_associated_executor(handler, executor))),
           m_handler(std::move(handler))
     {
     }
@@ -162,6 +166,7 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
     type m_type;
     boost::asio::mutable_buffer m_mutable_buffer;
     boost::asio::const_buffer m_const_buffer;
+    boost::asio::executor_work_guard<boost::asio::any_completion_executor> m_work_guard;
     completion_handler m_handler;
   };
 

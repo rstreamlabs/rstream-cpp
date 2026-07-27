@@ -1,7 +1,6 @@
 // See LICENSE file in the project root for license information.
 
 #include <cassert>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -14,41 +13,9 @@
 #include <rstream/io-rstrm/error.hpp>
 #include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io/detail/stream/error.hpp>
+#include <rstream/test/environment.hpp>
 
-class env_guard {
- public:
-  explicit env_guard(const char* key)
-      : m_key(key)
-  {
-    const char* value = std::getenv(key);
-    if (value) {
-      m_present = true;
-      m_value   = value;
-    }
-  }
-  ~env_guard()
-  {
-    if (m_present) {
-      setenv(m_key, m_value.c_str(), 1);
-    }
-    else {
-      unsetenv(m_key);
-    }
-  }
-  void set(const std::string& value)
-  {
-    setenv(m_key, value.c_str(), 1);
-  }
-  void unset()
-  {
-    unsetenv(m_key);
-  }
-
- private:
-  const char* m_key;
-  bool m_present = false;
-  std::string m_value;
-};
+using env_guard = rstream::test::environment_guard;
 
 static std::string default_engine_tls_groups_query()
 {

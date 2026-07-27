@@ -38,18 +38,12 @@ add_custom_command(
     ${proto_files}
   VERBATIM)
 
+rstream_configure_generated_protobuf_warnings(${GENERATED_SOURCES})
+
 # library definition
 
 add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS} ${GENERATED_SOURCES})
 add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
-
-if(ENABLE_STRICT_WARNINGS)
-  if(MSVC)
-    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS /W0)
-  else()
-    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS -w)
-  endif()
-endif()
 
 if(ENABLE_STRICT_WARNINGS AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   # GCC 13 reports Boost.Asio's type-erased executor storage as potentially
@@ -76,8 +70,11 @@ endif()
 target_include_directories(
   ${LIBRARY_NAME}
   PUBLIC
-  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/bin/nperf/lib/cpp/>
-  PRIVATE
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/bin/nperf/lib/cpp/>)
+
+target_include_directories(
+  ${LIBRARY_NAME}
+  SYSTEM PRIVATE
   $<BUILD_INTERFACE:${GENERATED_SOURCE_DIR}>/)
 
 target_link_libraries(
