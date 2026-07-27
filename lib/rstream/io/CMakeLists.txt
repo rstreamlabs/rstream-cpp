@@ -10,6 +10,13 @@ set(LIBRARY_NAME "${PROJECT_NAME}-lib-${LIBRARY_COMPONENT}")
 file(GLOB_RECURSE SOURCES *.cpp)
 file(GLOB_RECURSE HEADERS *.hpp)
 
+if(MSVC AND ENABLE_STRICT_WARNINGS)
+  # Boost.Asio buffer iterators trigger C4702 in valid template instantiations.
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/detail/metrics/exposer.cpp"
+    PROPERTIES COMPILE_OPTIONS /wd4702)
+endif()
+
 if(NOT WITH_MAXMINDDB)
   list(FILTER SOURCES EXCLUDE REGEX ".*geoip.cpp")
   list(FILTER HEADERS EXCLUDE REGEX ".*geoip.hpp")
