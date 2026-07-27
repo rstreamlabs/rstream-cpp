@@ -3,7 +3,6 @@
 #include <cassert>
 #include <cctype>
 #include <filesystem>
-#include <fstream>
 #include <list>
 #include <memory>
 #include <set>
@@ -254,29 +253,15 @@ static void check_plugin_factory_registration_and_lookup()
   assert(throwing_lookup_failed);
 }
 
-static void check_plugin_factory_ignores_invalid_dynamic_libraries()
+static void check_plugin_factory_ignores_libraries_without_plugin_entrypoint()
 {
-  const auto directory = std::filesystem::temp_directory_path() / ("rstream-plugin-test-" + rstream::core::object_id());
-  std::filesystem::create_directories(directory);
-#ifdef _WIN32
-  const auto plugin = directory / "rstream-plugin-invalid.dll";
-#else
-  const auto plugin = directory / "rstream-plugin-invalid.so";
-#endif
-  {
-    std::ofstream stream(plugin.string(), std::ios::binary);
-    stream << "invalid shared library";
-  }
+  const std::filesystem::path plugin(RSTREAM_TEST_PLUGIN_WITHOUT_ENTRYPOINT_PATH);
+  assert(std::filesystem::is_regular_file(plugin));
   core_plugin::factory factory({
-#ifdef _WIN32
-      {"pattern", "^rstream-plugin(.*).dll$"},
-#else
-      {"pattern", "^rstream-plugin(.*).so$"},
-#endif
-      {"search_paths", {directory.string()}},
+      {"pattern", "^rstream-test-plugin-without-entrypoint(.*)$"},
+      {"search_paths", {plugin.parent_path().string()}},
   });
   assert(factory.get_plugins().empty());
-  std::filesystem::remove_all(directory);
 }
 
 #ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
@@ -338,7 +323,7 @@ int main(int argc, char** argv)
   check_object_id_shape_and_uniqueness();
   check_version_serialization();
   check_plugin_factory_registration_and_lookup();
-  check_plugin_factory_ignores_invalid_dynamic_libraries();
+  check_plugin_factory_ignores_libraries_without_plugin_entrypoint();
 #ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
   check_plugin_factory_reuses_dynamic_libraries();
 #endif
