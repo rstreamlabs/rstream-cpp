@@ -28,13 +28,26 @@ foreach(proto_file ${proto_files})
   list(APPEND GENERATED_SOURCES ${proto_hdr_src})
 endforeach()
 
+set(PROTOBUF_LIBRARY_COMPONENT "${LIBRARY_COMPONENT}-protobuf")
+set(PROTOBUF_LIBRARY_NAME "${PROJECT_NAME}-lib-${PROTOBUF_LIBRARY_COMPONENT}")
+set(PROTOBUF_LIBRARY_SHARED OFF)
+if(BUILD_SHARED_LIBS OR NOT ENABLE_STATIC_PLUGINS)
+  set(PROTOBUF_LIBRARY_SHARED ON)
+endif()
+
+set(PROTOBUF_CPP_OUT ${GENERATED_SOURCE_DIR})
+if(MSVC AND PROTOBUF_LIBRARY_SHARED)
+  set(PROTOBUF_EXPORT_MACRO RSTREAM_IO_RSTRM_PROTOBUF_EXPORT)
+  set(PROTOBUF_CPP_OUT "dllexport_decl=${PROTOBUF_EXPORT_MACRO}:${GENERATED_SOURCE_DIR}")
+endif()
+
 add_custom_command(
   OUTPUT ${GENERATED_SOURCES}
   DEPENDS ${proto_files}
   COMMAND
     ${Protobuf_PROTOC_EXECUTABLE}
     --proto_path=${proto_path}
-    --cpp_out=${GENERATED_SOURCE_DIR}
+    --cpp_out=${PROTOBUF_CPP_OUT}
     ${proto_files}
   VERBATIM)
 
@@ -42,13 +55,18 @@ rstream_configure_generated_protobuf_warnings(${GENERATED_SOURCES})
 
 # Generated protobuf descriptors are process-wide. A statically linked SDK and
 # runtime-loaded plugins must therefore share one copy of the generated code.
-set(PROTOBUF_LIBRARY_COMPONENT "${LIBRARY_COMPONENT}-protobuf")
-set(PROTOBUF_LIBRARY_NAME "${PROJECT_NAME}-lib-${PROTOBUF_LIBRARY_COMPONENT}")
 if(NOT BUILD_SHARED_LIBS AND NOT ENABLE_STATIC_PLUGINS)
   set(PROTOBUF_LIBRARY_TYPE SHARED)
 endif()
 add_library(${PROTOBUF_LIBRARY_NAME} ${PROTOBUF_LIBRARY_TYPE} ${GENERATED_SOURCES})
 add_library(${PROJECT_NAME}::${PROTOBUF_LIBRARY_COMPONENT} ALIAS ${PROTOBUF_LIBRARY_NAME})
+
+if(MSVC AND PROTOBUF_LIBRARY_SHARED)
+  target_compile_definitions(
+    ${PROTOBUF_LIBRARY_NAME}
+    PRIVATE "${PROTOBUF_EXPORT_MACRO}=__declspec(dllexport)"
+    INTERFACE "${PROTOBUF_EXPORT_MACRO}=__declspec(dllimport)")
+endif()
 
 set_target_properties(
   ${PROTOBUF_LIBRARY_NAME}
