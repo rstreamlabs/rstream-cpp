@@ -17,7 +17,8 @@ static void check_supported_message_is_serialized()
 
   google::protobuf::BoolValue destination;
   auto memory = buffer.map(rstream::core::buffer::map_mode::read);
-  assert(destination.ParseFromArray(memory.get_const_data(), static_cast<int>(memory.get_size())));
+  assert(rstream::core::detail::parse_protobuf_message(
+      destination, memory.get_const_data(), memory.get_size()));
   assert(destination.value());
 }
 
@@ -38,6 +39,10 @@ static void check_unsupported_size_is_rejected()
   const auto maximum = static_cast<std::size_t>(std::numeric_limits<int>::max());
   assert(rstream::core::detail::is_protobuf_buffer_size_valid(maximum));
   assert(!rstream::core::detail::is_protobuf_buffer_size_valid(maximum + 1));
+
+  google::protobuf::BoolValue message;
+  assert(!rstream::core::detail::parse_protobuf_message(
+      message, nullptr, maximum + 1));
 }
 
 int main(int argc, char** argv)

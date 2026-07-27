@@ -2,7 +2,11 @@
 
 #include "server.hpp"
 
+#ifndef BOOST_PROCESS_VERSION
 #define BOOST_PROCESS_VERSION 1
+#elif BOOST_PROCESS_VERSION != 1
+#error "rstream WebTTY requires Boost.Process v1"
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -2027,7 +2031,7 @@ void server::impl::session::on_read_incoming_data(const std::error_code& error_c
   }
   else {
     rstream::webtty::protobuf::Message message;
-    if (message.ParseFromArray(m_buffer_socket.map().get_const_data(), m_buffer_socket.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer_socket.map().get_const_data(), m_buffer_socket.get_size())) {
       on_read_incoming_message(message);
     }
     else {

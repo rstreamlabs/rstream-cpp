@@ -637,14 +637,20 @@ class fake_error_server {
   std::exception_ptr m_exception;
 };
 
-class fake_invalid_payload_server {
+enum class invalid_server_message {
+  malformed_payload,
+  stdin_data,
+};
+
+class fake_invalid_message_server {
  public:
-  fake_invalid_payload_server()
-      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port()))
+  explicit fake_invalid_message_server(invalid_server_message message)
+      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port())),
+        m_message(message)
   {
   }
 
-  ~fake_invalid_payload_server()
+  ~fake_invalid_message_server()
   {
     join();
   }
@@ -665,7 +671,12 @@ class fake_invalid_payload_server {
         protobuf::Message ack;
         ack.mutable_ack();
         write_message(socket, ack);
-        write_payload(socket, "not-a-protobuf-message");
+        if (m_message == invalid_server_message::malformed_payload) {
+          write_payload(socket, "not-a-protobuf-message");
+        }
+        else {
+          write_message(socket, data_message(protobuf::Data::TYPE_STDIN, "invalid-server-input"));
+        }
       }
       catch (...) {
         m_exception = std::current_exception();
@@ -686,6 +697,7 @@ class fake_invalid_payload_server {
  private:
   boost::asio::io_context m_io_context;
   tcp::acceptor m_acceptor;
+  invalid_server_message m_message;
   std::thread m_thread;
   std::exception_ptr m_exception;
 };
@@ -912,7 +924,7 @@ static void check_plain_client_reports_server_error_during_open()
 
 static void check_plain_client_rejects_invalid_payload_after_open()
 {
-  fake_invalid_payload_server server;
+  fake_invalid_message_server server(invalid_server_message::malformed_payload);
   server.start();
 
   boost::asio::io_context io_context;
@@ -929,6 +941,28 @@ static void check_plain_client_rejects_invalid_payload_after_open()
   server.join();
 
   assert(result == rstream::webtty::error::make_error_code(rstream::webtty::error::code::protocol_error));
+  assert(return_code == -1);
+}
+
+static void check_plain_client_rejects_stdin_from_server()
+{
+  fake_invalid_message_server server(invalid_server_message::stdin_data);
+  server.start();
+
+  boost::asio::io_context io_context;
+  auto config   = plain_client_config(server.port());
+  auto settings = plain_client_settings();
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  std::error_code result;
+  int return_code = 0;
+  client.async_run([&](const std::error_code& error_code, int code) {
+    result      = error_code;
+    return_code = code;
+  });
+  io_context.run();
+  server.join();
+
+  assert(result == rstream::webtty::error::make_error_code(rstream::webtty::error::code::unexpected_message));
   assert(return_code == -1);
 }
 
@@ -971,6 +1005,7 @@ int main(int argc, char** argv)
   check_plain_client_e2e_sends_stdin_and_processes_server_messages();
   check_plain_client_reports_server_error_during_open();
   check_plain_client_rejects_invalid_payload_after_open();
+  check_plain_client_rejects_stdin_from_server();
   check_plain_client_cancel_after_open_sends_error();
   return 0;
 }

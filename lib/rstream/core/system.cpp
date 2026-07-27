@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 
@@ -191,6 +192,25 @@ std::string get_runtime_os()
 std::string get_runtime_arch()
 {
   return get_runtime_identity().m_arch;
+}
+
+std::optional<std::string> get_environment_variable(const std::string& name)
+{
+#ifdef _WIN32
+  char* value      = nullptr;
+  std::size_t size = 0;
+  const auto error = ::_dupenv_s(&value, &size, name.c_str());
+  if (error != 0 || value == nullptr) {
+    std::free(value);
+    return std::nullopt;
+  }
+  std::string result(value);
+  std::free(value);
+  return result;
+#else
+  const auto* value = std::getenv(name.c_str());
+  return value == nullptr ? std::nullopt : std::optional<std::string>(value);
+#endif
 }
 
 }  // namespace core

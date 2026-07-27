@@ -29,10 +29,9 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
+#include <boost/endian/conversion.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/system/system_error.hpp>
-
-#include <arpa/inet.h>
 
 #include <rstream/io-rstrm/acceptor.hpp>
 #include <rstream/io-rstrm/client.hpp>
@@ -133,7 +132,7 @@ static protobuf::Message read_message(tcp::socket& socket)
 {
   std::uint32_t network_size = 0;
   read_exact(socket, &network_size, sizeof(network_size));
-  const auto size = ntohl(network_size);
+  const auto size = boost::endian::big_to_native(network_size);
   check(size <= 1024 * 1024, "framed protobuf message is too large");
   std::vector<char> payload(size);
   if (size > 0) {
@@ -147,7 +146,7 @@ static protobuf::Message read_message(tcp::socket& socket)
 static void write_message(tcp::socket& socket, const protobuf::Message& message)
 {
   const auto size          = static_cast<std::uint32_t>(message.ByteSizeLong());
-  std::uint32_t frame_size = htonl(size);
+  std::uint32_t frame_size = boost::endian::native_to_big(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
   check(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())), "failed to serialize protobuf message");
@@ -390,11 +389,6 @@ static void check_client_snapshots_configuration_at_construction()
   bool connected = false;
   bool closed    = false;
   watchdog test_watchdog(io_context);
-  client.async_connect([&](const boost::system::error_code& error_code) {
-    check(!error_code, "client did not use its construction-time engine configuration: " + error_code.message());
-    connected = true;
-    client.close();
-  });
   rstream::io_rstrm::client::control_callbacks callbacks;
   callbacks.m_on_disconnection_cb = [&](const boost::system::error_code& error_code) {
     check(!error_code, "client did not close cleanly");
@@ -403,6 +397,11 @@ static void check_client_snapshots_configuration_at_construction()
   boost::system::error_code callback_error;
   client.set_control_callbacks(callbacks, callback_error);
   check(!callback_error, "failed to set control callbacks");
+  client.async_connect([&](const boost::system::error_code& error_code) {
+    check(!error_code, "client did not use its construction-time engine configuration: " + error_code.message());
+    connected = true;
+    client.close();
+  });
 
   io_context.run();
   test_watchdog.complete();
@@ -463,7 +462,7 @@ static void check_client_can_create_and_close_tunnel()
     saw_disconnected = true;
     assert(!error_code);
   };
-  boost::system::error_code callback_error;
+  boost::system::error_code callback_error = boost::asio::error::operation_aborted;
   client.set_control_callbacks(callbacks, callback_error);
   assert(!callback_error);
 
@@ -473,7 +472,12 @@ static void check_client_can_create_and_close_tunnel()
       std::cerr << "client connection failed: " << error_code.category().name() << ":" << error_code.value() << " " << error_code.message() << std::endl;
     }
     assert(!error_code);
-    saw_connected = true;
+    saw_connected                           = true;
+    boost::system::error_code address_error = boost::asio::error::operation_aborted;
+    const auto server_address               = client.address(address_error);
+    assert(!address_error);
+    assert(server_address.host() == "127.0.0.1");
+    assert(server_address.port() == std::to_string(engine.port()));
     rstream::io_rstrm::tunnel_properties properties;
     properties.m_name     = "api";
     properties.m_type     = "bytestream";
@@ -482,13 +486,13 @@ static void check_client_can_create_and_close_tunnel()
     std::move(create_operation)([&](const boost::system::error_code& create_error, rstream::io_rstrm::tunnel tunnel) {
       assert(!create_error);
       assert(tunnel);
-      saw_tunnel = true;
-      boost::system::error_code endpoint_error;
-      const auto endpoint = tunnel.local_endpoint(endpoint_error);
+      saw_tunnel                               = true;
+      boost::system::error_code endpoint_error = boost::asio::error::operation_aborted;
+      const auto endpoint                      = tunnel.local_endpoint(endpoint_error);
       assert(!endpoint_error);
       assert(endpoint.m_id_name && endpoint.m_id_name.value() == "tunnel-1");
-      boost::system::error_code properties_error;
-      const auto current_properties = tunnel.properties(properties_error);
+      boost::system::error_code properties_error = boost::asio::error::operation_aborted;
+      const auto current_properties              = tunnel.properties(properties_error);
       assert(!properties_error);
       assert(current_properties.m_id && current_properties.m_id.value() == "tunnel-1");
       assert(current_properties.m_hostname && current_properties.m_hostname.value() == "api.t.localhost.rstream.test");
@@ -555,6 +559,10 @@ static void check_client_connect_honors_immediate_cancellation()
   io_context.run();
   assert(completion_count == 1);
   assert(completion_error == boost::asio::error::operation_aborted);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  assert(!callback_error);
 }
 
 static void check_client_create_tunnel_honors_cancellation()
@@ -1199,7 +1207,7 @@ static void check_client_drains_active_control_write_before_reconnect()
     write_message(socket, open_control_response());
     std::uint32_t network_size = 0;
     read_exact(socket, &network_size, sizeof(network_size));
-    check(ntohl(network_size) > 4 * 1024 * 1024, "control write did not exceed the socket send buffer");
+    check(boost::endian::big_to_native(network_size) > 4 * 1024 * 1024, "control write did not exceed the socket send buffer");
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
   });
   fake_engine second_engine;
@@ -1568,6 +1576,17 @@ static void check_socket_rejects_invalid_state_operations()
   boost::asio::io_context io_context;
   rstream::io_rstrm::socket socket(io_context.get_executor());
 
+  boost::system::error_code settings_get_error = boost::asio::error::operation_aborted;
+  const auto current_settings                  = socket.settings(settings_get_error);
+  assert(!settings_get_error);
+  boost::system::error_code settings_set_error = boost::asio::error::operation_aborted;
+  socket.settings(current_settings, settings_set_error);
+  assert(!settings_set_error);
+  rstream::io_rstrm::endpoint open_endpoint;
+  boost::system::error_code open_error = boost::asio::error::operation_aborted;
+  socket.open(open_endpoint, open_error);
+  assert(!open_error);
+
   boost::system::error_code remote_error;
   auto remote_endpoint = socket.remote_endpoint(remote_error);
   (void)remote_endpoint;
@@ -1601,6 +1620,92 @@ static void check_socket_rejects_invalid_state_operations()
   assert(connect_rejected);
   assert(write_rejected);
   assert(read_rejected);
+
+  boost::system::error_code close_error = boost::asio::error::operation_aborted;
+  socket.close(close_error);
+  assert(!close_error);
+}
+
+static void check_async_connect_freezes_client_configuration()
+{
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token = true;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  client.async_connect(rstream::io::make_address("127.0.0.1:1"), [](const boost::system::error_code&) {});
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  assert(callback_error == rstream::io_rstrm::error::code::invalid_state);
+}
+
+static void check_async_connect_freezes_socket_configuration()
+{
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::settings_socket settings;
+  settings.m_config.m_no_token = true;
+  settings.m_config.m_zero_rtt = false;
+  rstream::io_rstrm::socket rstream_socket(io_context.get_executor(), settings);
+  rstream::io_rstrm::endpoint endpoint;
+  endpoint.m_id_name        = "api";
+  endpoint.m_server_address = rstream::io::make_address("127.0.0.1:1");
+  rstream_socket.async_connect(endpoint, [](const boost::system::error_code&) {});
+  boost::system::error_code settings_error;
+  rstream_socket.settings(settings, settings_error);
+  assert(settings_error == rstream::io_rstrm::error::code::invalid_state);
+}
+
+static void check_async_accept_freezes_acceptor_configuration()
+{
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::settings_acceptor settings;
+  settings.m_config.m_no_token = true;
+  rstream::io_rstrm::acceptor acceptor(io_context.get_executor(), settings);
+  rstream::io_rstrm::endpoint endpoint;
+  endpoint.m_id_name        = "api";
+  endpoint.m_server_address = rstream::io::make_address("127.0.0.1:1");
+  boost::system::error_code bind_error;
+  acceptor.bind(endpoint, bind_error);
+  assert(!bind_error);
+  rstream::io_rstrm::socket peer(io_context.get_executor());
+  rstream::io_rstrm::endpoint accepted_endpoint;
+  acceptor.async_accept(peer, accepted_endpoint, [](const boost::system::error_code&) {});
+  boost::system::error_code settings_error;
+  acceptor.settings(settings, settings_error);
+  assert(settings_error == rstream::io_rstrm::error::code::invalid_state);
+  boost::system::error_code rebind_error;
+  acceptor.bind(endpoint, rebind_error);
+  assert(rebind_error == rstream::io_rstrm::error::code::invalid_state);
+}
+
+static void check_async_accept_releases_reservation_after_immediate_cancellation()
+{
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::settings_acceptor settings;
+  settings.m_config.m_no_token = true;
+  rstream::io_rstrm::acceptor acceptor(io_context.get_executor(), settings);
+  rstream::io_rstrm::endpoint endpoint;
+  endpoint.m_id_name        = "api";
+  endpoint.m_server_address = rstream::io::make_address("127.0.0.1:1");
+  boost::system::error_code bind_error;
+  acceptor.bind(endpoint, bind_error);
+  assert(!bind_error);
+  rstream::io_rstrm::socket peer(io_context.get_executor());
+  rstream::io_rstrm::endpoint accepted_endpoint;
+  boost::asio::cancellation_signal cancellation;
+  boost::system::error_code completion_error;
+  acceptor.async_accept(
+      peer,
+      accepted_endpoint,
+      boost::asio::bind_cancellation_slot(cancellation.slot(), [&](const boost::system::error_code& error_code) {
+        completion_error = error_code;
+      }));
+  cancellation.emit(boost::asio::cancellation_type::all);
+  io_context.run();
+  assert(completion_error == boost::asio::error::operation_aborted);
+  boost::system::error_code settings_error;
+  acceptor.settings(settings, settings_error);
+  assert(!settings_error);
 }
 
 static void check_acceptor_rejects_invalid_state_operations()
@@ -1615,6 +1720,21 @@ static void check_acceptor_rejects_invalid_state_operations()
   settings.m_tunnel_properties.m_type       = "bytestream";
   settings.m_tunnel_properties.m_publish    = true;
   rstream::io_rstrm::acceptor acceptor(io_context.get_executor(), settings);
+
+  boost::system::error_code settings_get_error = boost::asio::error::operation_aborted;
+  const auto current_settings                  = acceptor.settings(settings_get_error);
+  assert(!settings_get_error);
+  assert(current_settings.m_tunnel_properties.m_type == settings.m_tunnel_properties.m_type);
+  boost::system::error_code settings_set_error = boost::asio::error::operation_aborted;
+  acceptor.settings(settings, settings_set_error);
+  assert(!settings_set_error);
+  rstream::io_rstrm::endpoint open_endpoint;
+  boost::system::error_code open_error = boost::asio::error::operation_aborted;
+  acceptor.open(open_endpoint, open_error);
+  assert(!open_error);
+  boost::system::error_code listen_error = boost::asio::error::operation_aborted;
+  acceptor.listen(128, listen_error);
+  assert(!listen_error);
 
   boost::system::error_code local_error;
   auto local_endpoint = acceptor.local_endpoint(local_error);
@@ -1633,9 +1753,9 @@ static void check_acceptor_rejects_invalid_state_operations()
   assert(missing_endpoint_rejected);
 
   rstream::io_rstrm::endpoint endpoint;
-  endpoint.m_id_name        = "api";
-  endpoint.m_server_address = rstream::io::make_address("127.0.0.1:1");
-  boost::system::error_code bind_error;
+  endpoint.m_id_name                   = "api";
+  endpoint.m_server_address            = rstream::io::make_address("127.0.0.1:1");
+  boost::system::error_code bind_error = boost::asio::error::operation_aborted;
   acceptor.bind(endpoint, bind_error);
   assert(!bind_error);
 
@@ -1724,7 +1844,7 @@ static void check_acceptor_opens_tunnel_and_aborts_pending_accept_on_close()
       assert(status.m_forwarding && status.m_forwarding.value() == "https://api.t.localhost.rstream.test");
     }
   };
-  boost::system::error_code callback_error;
+  boost::system::error_code callback_error = boost::asio::error::operation_aborted;
   acceptor.set_control_callbacks(callbacks, callback_error);
   assert(!callback_error);
 
@@ -1785,37 +1905,33 @@ static void check_acceptor_honors_pending_accept_cancellation()
   rstream::io_rstrm::socket peer(io_context.get_executor());
   rstream::io_rstrm::endpoint accepted_endpoint;
   boost::asio::cancellation_signal cancellation;
-  boost::asio::steady_timer cancellation_timer(io_context);
-  boost::asio::steady_timer close_timer(io_context);
   boost::system::error_code completion_error;
   std::size_t completion_count = 0;
   watchdog test_watchdog(io_context);
+  rstream::io_rstrm::acceptor::control_callbacks callbacks;
+  callbacks.m_on_tunnel_properties_cb = [&](const rstream::io_rstrm::tunnel_properties&) {
+    cancellation.emit(boost::asio::cancellation_type::all);
+  };
+  boost::system::error_code callback_error;
+  acceptor.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install pending-accept cancellation callback");
   acceptor.async_accept(
       peer,
       accepted_endpoint,
       boost::asio::bind_cancellation_slot(cancellation.slot(), [&](const boost::system::error_code& error_code) {
         completion_error = error_code;
         ++completion_count;
+        check(completion_count == 1, "pending accept completed more than once");
+        check(completion_error == boost::asio::error::operation_aborted, "pending accept completed with the wrong error");
+        boost::system::error_code close_error;
+        acceptor.close(close_error);
+        check(!close_error, "failed to close acceptor after pending-accept cancellation");
       }));
-  cancellation_timer.expires_after(std::chrono::milliseconds(20));
-  cancellation_timer.async_wait([&](const boost::system::error_code& error_code) {
-    assert(!error_code);
-    cancellation.emit(boost::asio::cancellation_type::all);
-  });
-  close_timer.expires_after(std::chrono::milliseconds(80));
-  close_timer.async_wait([&](const boost::system::error_code& error_code) {
-    assert(!error_code);
-    assert(completion_count == 1);
-    assert(completion_error == boost::asio::error::operation_aborted);
-    boost::system::error_code close_error;
-    acceptor.close(close_error);
-    assert(!close_error);
-  });
   io_context.run();
   test_watchdog.complete();
   engine.join();
-  assert(!test_watchdog.timed_out());
-  assert(completion_count == 1);
+  check(!test_watchdog.timed_out(), "pending-accept cancellation check timed out");
+  check(completion_count == 1, "pending accept did not complete exactly once");
 }
 
 static void check_generated_stable_domain()
@@ -1961,9 +2077,9 @@ static void check_socket_stream_handshake_then_transfers_bytes()
       std::cerr << "socket connection failed: " << error_code.category().name() << ":" << error_code.value() << " " << error_code.message() << std::endl;
     }
     assert(!error_code);
-    saw_connected = true;
-    boost::system::error_code remote_error;
-    const auto remote_endpoint = rstream_socket.remote_endpoint(remote_error);
+    saw_connected                          = true;
+    boost::system::error_code remote_error = boost::asio::error::operation_aborted;
+    const auto remote_endpoint             = rstream_socket.remote_endpoint(remote_error);
     assert(!remote_error);
     assert(remote_endpoint.m_id_name && remote_endpoint.m_id_name.value() == "api");
     assert(!remote_endpoint.m_secret);
@@ -1975,8 +2091,8 @@ static void check_socket_stream_handshake_then_transfers_bytes()
         assert(!read_error);
         assert(read == inbound->size());
         assert(std::string(inbound->data(), inbound->size()) == "world");
-        saw_read = true;
-        boost::system::error_code close_error;
+        saw_read                              = true;
+        boost::system::error_code close_error = boost::asio::error::operation_aborted;
         rstream_socket.close(close_error);
         assert(!close_error);
       });
@@ -2071,6 +2187,9 @@ static void check_socket_connect_honors_immediate_cancellation()
   test_watchdog.complete();
   assert(!test_watchdog.timed_out());
   assert(completion_count == 1);
+  boost::system::error_code settings_error;
+  rstream_socket.settings(make_test_socket_settings(), settings_error);
+  assert(!settings_error);
 }
 
 static void check_socket_connect_honors_pending_cancellation_and_can_reconnect()
@@ -2344,6 +2463,13 @@ int main(int argc, char** argv)
   run_selected_check(selected, "client_rejects_proxy_request_for_unknown_tunnel", check_client_rejects_proxy_request_for_unknown_tunnel);
   run_selected_check(selected, "client_reports_redirected_proxy_failures", check_client_reports_redirected_proxy_failures);
   run_selected_check(selected, "socket_rejects_invalid_state_operations", check_socket_rejects_invalid_state_operations);
+  run_selected_check(selected, "async_connect_freezes_client_configuration", check_async_connect_freezes_client_configuration);
+  run_selected_check(selected, "async_connect_freezes_socket_configuration", check_async_connect_freezes_socket_configuration);
+  run_selected_check(selected, "async_accept_freezes_acceptor_configuration", check_async_accept_freezes_acceptor_configuration);
+  run_selected_check(
+      selected,
+      "async_accept_releases_reservation_after_immediate_cancellation",
+      check_async_accept_releases_reservation_after_immediate_cancellation);
   run_selected_check(selected, "socket_first_use_is_thread_safe", check_socket_first_use_is_thread_safe);
   run_selected_check(selected, "acceptor_rejects_invalid_state_operations", check_acceptor_rejects_invalid_state_operations);
   run_selected_check(selected, "acceptor_opens_tunnel_and_aborts_pending_accept_on_close", check_acceptor_opens_tunnel_and_aborts_pending_accept_on_close);

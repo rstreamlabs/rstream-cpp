@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <optional>
 #include <ostream>
 #include <string>
 
@@ -39,6 +40,8 @@ std::string get_compiletime_arch();
 std::string get_runtime_os();
 
 std::string get_runtime_arch();
+
+std::optional<std::string> get_environment_variable(const std::string& name);
 
 }  // namespace core
 }  // namespace rstream

@@ -29,6 +29,7 @@
 #include <openssl/x509.h>
 #include <yaml-cpp/yaml.h>
 
+#include <rstream/core/system.hpp>
 #include <rstream/webtty/webtty.hpp>
 
 namespace docopt {
@@ -117,8 +118,8 @@ inline std::string trim_copy(const std::string& value)
 
 inline std::string getenv_trimmed(const char* name)
 {
-  auto value = std::getenv(name);
-  return value == nullptr ? "" : trim_copy(value);
+  const auto value = rstream::core::get_environment_variable(name);
+  return value ? trim_copy(value.value()) : "";
 }
 
 inline std::vector<std::string> split_comma_separated_values(const std::string& raw)

@@ -50,6 +50,7 @@
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/log.hpp>
+#include <rstream/core/system.hpp>
 
 #include "error.hpp"
 
@@ -1384,12 +1385,12 @@ boost::optional<std::string> stream_socket_ssl::impl::get_pkcs11_pin(boost::syst
     error_code = error::make_error_code(error::code::ssl_configuration_error);
     return boost::none;
   }
-  const char* value = std::getenv(m_config.m_pkcs11_pin_env.get().c_str());
-  if (!value || value[0] == '\0') {
+  const auto value = rstream::core::get_environment_variable(m_config.m_pkcs11_pin_env.get());
+  if (!value || value->empty()) {
     error_code = error::make_error_code(error::code::ssl_configuration_error);
     return boost::none;
   }
-  return std::string(value);
+  return value.value();
 }
 
 X509* stream_socket_ssl::impl::load_pkcs11_certificate(const std::string& uri, boost::system::error_code& error_code)

@@ -175,6 +175,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
     explicit connect_op_type(async_connect_completion_handler&& handler);
     std::atomic_bool m_cancelled;
     bool m_completed;
+    bool m_reserved;
     async_connect_completion_handler m_handler;
   };
 
@@ -246,13 +247,15 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   boost::system::result<client_details> effective_client_details() const;
 
-  void async_connect_internal(const io::address& address, const connect_op_type::ptr& op);
+  void async_connect_internal(const connect_op_type::ptr& op);
 
   void async_create_tunnel_internal(const create_tunnel_op_type::ptr& op);
 
   void async_accept_tunnel_internal(const tunnel_type::id& tunnel_id, const accept_tunnel_op_type::ptr& op);
 
   void cancel_connect(const connect_op_type::ptr& op);
+
+  void release_connect_reservation(const connect_op_type::ptr& op);
 
   void cancel_create_tunnel(const create_tunnel_op_type::ptr& op);
 
@@ -502,13 +505,13 @@ tunnel::impl::impl(const std::string& tunnel_id, const endpoint& local_endpoint,
 
 endpoint tunnel::impl::local_endpoint(boost::system::error_code& error_code)
 {
-  (void)error_code;
+  error_code.clear();
   return m_local_endpoint;
 }
 
 tunnel_properties tunnel::impl::properties(boost::system::error_code& error_code)
 {
-  (void)error_code;
+  error_code.clear();
   return m_tunnel_properties;
 }
 
@@ -525,6 +528,7 @@ void tunnel::impl::close()
 client::impl::connect_op_type::connect_op_type(async_connect_completion_handler&& handler)
     : m_cancelled(false),
       m_completed(false),
+      m_reserved(false),
       m_handler(std::move(handler))
 {
 }
@@ -600,6 +604,7 @@ client::impl::impl(const executor_type& executor, const config_client& config, c
 io::address client::impl::address(boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (!m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -609,6 +614,7 @@ io::address client::impl::address(boost::system::error_code& error_code)
 void client::impl::set_control_callbacks(const control_callbacks& callbacks, boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -621,7 +627,15 @@ void client::impl::async_connect(const io::address& address, async_connect_compl
 {
   auto operation_allocator = boost::asio::get_associated_allocator(handler);
   const auto op            = std::allocate_shared<connect_op_type>(operation_allocator, std::move(handler));
-  auto cancellation_slot   = boost::asio::get_associated_cancellation_slot(op->m_handler);
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_is_state_non_null) {
+      m_is_state_non_null = true;
+      m_server_address    = address;
+      op->m_reserved      = true;
+    }
+  }
+  auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
   if (cancellation_slot.is_connected()) {
     const std::weak_ptr<impl> weak_self          = shared_from_this();
     const std::weak_ptr<connect_op_type> weak_op = op;
@@ -640,7 +654,7 @@ void client::impl::async_connect(const io::address& address, async_connect_compl
       }
     });
   }
-  boost::asio::dispatch(m_strand, [self = shared_from_this(), address, op] { self->async_connect_internal(address, op); });
+  boost::asio::dispatch(m_strand, [self = shared_from_this(), op] { self->async_connect_internal(op); });
 }
 
 void client::impl::async_connect(async_connect_completion_handler&& handler)
@@ -833,6 +847,23 @@ void client::impl::cancel_connect(const connect_op_type::ptr& op)
   if (m_connect_op == op) {
     on_close(boost::asio::error::operation_aborted);
   }
+  else {
+    release_connect_reservation(op);
+    complete_connect(op, boost::asio::error::operation_aborted);
+  }
+}
+
+void client::impl::release_connect_reservation(const connect_op_type::ptr& op)
+{
+  if (!op || !op->m_reserved || m_state != state::null) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (op->m_reserved && m_is_state_non_null) {
+    m_is_state_non_null = false;
+    m_server_address    = io::address();
+    op->m_reserved      = false;
+  }
 }
 
 void client::impl::cancel_create_tunnel(const create_tunnel_op_type::ptr& op)
@@ -860,7 +891,7 @@ void client::impl::cancel_accept_tunnel(const tunnel_type::id& tunnel_id, const 
   complete_accept_tunnel(op, boost::asio::error::operation_aborted);
 }
 
-void client::impl::async_connect_internal(const io::address& address, const connect_op_type::ptr& op)
+void client::impl::async_connect_internal(const connect_op_type::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -869,20 +900,16 @@ void client::impl::async_connect_internal(const io::address& address, const conn
     return;
   }
   if (op->m_cancelled.load(std::memory_order_acquire)) {
+    release_connect_reservation(op);
     complete_connect(op, boost::asio::error::operation_aborted);
   }
-  else if (m_state != state::null) {
+  else if (!op->m_reserved || m_state != state::null) {
     complete_connect(op, error::code::invalid_state);
   }
   else {
     ++m_generation;
-    m_server_address = address;
-    m_connect_op     = op;
+    m_connect_op = op;
     set_state(state::connecting);
-    {
-      std::lock_guard<std::mutex> lock(m_mutex);
-      m_is_state_non_null = true;
-    }
     arm_state_timer(m_config.m_connection_timeout_ms);
     do_resolve_host();
   }
@@ -1457,7 +1484,7 @@ void client::impl::on_read_incoming_data(generation_type generation, const boost
   }
   else {
     protobuf::Message message;
-    if (message.ParseFromArray(m_buffer.map().get_const_data(), m_buffer.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer.map().get_const_data(), m_buffer.get_size())) {
       on_read_incoming_message(generation, message);
     }
     else {

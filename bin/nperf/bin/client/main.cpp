@@ -220,7 +220,7 @@ int run(int argc, char** argv)
     signal_set.cancel();
   };
   rstream::nperf::client::callbacks callbacks = {
-      .m_on_metrics_cb = (rstream::nperf::on_metrics_cb)std::bind((void (*)(const rstream::nperf::metrics&, enum format, bool, unsigned int, bool)) & log, std::placeholders::_1, format, progress, precision, extra_infos),
+      .m_on_metrics_cb = (rstream::nperf::on_metrics_cb)std::bind((void (*)(const rstream::nperf::metrics&, enum format, bool, unsigned int, bool))&log, std::placeholders::_1, format, progress, precision, extra_infos),
   };
   client.async_run(options, callbacks, on_complete);
   std::vector<std::thread> threads;
@@ -228,7 +228,7 @@ int run(int argc, char** argv)
     auto n = jobs - 1;
     threads.reserve(n);
     for (decltype(n) i = 0; i < n; ++i) {
-      threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+      threads.emplace_back(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
     }
   }
   io_context.run();
@@ -345,9 +345,14 @@ std::ostream& operator<<(std::ostream& os, const std::pair<rstream::nperf::sampl
 
 std::ostream& operator<<(std::ostream& os, const std::pair<rstream::nperf::speed, unsigned int>& speed)
 {
-  auto percent = ((double)speed.first.m_elapsed_time_ms / speed.first.m_max_time_ms) * 100;
+  auto percent = speed.first.m_max_time_ms == 0
+                     ? 0.0
+                     : (static_cast<double>(speed.first.m_elapsed_time_ms) / static_cast<double>(speed.first.m_max_time_ms)) * 100.0;
   os << "[" << std::fixed << std::setprecision(0) << std::setw(3) << std::right << percent << "%] ";
-  os << format_speed_kbps(speed.first.m_measured_bytes, speed.first.m_elapsed_time_ms, speed.second, speed.second + 1);
+  os << format_speed_kbps(static_cast<double>(speed.first.m_measured_bytes),
+                          static_cast<double>(speed.first.m_elapsed_time_ms),
+                          speed.second,
+                          speed.second + 1);
   return os;
 }
 
@@ -423,11 +428,17 @@ void log(const rstream::nperf::metrics& metrics, bool pretty, bool display_progr
     if (metrics.m_data.type() == typeid(rstream::nperf::sample)) {
       auto speed = boost::get<rstream::nperf::sample>(metrics.m_data);
       if (speed.m_size > 1) {
-        std::cout << "(min: " << format_time_us(speed.m_min_us, precision) << " | max: " << format_time_us(speed.m_max_us, precision) << " | stdev: " << format_time_us(speed.m_stdev_us, precision) << ")";
+        std::cout << "(min: " << format_time_us(static_cast<double>(speed.m_min_us), precision)
+                  << " | max: " << format_time_us(static_cast<double>(speed.m_max_us), precision)
+                  << " | stdev: " << format_time_us(speed.m_stdev_us, precision) << ")";
       }
     }
     else if (metrics.m_data.type() == typeid(rstream::nperf::speed)) {
-      std::cout << "(data transferred: " << format_measured_data_kb((double)boost::get<rstream::nperf::speed>(metrics.m_data).m_measured_bytes / 1000.0, precision) << ")";
+      std::cout << "(data transferred: "
+                << format_measured_data_kb(
+                       static_cast<double>(boost::get<rstream::nperf::speed>(metrics.m_data).m_measured_bytes) / 1000.0,
+                       precision)
+                << ")";
     }
   }
   if (!pretty || metrics.m_final) {

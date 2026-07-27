@@ -85,6 +85,8 @@ class RSTREAM_GNUC_INTERNAL socket::impl : public std::enable_shared_from_this<i
     std::atomic_bool m_cancelled;
     bool m_completed;
     bool m_started;
+    bool m_reserved;
+    boost::system::error_code m_initiation_error;
     boost::system::error_code m_terminal_error;
     async_connect_completion_handler m_handler;
   };
@@ -112,6 +114,8 @@ class RSTREAM_GNUC_INTERNAL socket::impl : public std::enable_shared_from_this<i
   void install_transfer_cancellation(const transfer_op::ptr& op);
 
   void cancel_connect(const connect_op::ptr& op);
+
+  void release_connect_reservation(const connect_op::ptr& op);
 
   void cancel_transfer(const transfer_op::ptr& op);
 
@@ -174,6 +178,7 @@ socket::impl::connect_op::connect_op(async_connect_completion_handler&& handler)
     : m_cancelled(false),
       m_completed(false),
       m_started(false),
+      m_reserved(false),
       m_handler(std::move(handler))
 {
 }
@@ -371,14 +376,15 @@ socket::impl::impl(const executor_type& executor, core::allocator::ptr allocator
 
 settings_socket socket::impl::settings(boost::system::error_code& error_code)
 {
-  (void)error_code;
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   return m_settings;
 }
 
 void socket::impl::settings(const settings_socket& settings, boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -390,18 +396,19 @@ void socket::impl::settings(const settings_socket& settings, boost::system::erro
 void socket::impl::open(const endpoint& endpoint, boost::system::error_code& error_code)
 {
   (void)endpoint;
-  (void)error_code;
+  error_code.clear();
 }
 
 void socket::impl::close(boost::system::error_code& error_code)
 {
-  (void)error_code;
+  error_code.clear();
   boost::asio::dispatch(m_strand, std::bind_front(&impl::close_internal, shared_from_this()));
 }
 
 endpoint socket::impl::remote_endpoint(boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_remote_endpoint) {
     return m_remote_endpoint.get();
   }
@@ -414,8 +421,24 @@ void socket::impl::async_connect(type type, const endpoint& endpoint, async_conn
   if (!handler) {
     return;
   }
-  auto allocator         = boost::asio::get_associated_allocator(handler);
-  const auto op          = std::allocate_shared<connect_op>(allocator, std::move(handler));
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<connect_op>(allocator, std::move(handler));
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_is_state_non_null) {
+      op->m_initiation_error = error::code::invalid_state;
+    }
+    else if (endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
+      op->m_initiation_error = error::code::invalid_configuration;
+    }
+    else if (!endpoint.m_id_name) {
+      op->m_initiation_error = error::code::invalid_endpoint;
+    }
+    else {
+      m_is_state_non_null = true;
+      op->m_reserved      = true;
+    }
+  }
   auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
   if (cancellation_slot.is_connected()) {
     const std::weak_ptr<impl> weak_self     = shared_from_this();
@@ -532,27 +555,21 @@ void socket::impl::async_connect_internal(type type, const endpoint& endpoint, c
   assert(m_strand.running_in_this_thread());
 #endif
   if (op->m_cancelled.load(std::memory_order_acquire)) {
+    release_connect_reservation(op);
     complete_connect(op, boost::asio::error::operation_aborted);
     return;
   }
-  if (m_state != state::null) {
+  if (op->m_initiation_error) {
+    complete_connect(op, op->m_initiation_error);
+  }
+  else if (!op->m_reserved || m_state != state::null) {
     complete_connect(op, error::code::invalid_state);
-  }
-  else if (endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
-    complete_connect(op, error::code::invalid_configuration);
-  }
-  else if (!endpoint.m_id_name) {
-    complete_connect(op, error::code::invalid_endpoint);
   }
   else {
     m_type       = type;
     m_endpoint   = endpoint;
     m_connect_op = op;
     m_state      = state::connecting;
-    {
-      std::lock_guard<std::mutex> lock(m_mutex);
-      m_is_state_non_null = true;
-    }
     do_resolve_host();
   }
 }
@@ -669,7 +686,20 @@ void socket::impl::cancel_connect(const connect_op::ptr& op)
     on_close(boost::asio::error::operation_aborted);
   }
   else {
+    release_connect_reservation(op);
     complete_connect(op, boost::asio::error::operation_aborted);
+  }
+}
+
+void socket::impl::release_connect_reservation(const connect_op::ptr& op)
+{
+  if (!op || !op->m_reserved || m_state != state::null) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (op->m_reserved && m_is_state_non_null) {
+    m_is_state_non_null = false;
+    op->m_reserved      = false;
   }
 }
 

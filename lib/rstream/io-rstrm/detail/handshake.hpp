@@ -310,7 +310,7 @@ void handshake<stream>::async_run_operation<T>::on_read_response(handler_type ha
   }
   else {
     protobuf::Message message;
-    if (message.ParseFromArray(m_buffer.map().get_const_data(), m_buffer.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer.map().get_const_data(), m_buffer.get_size())) {
       on_read_incoming_protobuf_message(std::move(handler), message);
     }
     else {

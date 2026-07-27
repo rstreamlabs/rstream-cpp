@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 
+#include <cctype>
 #include <iostream>
 #include <mutex>
 #include <sstream>
@@ -106,7 +107,9 @@ void default_formatter::format(const spdlog::details::log_msg& msg, spdlog::memo
   const auto milliseconds   = spdlog::details::fmt_helper::time_fraction<std::chrono::milliseconds>(msg.time);
   const auto level_str_view = spdlog::level::to_string_view(msg.level);
   std::string level_str(level_str_view.begin(), level_str_view.end());
-  std::transform(level_str.begin(), level_str.end(), level_str.begin(), ::toupper);
+  std::transform(level_str.begin(), level_str.end(), level_str.begin(), [](unsigned char character) {
+    return static_cast<char>(std::toupper(character));
+  });
   fmt::format_to(std::back_inserter(dst), "{}{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}{} {}{:>8}{} {}{:<45}{} {}-{} {}{}{}",
                  m_color ? colors::dark_gray : "",
                  tm.tm_year + 1900,

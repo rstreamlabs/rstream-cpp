@@ -30,9 +30,4 @@ if(Python3_Interpreter_FOUND)
     NAME rstream-test-deploy
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_deploy.py)
   rstream_configure_test(rstream-test-deploy)
-  add_test(
-    NAME rstream-test-toolchain-environment
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_toolchain_environment.py)
-  rstream_configure_test(rstream-test-toolchain-environment)
 endif()

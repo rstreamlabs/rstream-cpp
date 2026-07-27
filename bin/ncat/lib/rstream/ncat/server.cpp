@@ -2,7 +2,11 @@
 
 #include "server.hpp"
 
+#ifndef BOOST_PROCESS_VERSION
 #define BOOST_PROCESS_VERSION 1
+#elif BOOST_PROCESS_VERSION != 1
+#error "rstream ncat requires Boost.Process v1"
+#endif
 
 #include <cctype>
 #include <chrono>
@@ -60,6 +64,7 @@
 #include <rstream/core/log.hpp>
 #include <rstream/core/memory.hpp>
 #include <rstream/core/object_id.hpp>
+#include <rstream/core/system.hpp>
 #ifdef RSTREAM_WITH_IO_STREAMS
 #include <rstream/io/detail/stream/async_connect.hpp>
 #include <rstream/io/stream.hpp>
@@ -1263,16 +1268,16 @@ void server::impl::session_exec::start_child()
       std::string shell;
       std::vector<std::string> args;
 #ifdef _WIN32
-      if (const char* comspec = std::getenv("COMSPEC")) {
-        shell = comspec;
+      if (const auto comspec = rstream::core::get_environment_variable("COMSPEC")) {
+        shell = comspec.value();
       }
       else {
         shell = "cmd.exe";
       }
       args = {"/C", m_exec.m_cmd};
 #else
-      if (const char* env_shell = std::getenv("SHELL")) {
-        shell = env_shell;
+      if (const auto env_shell = rstream::core::get_environment_variable("SHELL")) {
+        shell = env_shell.value();
       }
       else {
         shell = "/bin/sh";

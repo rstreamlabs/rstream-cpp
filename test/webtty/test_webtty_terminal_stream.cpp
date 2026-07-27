@@ -1,5 +1,7 @@
 // See LICENSE file in the project root for license information.
 
+#define BOOST_PROCESS_VERSION 1
+
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
@@ -9,7 +11,15 @@
 #include <vector>
 
 #include <boost/asio/io_context.hpp>
+#if __has_include(<boost/process/v1/args.hpp>)
+#include <boost/process/v1/args.hpp>
+#include <boost/process/v1/exe.hpp>
+#else
+#include <boost/process/args.hpp>
+#include <boost/process/exe.hpp>
+#endif
 
+#include <rstream/core/system.hpp>
 #include <rstream/webtty/detail/process.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/stream.hpp>
@@ -36,11 +46,11 @@ static void check_windows_pty_rejects_overlapping_writes()
   auto pty        = std::dynamic_pointer_cast<stream::pty_windows>(stream_ptr);
   assert(pty);
 
-  const auto* command_shell = std::getenv("COMSPEC");
-  assert(command_shell != nullptr);
+  const auto command_shell = rstream::core::get_environment_variable("COMSPEC");
+  assert(command_shell.has_value());
   auto child = rstream::webtty::detail::process::make_child(
       stream_ptr,
-      boost::process::exe(command_shell),
+      boost::process::exe(*command_shell),
       boost::process::args(std::vector<std::string>{"/d", "/s", "/c", "ping -n 30 127.0.0.1 >nul"}));
 
   std::vector<char> first_payload(16 * 1024 * 1024, 'x');
@@ -83,11 +93,11 @@ static void check_windows_pty_cancel_resize_and_close_are_serialized()
   auto pty        = std::dynamic_pointer_cast<stream::pty_windows>(stream_ptr);
   assert(pty);
 
-  const auto* command_shell = std::getenv("COMSPEC");
-  assert(command_shell != nullptr);
+  const auto command_shell = rstream::core::get_environment_variable("COMSPEC");
+  assert(command_shell.has_value());
   auto child = rstream::webtty::detail::process::make_child(
       stream_ptr,
-      boost::process::exe(command_shell),
+      boost::process::exe(*command_shell),
       boost::process::args(std::vector<std::string>{"/d", "/s", "/c", "ping -n 30 127.0.0.1 >nul"}));
 
   std::thread resize_thread([pty] {

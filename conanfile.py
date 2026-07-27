@@ -75,6 +75,7 @@ class ConanPackage(ConanFile):
         "!**/*.gcda",
         "!**/*.gcno",
         "!**/*.gcov",
+        "!**/*.log",
         "!**/*.profdata",
         "!**/*.profraw",
         "!*.gcda",
@@ -93,19 +94,6 @@ class ConanPackage(ConanFile):
         "*",
     )
     requires = "docopt.cpp/[>=0.6.3]"
-
-    def export_sources(self):
-        conan.tools.files.copy(
-            self,
-            "toolchain_environment.py",
-            src=os.path.join(self.recipe_folder, "conan", "recipes", "yocto-toolchain"),
-            dst=os.path.join(
-                self.export_sources_folder,
-                "conan",
-                "recipes",
-                "yocto-toolchain",
-            ),
-        )
 
     @property
     def cmake_options(self):
@@ -174,7 +162,7 @@ class ConanPackage(ConanFile):
                 "Use public Conan Center references or set build_os, build_arch, and build_channel."
             )
 
-    def config_options(self):
+    def configure(self):
         if self.option_unset(self.options.deploy_python_dependencies):
             self.options.deploy_python_dependencies = self.options.with_python
         if self.option_unset(self.options.deploy_python_stdlib):
@@ -188,7 +176,6 @@ class ConanPackage(ConanFile):
         if self.option_unset(self.options.with_ncurses):
             self.options.with_ncurses = self.settings.os != "Windows"
 
-    def configure(self):
         unused_boost_components = (
             "cobalt",
             "contract",
@@ -224,8 +211,6 @@ class ConanPackage(ConanFile):
             self.options["yaml-cpp"].shared = shared_runtime
         if self.settings.os == "Emscripten":
             self.options["boost"].header_only = True
-        if self.settings.compiler == "msvc":
-            self.options["docopt.cpp"].boost_regex = True
         if self.option_enabled(self.options.with_python):
             self.options["boost"].without_python = False
         if self.option_enabled(self.options.with_ncurses):
@@ -241,7 +226,12 @@ class ConanPackage(ConanFile):
         self.validate_dependency_overrides()
         boost_ref = str(self.options.get_safe("boost_ref") or "").strip()
         if boost_ref:
-            self.requires(boost_ref, transitive_headers=True, transitive_libs=True)
+            self.requires(
+                boost_ref,
+                transitive_headers=True,
+                transitive_libs=True,
+                force=True,
+            )
         else:
             self.requires("boost/[>=1.81.0]", transitive_headers=True, transitive_libs=True)
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)

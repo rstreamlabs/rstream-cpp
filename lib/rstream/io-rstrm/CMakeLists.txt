@@ -38,6 +38,8 @@ add_custom_command(
     ${proto_files}
   VERBATIM)
 
+rstream_configure_generated_protobuf_warnings(${GENERATED_SOURCES})
+
 # Generated protobuf descriptors are process-wide. A statically linked SDK and
 # runtime-loaded plugins must therefore share one copy of the generated code.
 set(PROTOBUF_LIBRARY_COMPONENT "${LIBRARY_COMPONENT}-protobuf")
@@ -79,14 +81,6 @@ target_link_libraries(
 add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS})
 add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
 
-if(ENABLE_STRICT_WARNINGS)
-  if(MSVC)
-    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS /W0)
-  else()
-    set_source_files_properties(${GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS -w)
-  endif()
-endif()
-
 set_target_properties(
   ${LIBRARY_NAME}
   PROPERTIES
@@ -106,8 +100,11 @@ target_include_directories(
   PUBLIC
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/lib/>
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/>
-  $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/>
-  PRIVATE
+  $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/>)
+
+target_include_directories(
+  ${LIBRARY_NAME}
+  SYSTEM PRIVATE
   $<BUILD_INTERFACE:${GENERATED_SOURCE_DIR}>/)
 
 target_compile_features(${LIBRARY_NAME} PUBLIC cxx_std_20)

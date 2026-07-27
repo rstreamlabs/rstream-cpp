@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -1233,7 +1234,7 @@ void client::impl::on_read_incoming_data(const std::error_code& error_code)
   }
   else {
     rstream::webtty::protobuf::Message message;
-    if (message.ParseFromArray(m_buffer_socket.map().get_const_data(), m_buffer_socket.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer_socket.map().get_const_data(), m_buffer_socket.get_size())) {
       on_read_incoming_message(message);
     }
     else {
@@ -1420,21 +1421,18 @@ void client::impl::do_process_data(const rstream::webtty::protobuf::Data& data)
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  stdfd_type type;
-  std::error_code error_code;
+  std::optional<stdfd_type> type;
   if (data.type() == rstream::webtty::protobuf::Data::TYPE_STDOUT) {
     type = stdfd_type::std_out;
   }
   else if (data.type() == rstream::webtty::protobuf::Data::TYPE_STDERR) {
     type = stdfd_type::std_err;
   }
-  else {
-    error_code = error::code::unexpected_message;
+  if (!type) {
+    on_error(error::code::unexpected_message);
+    return;
   }
-  if (error_code) {
-    on_error(error_code);
-  }
-  else if (data.has_encrypted_data()) {
+  if (data.has_encrypted_data()) {
     if (!m_settings.m_payload_crypto) {
       on_error(error::code::protocol_error);
       return;
@@ -1443,17 +1441,17 @@ void client::impl::do_process_data(const rstream::webtty::protobuf::Data& data)
     encrypted_payload encrypted;
     byte_vector plaintext;
     from_proto(encrypted, data.encrypted_data());
-    m_settings.m_payload_crypto->decrypt(type == stdfd_type::std_out ? payload_stream::std_out : payload_stream::std_err, encrypted, plaintext, crypto_error);
+    m_settings.m_payload_crypto->decrypt(*type == stdfd_type::std_out ? payload_stream::std_out : payload_stream::std_err, encrypted, plaintext, crypto_error);
     if (crypto_error) {
       on_error(crypto_error);
       return;
     }
     auto buffer = std::make_shared<std::string>(plaintext.begin(), plaintext.end());
-    do_process_data(buffer, type);
+    do_process_data(buffer, *type);
   }
   else {
     auto buffer = data.has_eos() ? nullptr : std::make_shared<std::string>(data.data());
-    do_process_data(buffer, type);
+    do_process_data(buffer, *type);
   }
 }
 

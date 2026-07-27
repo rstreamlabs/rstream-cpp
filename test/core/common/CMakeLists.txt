@@ -4,6 +4,7 @@
 
 add_test_target(${PROJECT_NAME}-test-core-executor-binder test_core_executor_binder.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-error test_core_error.cpp ${PROJECT_NAME}::core)
+add_test_target(${PROJECT_NAME}-test-core-log test_core_log.cpp ${PROJECT_NAME}::core)
 if(WIN32)
   add_test_target(${PROJECT_NAME}-test-core-windows-blocking-handle test_core_windows_blocking_handle.cpp ${PROJECT_NAME}::core)
 endif()

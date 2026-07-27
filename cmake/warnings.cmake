@@ -43,3 +43,20 @@ function(rstream_enable_project_warnings root_directory)
     endif()
   endforeach()
 endfunction()
+
+function(rstream_configure_generated_protobuf_warnings)
+  if(NOT ENABLE_STRICT_WARNINGS)
+    return()
+  endif()
+  set(generated_sources ${ARGN})
+  list(FILTER generated_sources INCLUDE REGEX "\\.pb\\.cc$")
+  if(MSVC)
+    set_source_files_properties(
+      ${generated_sources}
+      PROPERTIES COMPILE_OPTIONS "/wd4100;/wd4267")
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set_source_files_properties(
+      ${generated_sources}
+      PROPERTIES COMPILE_OPTIONS -Wno-nullability-extension)
+  endif()
+endfunction()

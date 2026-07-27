@@ -5,12 +5,14 @@
 #include <array>
 #include <cassert>
 #include <chrono>
+#include <future>
 #include <string>
 #include <thread>
 
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <rstream/core/windows/blocking_handle.hpp>
@@ -66,7 +68,7 @@ static void check_read_from_non_overlapped_pipe()
 
   boost::asio::io_context io_context;
   rstream::core::windows::blocking_handle stream(io_context.get_executor());
-  boost::system::error_code error_code;
+  boost::system::error_code error_code = boost::asio::error::operation_aborted;
   stream.open(read.get(), rstream::core::windows::blocking_handle::access::read, error_code);
   assert(!error_code);
 
@@ -76,11 +78,17 @@ static void check_read_from_non_overlapped_pipe()
     error_code  = error;
     transferred = size;
   });
+  std::promise<void> started;
+  auto started_future = started.get_future();
+  boost::asio::post(io_context, [&] { started.set_value(); });
+  std::thread io_thread([&] { io_context.run(); });
+  started_future.wait();
+
   const std::string expected = "stdin-data";
   DWORD written              = 0;
   assert(::WriteFile(write.get(), expected.data(), static_cast<DWORD>(expected.size()), &written, nullptr));
   assert(written == expected.size());
-  io_context.run();
+  io_thread.join();
   assert(!error_code);
   assert(transferred == expected.size());
   assert(std::string(buffer.data(), transferred) == expected);
@@ -96,7 +104,7 @@ static void check_write_to_non_overlapped_pipe()
 
   boost::asio::io_context io_context;
   rstream::core::windows::blocking_handle stream(io_context.get_executor());
-  boost::system::error_code error_code;
+  boost::system::error_code error_code = boost::asio::error::operation_aborted;
   stream.open(write.get(), rstream::core::windows::blocking_handle::access::write, error_code);
   assert(!error_code);
 
@@ -126,7 +134,7 @@ static void check_cancellation_completes_once()
 
   boost::asio::io_context io_context;
   rstream::core::windows::blocking_handle stream(io_context.get_executor());
-  boost::system::error_code error_code;
+  boost::system::error_code error_code = boost::asio::error::operation_aborted;
   stream.open(read.get(), rstream::core::windows::blocking_handle::access::read, error_code);
   assert(!error_code);
 

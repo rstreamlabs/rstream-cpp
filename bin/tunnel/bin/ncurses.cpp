@@ -19,6 +19,7 @@
 
 #include <rstream/config.hpp>
 #include <rstream/core/log.hpp>
+#include <rstream/core/system.hpp>
 
 #include "error.hpp"
 
@@ -210,15 +211,16 @@ void ncurses::impl::run()
     const auto program_location = boost::filesystem::canonical(boost::dll::program_location());
     const auto terminfodb       = boost::filesystem::canonical(program_location.parent_path().parent_path() / "share" / "terminfo.db");
     if (boost::filesystem::exists(terminfodb)) {
-      const auto env = std::getenv("TERMINFO");
-      if (env == nullptr) {
+      const auto env = rstream::core::get_environment_variable("TERMINFO");
+      if (!env) {
         setenv("TERMINFO", terminfodb.string().c_str(), 1);
       }
     }
   }
   catch (...) {
   }
-  SCREEN* screen = newterm(std::getenv("TERM"), stdout, stdin);
+  auto term      = rstream::core::get_environment_variable("TERM");
+  SCREEN* screen = newterm(term ? term->data() : nullptr, stdout, stdin);
   if (screen == nullptr) {
     error_code = error::code::ncurses_terminal;
   }

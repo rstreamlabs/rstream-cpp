@@ -13,6 +13,7 @@
 #include <boost/url.hpp>
 
 #include <rstream/io-rstrm/io-rstrm.hpp>
+#include <rstream/test/environment.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/webtty.hpp>
@@ -24,51 +25,7 @@
 namespace protocol = rstream::webtty::protocol;
 namespace protobuf = rstream::webtty::protobuf;
 
-class env_guard {
- public:
-  explicit env_guard(const char* key)
-      : m_key(key)
-  {
-    const char* value = std::getenv(key);
-    if (value != nullptr) {
-      m_present = true;
-      m_value   = value;
-    }
-  }
-
-  ~env_guard()
-  {
-    if (m_present) {
-      set(m_value);
-    }
-    else {
-      unset();
-    }
-  }
-
-  void set(const std::string& value)
-  {
-#ifdef _WIN32
-    _putenv_s(m_key, value.c_str());
-#else
-    setenv(m_key, value.c_str(), 1);
-#endif
-  }
-
-  void unset()
-  {
-#ifdef _WIN32
-    _putenv_s(m_key, "");
-#else
-    unsetenv(m_key);
-#endif
-  }
-
- private:
-  const char* m_key;
-  bool m_present = false;
-  std::string m_value;
-};
+using env_guard = rstream::test::environment_guard;
 
 static boost::urls::url parse_url(const std::string& uri)
 {
