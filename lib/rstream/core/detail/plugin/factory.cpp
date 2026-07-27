@@ -36,15 +36,20 @@ std::pair<shared_library, bool> load_library(const boost::filesystem::path& path
 {
   static library_cache cache;
   const auto canonical_path = boost::filesystem::weakly_canonical(path);
-  std::lock_guard lock(cache.m_mutex);
-  const auto existing = cache.m_libraries.find(canonical_path);
-  if (existing != cache.m_libraries.end()) {
-    return {existing->second, false};
+  {
+    std::lock_guard lock(cache.m_mutex);
+    const auto existing = cache.m_libraries.find(canonical_path);
+    if (existing != cache.m_libraries.end()) {
+      return {existing->second, false};
+    }
   }
   auto library = std::make_shared<boost::dll::shared_library>(canonical_path, boost::dll::load_mode::rtld_lazy);
-  (void)library->get_alias<plugin::ptr()>(RSTREAM_PLUGIN_SYMBOL_NAME);
-  cache.m_libraries.emplace(canonical_path, library);
-  return {std::move(library), true};
+  if (!library->has(RSTREAM_PLUGIN_SYMBOL_NAME)) {
+    return {nullptr, false};
+  }
+  std::lock_guard lock(cache.m_mutex);
+  const auto [iterator, inserted] = cache.m_libraries.emplace(canonical_path, library);
+  return {iterator->second, inserted};
 }
 
 }  // namespace
@@ -326,6 +331,10 @@ void factory::impl::init()
   for (const auto& path : plugins) {
     try {
       auto [library, loaded] = load_library(path);
+      if (!library) {
+        m_logger->warn("ignored library '{}': plugin entry point not found", path.string());
+        continue;
+      }
 #ifdef DEBUG_BUILD
       if (loaded) {
         rstream::core::default_logger()->trace("shared library '{}' loaded", path.string());
