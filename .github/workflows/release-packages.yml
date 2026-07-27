@@ -219,7 +219,11 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if conan remote list | grep -q "^${remote_name}:"; then
+              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
+            else
+              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            fi
             if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
               conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
             fi
@@ -410,7 +414,11 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if conan remote list | grep -q "^${remote_name}:"; then
+              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
+            else
+              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            fi
             if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
               conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
             fi
@@ -548,7 +556,11 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if conan remote list | grep -q "^${remote_name}:"; then
+              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
+            else
+              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            fi
           fi
       - name: Validate package version
         shell: bash

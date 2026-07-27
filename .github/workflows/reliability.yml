@@ -1,0 +1,90 @@
+name: Reliability
+on:
+  schedule:
+    - cron: "19 3 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  packages:
+    name: Complete package matrix
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    uses: ./.github/workflows/conan.yml
+    with:
+      channel: dev
+  sanitizers:
+    name: ${{ matrix.name }}
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Address and undefined behavior sanitizers
+            preset: asan
+          - name: Thread sanitizer
+            preset: tsan
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: brew install boost libmaxminddb ninja nlohmann-json openssl@3 protobuf spdlog yaml-cpp
+      - name: Configure
+        run: cmake --preset "${{ matrix.preset }}"
+      - name: Build
+        run: cmake --build --preset "${{ matrix.preset }}"
+      - name: Test
+        run: ctest --preset "${{ matrix.preset }}"
+  static-analysis:
+    name: Static analysis
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: brew install boost libmaxminddb llvm ninja nlohmann-json openssl@3 protobuf spdlog yaml-cpp
+      - name: Configure
+        run: cmake --preset quality
+      - name: Build
+        run: cmake --build --preset quality
+      - name: Analyze product sources
+        run: |
+          set -euo pipefail
+          sdkroot=$(xcrun --show-sdk-path)
+          "$(brew --prefix llvm)/bin/run-clang-tidy" \
+            -clang-tidy-binary "$(brew --prefix llvm)/bin/clang-tidy" \
+            -p out/build/quality \
+            -j "$(sysctl -n hw.logicalcpu)" \
+            -quiet \
+            -hide-progress \
+            -warnings-as-errors="*" \
+            -extra-arg=-isysroot \
+            -extra-arg="${sdkroot}" \
+            '^.*/rstream-cpp/(lib|bin|plugin)/.*\.cpp$'
+  stress:
+    name: Deterministic stress tests
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: brew install boost libmaxminddb ninja nlohmann-json openssl@3 protobuf spdlog yaml-cpp
+      - name: Configure
+        run: cmake --preset quality
+      - name: Build
+        run: cmake --build --preset quality
+      - name: Repeat concurrency and lifecycle tests
+        run: |
+          ctest \
+            --test-dir out/build/quality \
+            --repeat until-fail:20 \
+            --output-on-failure \
+            -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'

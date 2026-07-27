@@ -68,6 +68,11 @@ A typical source build uses a C++20 compiler, CMake, Conan 2.x, Python 3.x, and 
 
 Dependencies are resolved through Conan/CMake integration and include Boost, OpenSSL or LibreSSL, yaml-cpp, nlohmann_json, spdlog, plus optional components such as ncurses, maxminddb, and Python bindings.
 
+The supported platform matrix, Boost.Asio and rstream runtime contracts,
+Conan Center dependency policy, constrained-system requirements, and complete
+validation procedure are defined in
+[docs/SDK_ENGINEERING.md](docs/SDK_ENGINEERING.md).
+
 ## Build from source
 
 The recommended source build uses Conan to provision third-party dependencies and then builds the package:
@@ -150,7 +155,22 @@ errors by default. Set `ENABLE_STRICT_WARNINGS=off WARNINGS_AS_ERRORS=off` only
 for diagnosis against a compiler that is not yet part of the supported
 matrix.
 
-Regular CI is handled by the `Build` GitHub Actions workflow. Pushes to `main` build the `stable` Conan channel, `feature-*` and `fix-*` branches build the `dev` channel, and manual runs can select `dev`, `stable`, or `testing`. This workflow only validates the Conan package with `conan create`; it does not run the full cross-platform release export.
+Regular CI is handled by the `Build` GitHub Actions workflow. Pushes to `main` build the `stable` Conan channel, `feature-*` and `fix-*` branches build the `dev` channel, and manual runs can select `dev`, `stable`, or `testing`. This workflow validates all four library/plugin topologies on Linux, macOS, and Windows with `conan create`.
+
+The scheduled `Reliability` workflow reruns that complete package matrix and adds AddressSanitizer, UndefinedBehaviorSanitizer, ThreadSanitizer, static analysis, and repeated concurrency/lifecycle tests. Its CMake presets and test selection are available locally:
+
+```bash
+cmake --preset asan
+cmake --build --preset asan
+ctest --preset asan
+
+cmake --preset tsan
+cmake --build --preset tsan
+ctest --preset tsan
+
+ctest --test-dir out/build/quality --repeat until-fail:20 --output-on-failure \
+  -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'
+```
 
 Release packaging is handled separately by the `Release Packages` workflow. Manual dispatch builds the same `rstream-utils` artifacts as:
 

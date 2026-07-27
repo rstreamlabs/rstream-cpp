@@ -6,7 +6,11 @@ enable_testing()
 
 # define macros for testing
 
-set(BIN_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test")
+if(WIN32)
+  set(BIN_OUT_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+else()
+  set(BIN_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test")
+endif()
 
 set(RSTREAM_TEST_TIMEOUT_SCALE "1" CACHE STRING "Timeout scale for instrumented tests")
 set(RSTREAM_TEST_TIMEOUT_SECONDS "120" CACHE STRING "Maximum duration of one CTest test")

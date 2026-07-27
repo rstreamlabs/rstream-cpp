@@ -201,9 +201,11 @@ case_tls_terminated() {
   local rc=0
   start_upstream "tls-terminated" tcp
   upstream=$UPSTREAM_ADDR
-  start_tunnel "tls-terminated" "$upstream" \
+  if ! start_tunnel "tls-terminated" "$upstream" \
     --tls --tls-mode terminated --tls-alpn rstream-runtime-stream \
-    --name "$NAME_PREFIX-tls-terminated"
+    --name "$NAME_PREFIX-tls-terminated"; then
+    return 1
+  fi
   "$PYTHON" "$ROOT/test/e2e/runtime_harness.py" check tls-echo \
     --addr "$FORWARDING" --alpn rstream-runtime-stream || rc=$?
   stop_pid "$TUNNEL_PID"
@@ -215,9 +217,11 @@ case_tls_upstream_tls() {
   local rc=0
   start_upstream "tls-upstream-tls" tls
   upstream=$UPSTREAM_ADDR
-  start_tunnel "tls-upstream-tls" "$upstream" \
+  if ! start_tunnel "tls-upstream-tls" "$upstream" \
     --tls --tls-mode terminated --upstream-tls --tls-alpn rstream-runtime-stream \
-    --name "$NAME_PREFIX-tls-upstream"
+    --name "$NAME_PREFIX-tls-upstream"; then
+    return 1
+  fi
   "$PYTHON" "$ROOT/test/e2e/runtime_harness.py" check tls-echo \
     --addr "$FORWARDING" --alpn rstream-runtime-stream || rc=$?
   stop_pid "$TUNNEL_PID"
@@ -229,8 +233,10 @@ case_tls_passthrough() {
   local rc=0
   start_upstream "tls-passthrough" tls
   upstream=$UPSTREAM_ADDR
-  start_tunnel "tls-passthrough" "$upstream" \
-    --tls --tls-mode passthrough --name "$NAME_PREFIX-tls-passthrough"
+  if ! start_tunnel "tls-passthrough" "$upstream" \
+    --tls --tls-mode passthrough --name "$NAME_PREFIX-tls-passthrough"; then
+    return 1
+  fi
   "$PYTHON" "$ROOT/test/e2e/runtime_harness.py" check tls-echo --addr "$FORWARDING" || rc=$?
   stop_pid "$TUNNEL_PID"
   return "$rc"
@@ -241,7 +247,9 @@ case_http_h1() {
   local rc=0
   start_upstream "http-h1" http
   upstream=$UPSTREAM_ADDR
-  start_tunnel "http-h1" "$upstream" --http --name "$NAME_PREFIX-http-h1"
+  if ! start_tunnel "http-h1" "$upstream" --http --name "$NAME_PREFIX-http-h1"; then
+    return 1
+  fi
   "$PYTHON" "$ROOT/test/e2e/runtime_harness.py" check https-ping --addr "$FORWARDING" || rc=$?
   stop_pid "$TUNNEL_PID"
   return "$rc"
