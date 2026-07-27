@@ -874,7 +874,7 @@ void exposer::impl::session::on_write(bool close, const boost::system::error_cod
       if (m_response.result() == boost::beast::http::status::ok) {
         auto delay_s = std::chrono::duration_cast<std::chrono::microseconds>(timestamp::clock::now() - m_request_timestamp).count() / 1000000.0;
         m_context.m_metrics.m_requests_duration_seconds.labels(labels).observe(delay_s);
-        m_context.m_metrics.m_response_size_bytes.labels(labels).observe(bytes_transferred);
+        m_context.m_metrics.m_response_size_bytes.labels(labels).observe(static_cast<double>(bytes_transferred));
       }
       labels.insert({"code", std::to_string((int)m_response.result())});
       m_context.m_metrics.m_requests_total.labels(labels).increment();
