@@ -16,13 +16,14 @@ set(RSTREAM_COPYING "Apache License 2.0")
 
 # CXX declarations
 
-if (WIN32)
+if(WIN32)
   add_compile_definitions(_WIN32_WINNT=0x0A00)
   add_compile_definitions(NTDDI_VERSION=0x0A000006)
   if(MSVC)
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
     add_compile_options(/bigobj)
     add_compile_options(/Zc:preprocessor) # support for __VA_ARGS__ in macros
-  elseif (MINGW)
+  elseif(MINGW)
     add_compile_options(-Wa,-mbig-obj)
     link_libraries(ws2_32 mswsock)
   endif()

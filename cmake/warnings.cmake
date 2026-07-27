@@ -53,7 +53,7 @@ function(rstream_configure_generated_protobuf_warnings)
   if(MSVC)
     set_source_files_properties(
       ${generated_sources}
-      PROPERTIES COMPILE_OPTIONS "/wd4100;/wd4267")
+      PROPERTIES COMPILE_OPTIONS "/wd4100;/wd4251;/wd4267")
   elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set_source_files_properties(
       ${generated_sources}
