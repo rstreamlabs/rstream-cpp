@@ -256,7 +256,7 @@ jobs:
           path: ${{ env.CCACHE_DIR }}
           key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
   windows:
-    name: Windows ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
+    name: Windows ${{ matrix.linkage }} libraries
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: windows-latest
     env:
@@ -265,25 +265,12 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - linkage: shared
             shared: "True"
-            plugin_mode: static
-            static_plugins: "True"
-          - linkage: shared
-            shared: "True"
-            plugin_mode: dynamic
-            static_plugins: "False"
           - linkage: static
             shared: "False"
-            plugin_mode: dynamic
-            static_plugins: "False"
-          - linkage: static
-            shared: "False"
-            plugin_mode: static
-            static_plugins: "True"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -295,21 +282,18 @@ jobs:
         id: conan-cache
         with:
           path: ~/.conan2/p
-          key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
+          key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
-            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
-            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
       - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
             ccache-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Install compiler cache
@@ -336,15 +320,20 @@ jobs:
       - name: Build and test Conan package
         shell: pwsh
         run: |
-          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
-            -s:b compiler.cppstd=20 `
-            -s:h compiler.cppstd=20 `
-            -o "rstream/*:shared=${{ matrix.shared }}" `
-            -o "rstream/*:static_plugins=${{ matrix.static_plugins }}" `
-            -o "rstream/*:enable_testing=True" `
-            -o "rstream/*:enable_strict_warnings=True" `
-            -o "rstream/*:warnings_as_errors=True" `
-            .
+          foreach ($staticPlugins in @("True", "False")) {
+            conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
+              -s:b compiler.cppstd=20 `
+              -s:h compiler.cppstd=20 `
+              -o "rstream/*:shared=${{ matrix.shared }}" `
+              -o "rstream/*:static_plugins=$staticPlugins" `
+              -o "rstream/*:enable_testing=True" `
+              -o "rstream/*:enable_strict_warnings=True" `
+              -o "rstream/*:warnings_as_errors=True" `
+              .
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
       - name: Show compiler cache statistics
         if: ${{ always() }}
         shell: pwsh
