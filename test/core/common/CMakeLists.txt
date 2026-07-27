@@ -11,7 +11,17 @@ endif()
 add_test_target(${PROJECT_NAME}-test-core-memory-buffer test_core_memory_buffer.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-protobuf test_core_protobuf.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-exception-system test_core_exception_system.cpp ${PROJECT_NAME}::core)
+add_library(${PROJECT_NAME}-test-plugin-without-entrypoint MODULE test_plugin_without_entrypoint.cpp)
+set_target_properties(
+  ${PROJECT_NAME}-test-plugin-without-entrypoint
+  PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "${PROJECT_NAME}-test-plugin-without-entrypoint")
 add_test_target(${PROJECT_NAME}-test-core-plugin-version test_core_plugin_version.cpp ${PROJECT_NAME}::io)
+target_compile_definitions(
+  ${PROJECT_NAME}-test-core-plugin-version
+  PRIVATE RSTREAM_TEST_PLUGIN_WITHOUT_ENTRYPOINT_PATH="$<TARGET_FILE:${PROJECT_NAME}-test-plugin-without-entrypoint>")
+add_dependencies(${PROJECT_NAME}-test-core-plugin-version ${PROJECT_NAME}-test-plugin-without-entrypoint)
 if(NOT ENABLE_STATIC_PLUGINS)
   target_compile_definitions(${PROJECT_NAME}-test-core-plugin-version PRIVATE RSTREAM_TEST_DYNAMIC_PLUGINS)
   rstream_enable_runtime_plugins(
