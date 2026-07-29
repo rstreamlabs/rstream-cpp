@@ -37,7 +37,7 @@ Before every dependency update and release:
 1. Compare each retained recipe with the matching Conan Center revision.
 2. Confirm that every local change still serves a reproduced target failure.
 3. Remove obsolete changes instead of carrying them forward.
-4. Run the validation matrix in `docs/SDK_ENGINEERING.md`.
+4. Run the validation matrix in `docs/001-sdk-engineering.md`.
 
 Do not add another local recipe without a reproduced packaging failure,
 focused validation, and a smaller upstream-compatible alternative having been
