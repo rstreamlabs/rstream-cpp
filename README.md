@@ -46,7 +46,7 @@ Beast-based projects are naturally supported, but the scope is broader: any netw
 
 URIs are a first-class configuration mechanism in this SDK. Query parameters encode tunnel properties, client options, transport behavior, and TLS settings.
 
-A dedicated reference is available in [docs/URI_MODEL.md](docs/URI_MODEL.md).
+A dedicated reference is available in [docs/002-uri-model.md](docs/002-uri-model.md).
 
 ## Compatibility
 
@@ -71,7 +71,7 @@ Dependencies are resolved through Conan/CMake integration and include Boost, Ope
 The supported platform matrix, Boost.Asio and rstream runtime contracts,
 Conan Center dependency policy, constrained-system requirements, and complete
 validation procedure are defined in
-[docs/SDK_ENGINEERING.md](docs/SDK_ENGINEERING.md).
+[docs/001-sdk-engineering.md](docs/001-sdk-engineering.md).
 
 ## Build from source
 
@@ -225,7 +225,7 @@ rstream project use <project-endpoint> --default
 
 For advanced authentication modes and context workflows, see the rstream CLI workflow documentation:
 
-- https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
+- https://github.com/rstreamlabs/rstream-go/blob/main/docs/001-cli-workflow.md
 
 ## Environment variables
 
@@ -509,10 +509,10 @@ rstream-tunnel 127.0.0.1:8443 --tls --tls-mode passthrough
 - Documentation: https://rstream.io/docs
 - Go SDK (reference implementation): https://github.com/rstreamlabs/rstream-go
 - C++ SDK: https://github.com/rstreamlabs/rstream-cpp
-- CLI workflow and authentication: https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
-- Declarative run workflows: https://github.com/rstreamlabs/rstream-go/blob/main/docs/CMD_RUN.md
-- Transport configuration: https://github.com/rstreamlabs/rstream-go/blob/main/docs/TRANSPORT.md
-- Tunnel property reference: https://github.com/rstreamlabs/rstream-go/blob/main/docs/TUNNEL_PROPERTIES.md
+- CLI workflow and authentication: https://github.com/rstreamlabs/rstream-go/blob/main/docs/001-cli-workflow.md
+- Declarative run workflows: https://github.com/rstreamlabs/rstream-go/blob/main/docs/008-cmd-run.md
+- Transport configuration: https://github.com/rstreamlabs/rstream-go/blob/main/docs/002-transport.md
+- Tunnel property reference: https://github.com/rstreamlabs/rstream-go/blob/main/docs/003-tunnel-properties.md
 
 ## Contributing
 

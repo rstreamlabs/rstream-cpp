@@ -48,7 +48,7 @@ Public pull requests do not automatically run the repository release/build workf
 
 Changes to asynchronous code, dependencies, plugins, build profiles, or
 packaging must satisfy the complete
-[SDK engineering contract](./docs/SDK_ENGINEERING.md). It defines the
+[SDK engineering contract](./docs/001-sdk-engineering.md). It defines the
 supported platform and topology matrix, Conan dependency policy, constrained
 runtime requirements, and release validation gates.
 
