@@ -190,10 +190,41 @@ assert_rejects_passthrough_policy() {
   fi
 }
 
+assert_rejects_published_tcp_option() {
+  local label=$1 expected=$2
+  shift 2
+
+  local log="$TMP_DIR/reject-$label.log"
+  if "$BIN" 127.0.0.1:65535 --engine 127.0.0.1:1 --no-token --no-retry --format json \
+    --name "$NAME_PREFIX-reject-$label" "$@" >"$log" 2>&1; then
+    printf "invalid published TCP options were accepted (%s)\n" "$label" >&2
+    cat "$log" >&2
+    return 1
+  fi
+  if ! grep -q -- "$expected" "$log"; then
+    printf "rejection did not explain the published TCP constraint (%s)\n" "$label" >&2
+    cat "$log" >&2
+    return 1
+  fi
+}
+
 case_reject_passthrough_policy() {
   assert_rejects_passthrough_policy "tls-min-version" --tls-min-version tls1.2
   assert_rejects_passthrough_policy "upstream-tls" --upstream-tls
   assert_rejects_passthrough_policy "tls-alpn" --tls-alpn rstream-runtime-stream
+}
+
+case_reject_published_tcp_options() {
+  assert_rejects_published_tcp_option "port-without-tcp" "--tcp-port requires --tcp" --tcp-port 10042
+  assert_rejects_published_tcp_option "invalid-port" "--tcp-port must be between 1 and 65535" --tcp --tcp-port 0
+  assert_rejects_published_tcp_option "oversized-port" "--tcp-port must be between 1 and 65535" --tcp --tcp-port 65536
+  assert_rejects_published_tcp_option "private" "--tcp cannot be used with --no-publish" --tcp --no-publish
+  assert_rejects_published_tcp_option "http" "Unexpected argument" --tcp --http
+  assert_rejects_published_tcp_option "tls" "Unexpected argument" --tcp --tls
+  assert_rejects_published_tcp_option "hostname" "--tcp cannot be combined" --tcp --host ssh.example.com
+  assert_rejects_published_tcp_option "tls-policy" "--tcp cannot be combined" --tcp --tls-min-version tls1.3
+  assert_rejects_published_tcp_option "http-version" "--tcp cannot be combined" --tcp --http-version http/1.1
+  assert_rejects_published_tcp_option "edge-auth" "--tcp cannot be combined" --tcp --token-auth
 }
 
 case_tls_terminated() {
@@ -255,12 +286,27 @@ case_http_h1() {
   return "$rc"
 }
 
+case_tcp() {
+  local upstream
+  local rc=0
+  start_upstream "tcp" tcp
+  upstream=$UPSTREAM_ADDR
+  if ! start_tunnel "tcp" "$upstream" --tcp --allow-cross-region-routing --name "$NAME_PREFIX-tcp"; then
+    return 1
+  fi
+  "$PYTHON" "$ROOT/test/e2e/runtime_harness.py" check tcp-echo --addr "$FORWARDING" || rc=$?
+  stop_pid "$TUNNEL_PID"
+  return "$rc"
+}
+
 make_cert
 run_case "reject invalid passthrough policy" case_reject_passthrough_policy
+run_case "reject invalid published TCP options" case_reject_published_tcp_options
 run_case "rstream-tunnel tls terminated" case_tls_terminated
 run_case "rstream-tunnel tls upstream tls" case_tls_upstream_tls
 run_case "rstream-tunnel tls passthrough" case_tls_passthrough
 run_case "rstream-tunnel http h1" case_http_h1
+run_case "rstream-tunnel published TCP" case_tcp
 
 printf "\nResults: %d passed, %d failed\n" "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

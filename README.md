@@ -358,6 +358,24 @@ rstrm::tunnel_properties properties = {
 
 The SDK does not reserve the port. Published TCP forwards downstream bytes without adding encryption or authentication; use a secure application protocol such as SSH, or choose a TLS tunnel for TLS traffic.
 
+The `rstream-tunnel` utility exposes the same properties:
+
+```console
+rstream-tunnel 127.0.0.1:22 --tcp
+rstream-tunnel 127.0.0.1:22 --tcp --tcp-port 10042
+```
+
+Add `--allow-cross-region-routing` when the tunnel may route downstream traffic through its owner region.
+
+The C++ SDK does not query the control plane to resolve a region name. A caller that already knows the regional engine address can select it directly:
+
+```console
+rstream-tunnel 127.0.0.1:22 --tcp \
+  --engine 'tcp://regional-engine.example.com:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1'
+```
+
+The same low-level override is available to library users through the engine address passed to `make_endpoint(...)`. The engine remains responsible for validating that the project may use the selected region.
+
 ### Private tunnel with programmatic dial
 
 This sample creates a private tunnel named `echo`, accepts a connection, then dials the same tunnel from the same process via an endpoint. It demonstrates the private-tunnel semantics and the dial path that avoids published forwarding addresses.
@@ -477,6 +495,16 @@ To publish a local HTTP service:
 ```bash
 rstream-tunnel 127.0.0.1:8080 --http --publish
 ```
+
+To publish an SSH server through a raw TCP tunnel:
+
+```bash
+rstream-tunnel 127.0.0.1:22 --tcp
+```
+
+Use `--tcp-port` with a port reserved for the project. Published TCP does not secure the downstream connection, so use it only with protocols such as SSH that provide their own encryption and authentication.
+
+For a global project, `--allow-cross-region-routing` permits the owner region to carry downstream traffic when ingress is elsewhere. To pin the control channel to a known regional engine without querying the control plane, pass its full address through `--engine`.
 
 To expose a private TLS tunnel with a stable tunnel name:
 
