@@ -43,7 +43,7 @@ description:
   It is based on the rstream C++ SDK and provides a simple way to create a secure tunnel to the global network.
 
 usage:
-  rstream-tunnel [<target>] [--publish|--no-publish] [--http|--tls] [--label=ARG]... [--no-token|--token=ARG] [--retry|--no-retry] [options]
+  rstream-tunnel [<target>] [--publish|--no-publish] [--http|--tls|--tcp] [--label=ARG]... [--no-token|--token=ARG] [--retry|--no-retry] [options]
   rstream-tunnel (-h|--help)
   rstream-tunnel --version
 
@@ -64,6 +64,9 @@ tunnel options:
   --no-publish                          do not publish the tunnel
   --http                                use HTTP protocol
   --tls                                 use TLS protocol
+  --tcp                                 publish a raw TCP bytestream
+  --tcp-port=ARG                        use a reserved published TCP port
+  --allow-cross-region-routing          allow cross-region routing when ingress and tunnel owner differ
   --label=ARG                           set a label for the tunnel (might be specified multiple times)
 
 security options:
@@ -99,7 +102,7 @@ metrics and monitoring options:
   --metrics-addr=ARG                    address to expose metrics on [default: 127.0.0.1:9090]
 
 rstream protocol options:
-  --engine=URL                          specify the rstream engine address
+  --engine=URL                          specify the full rstream engine address
   --connect-timeout=ARG                 set the connection timeout in milliseconds [default: 10000]
   --retry                               enable automatic reconnection on disconnect
   --no-retry                            disable automatic reconnection on disconnect
@@ -306,12 +309,69 @@ int run(int argc, char** argv)
       flag_tls = true;
     }
   }
+  bool flag_tcp = false;
+  {
+    auto it = args.find("--tcp");
+    if (it != args.end() && it->second.asBool()) {
+      flag_tcp = true;
+    }
+  }
+  const auto option_is_set = [&args](const char* option) {
+    auto it = args.find(option);
+    if (it == args.end() || !it->second) {
+      return false;
+    }
+    return !it->second.isBool() || it->second.asBool();
+  };
+  if (flag_tcp) {
+    if (!publish) {
+      throw std::runtime_error("--tcp cannot be used with --no-publish");
+    }
+    if (flag_http
+        || flag_tls
+        || option_is_set("--host")
+        || option_is_set("--upstream-tls")
+        || option_is_set("--mtls")
+        || option_is_set("--tls-mode")
+        || option_is_set("--tls-alpn")
+        || option_is_set("--tls-min-version")
+        || option_is_set("--tls-ciphers")
+        || option_is_set("--http-version")
+        || option_is_set("--http-use-tls")
+        || option_is_set("--token-auth")
+        || option_is_set("--rstream-auth")
+        || option_is_set("--challenge-mode")) {
+      throw std::runtime_error("--tcp cannot be combined with HTTP, TLS, hostname, or edge authentication options");
+    }
+    tunnel_properties.m_publish  = true;
+    tunnel_properties.m_protocol = rstream::io_rstrm::protocol::tcp;
+    publish                      = true;
+  }
   if (publish) {
     if (flag_http) {
       tunnel_properties.m_protocol = rstream::io_rstrm::protocol::http;
     }
     if (flag_tls) {
       tunnel_properties.m_protocol = rstream::io_rstrm::protocol::tls;
+    }
+  }
+  {
+    auto it = args.find("--tcp-port");
+    if (it != args.end() && it->second.operator bool()) {
+      if (!flag_tcp) {
+        throw std::runtime_error("--tcp-port requires --tcp");
+      }
+      const auto port = it->second.asLong();
+      if (port < 1 || port > 65535) {
+        throw std::runtime_error("--tcp-port must be between 1 and 65535");
+      }
+      tunnel_properties.m_port = static_cast<std::uint32_t>(port);
+    }
+  }
+  {
+    auto it = args.find("--allow-cross-region-routing");
+    if (it != args.end() && it->second.asBool()) {
+      tunnel_properties.m_allow_cross_region_routing = true;
     }
   }
   bool is_tls_protocol = tunnel_properties.m_protocol && tunnel_properties.m_protocol.value() == rstream::io_rstrm::protocol::tls;

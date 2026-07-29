@@ -132,6 +132,15 @@ def check_tls_echo(args):
                 raise RuntimeError(f"echo mismatch: got {got!r}, want {PAYLOAD!r}")
 
 
+def check_tcp_echo(args):
+    host, port = parse_host_port(args.addr, args.default_port)
+    with socket.create_connection((host, port), timeout=args.timeout) as conn:
+        conn.sendall(PAYLOAD)
+        got = conn.recv(len(PAYLOAD))
+        if got != PAYLOAD:
+            raise RuntimeError(f"echo mismatch: got {got!r}, want {PAYLOAD!r}")
+
+
 def check_https_ping(args):
     host, port = parse_host_port(args.addr, args.default_port)
     context = client_tls_context(args)
@@ -168,6 +177,11 @@ def main():
 
     check = subcommands.add_parser("check")
     check_subcommands = check.add_subparsers(dest="mode", required=True)
+    tcp_echo = check_subcommands.add_parser("tcp-echo")
+    tcp_echo.add_argument("--addr", required=True)
+    tcp_echo.add_argument("--default-port", default="0")
+    tcp_echo.add_argument("--timeout", type=float, default=15.0)
+    tcp_echo.set_defaults(func=check_tcp_echo)
     tls_echo = check_subcommands.add_parser("tls-echo")
     tls_echo.add_argument("--addr", required=True)
     tls_echo.add_argument("--alpn", default="")
