@@ -58,7 +58,7 @@ class allocator : public std::enable_shared_from_this<allocator> {
       return static_cast<T*>(wrapper::get_allocator()->allocate(n * sizeof(T)));
     }
 
-    void deallocate(pointer ptr, size_type n)
+    void deallocate(pointer ptr, size_type)
     {
       return wrapper::get_allocator()->deallocate(ptr);
     }

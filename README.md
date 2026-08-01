@@ -46,7 +46,7 @@ Beast-based projects are naturally supported, but the scope is broader: any netw
 
 URIs are a first-class configuration mechanism in this SDK. Query parameters encode tunnel properties, client options, transport behavior, and TLS settings.
 
-A dedicated reference is available in [docs/URI_MODEL.md](docs/URI_MODEL.md).
+A dedicated reference is available in [docs/002-uri-model.md](docs/002-uri-model.md).
 
 ## Compatibility
 
@@ -68,6 +68,11 @@ A typical source build uses a C++20 compiler, CMake, Conan 2.x, Python 3.x, and 
 
 Dependencies are resolved through Conan/CMake integration and include Boost, OpenSSL or LibreSSL, yaml-cpp, nlohmann_json, spdlog, plus optional components such as ncurses, maxminddb, and Python bindings.
 
+The supported platform matrix, Boost.Asio and rstream runtime contracts,
+Conan Center dependency policy, constrained-system requirements, and complete
+validation procedure are defined in
+[docs/001-sdk-engineering.md](docs/001-sdk-engineering.md).
+
 ## Build from source
 
 The recommended source build uses Conan to provision third-party dependencies and then builds the package:
@@ -86,6 +91,20 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 cmake --install build --prefix ./build/release
 ```
+
+Native development presets provide reproducible development, quality,
+sanitizer, coverage, and Release configurations:
+
+```bash
+cmake --preset quality
+cmake --build --preset quality
+ctest --preset quality
+```
+
+The `release`, `release-shared-static`, `release-static-static`, and
+`release-static-dynamic` presets cover the four library/plugin topologies.
+`build.sh` exposes the same choices through `build_shared=on|off` and
+`plugin_mode=auto|static|dynamic`.
 
 Runtime smoke tests that need a reachable rstream engine live under `test/e2e`. After building `rstream-tunnel`, the engine-only suites can run against any configured context:
 
@@ -111,7 +130,47 @@ Those scripts intentionally do not fall back to a local Control plane URL or to 
 
 For cross-platform packaged artifacts, this repository provides `build-conan-cross.sh`, `build-docker-conan.sh`, and `deploy.py` to produce standalone deliverables under `out/release/...`.
 
-Regular CI is handled by the `Build` GitHub Actions workflow. Pushes to `main` build the `stable` Conan channel, `feature-*` and `fix-*` branches build the `dev` channel, and manual runs can select `dev`, `stable`, or `testing`. This workflow only validates the Conan package with `conan create`; it does not run the full cross-platform release export.
+Library linkage and plugin loading are independent build choices. CMake uses
+`BUILD_SHARED_LIBS` for SDK libraries and `ENABLE_STATIC_PLUGINS` for plugin
+registration. The cross-build script exposes the same contract through
+`*_BUILD_SHARED` and `*_PLUGIN_MODES` for Linux, macOS, and Windows.
+
+Plugin mode defaults to `auto`, which preserves the historical packaging:
+static libraries use static plugins and shared libraries use dynamic plugins.
+Use `static` or `dynamic` explicitly to build another supported combination:
+
+```bash
+OSS="linux windows" \
+LINUX_ARCHS="x86_64" \
+LINUX_BUILD_SHARED="on off" \
+LINUX_PLUGIN_MODES="static dynamic" \
+WINDOWS_ARCHS="x86_64" \
+WINDOWS_BUILD_SHARED="on off" \
+WINDOWS_PLUGIN_MODES="static dynamic" \
+./build-conan-cross.sh
+```
+
+The cross-build script enables strict project warnings and treats them as
+errors by default. Set `ENABLE_STRICT_WARNINGS=off WARNINGS_AS_ERRORS=off` only
+for diagnosis against a compiler that is not yet part of the supported
+matrix.
+
+Regular CI is handled by the `Build` GitHub Actions workflow. Pushes to `main` build the `stable` Conan channel, `feature-*` and `fix-*` branches build the `dev` channel, and manual runs can select `dev`, `stable`, or `testing`. This workflow validates all four library/plugin topologies on Linux, macOS, and Windows with `conan create`.
+
+The scheduled `Reliability` workflow reruns that complete package matrix and adds AddressSanitizer, UndefinedBehaviorSanitizer, ThreadSanitizer, static analysis, and repeated concurrency/lifecycle tests. Its CMake presets and test selection are available locally:
+
+```bash
+cmake --preset asan
+cmake --build --preset asan
+ctest --preset asan
+
+cmake --preset tsan
+cmake --build --preset tsan
+ctest --preset tsan
+
+ctest --test-dir out/build/quality --repeat until-fail:20 --output-on-failure \
+  -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'
+```
 
 Release packaging is handled separately by the `Release Packages` workflow. Manual dispatch builds the same `rstream-utils` artifacts as:
 
@@ -166,7 +225,7 @@ rstream project use <project-endpoint> --default
 
 For advanced authentication modes and context workflows, see the rstream CLI workflow documentation:
 
-- https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
+- https://github.com/rstreamlabs/rstream-go/blob/main/docs/001-cli-workflow.md
 
 ## Environment variables
 
@@ -299,6 +358,24 @@ rstrm::tunnel_properties properties = {
 
 The SDK does not reserve the port. Published TCP forwards downstream bytes without adding encryption or authentication; use a secure application protocol such as SSH, or choose a TLS tunnel for TLS traffic.
 
+The `rstream-tunnel` utility exposes the same properties:
+
+```console
+rstream-tunnel 127.0.0.1:22 --tcp
+rstream-tunnel 127.0.0.1:22 --tcp --tcp-port 10042
+```
+
+Add `--allow-cross-region-routing` when the tunnel may route downstream traffic through its owner region.
+
+The C++ SDK does not query the control plane to resolve a region name. A caller that already knows the regional engine address can select it directly:
+
+```console
+rstream-tunnel 127.0.0.1:22 --tcp \
+  --engine 'tcp://regional-engine.example.com:443?ssl&ssl.tlsv13&ssl.alpn_protos=rstrm%2F1'
+```
+
+The same low-level override is available to library users through the engine address passed to `make_endpoint(...)`. The engine remains responsible for validating that the project may use the selected region.
+
 ### Private tunnel with programmatic dial
 
 This sample creates a private tunnel named `echo`, accepts a connection, then dials the same tunnel from the same process via an endpoint. It demonstrates the private-tunnel semantics and the dial path that avoids published forwarding addresses.
@@ -419,6 +496,16 @@ To publish a local HTTP service:
 rstream-tunnel 127.0.0.1:8080 --http --publish
 ```
 
+To publish an SSH server through a raw TCP tunnel:
+
+```bash
+rstream-tunnel 127.0.0.1:22 --tcp
+```
+
+Use `--tcp-port` with a port reserved for the project. Published TCP does not secure the downstream connection, so use it only with protocols such as SSH that provide their own encryption and authentication.
+
+For a global project, `--allow-cross-region-routing` permits the owner region to carry downstream traffic when ingress is elsewhere. To pin the control channel to a known regional engine without querying the control plane, pass its full address through `--engine`.
+
 To expose a private TLS tunnel with a stable tunnel name:
 
 ```bash
@@ -450,10 +537,10 @@ rstream-tunnel 127.0.0.1:8443 --tls --tls-mode passthrough
 - Documentation: https://rstream.io/docs
 - Go SDK (reference implementation): https://github.com/rstreamlabs/rstream-go
 - C++ SDK: https://github.com/rstreamlabs/rstream-cpp
-- CLI workflow and authentication: https://github.com/rstreamlabs/rstream-go/blob/main/docs/CLI_WORKFLOW.md
-- Declarative run workflows: https://github.com/rstreamlabs/rstream-go/blob/main/docs/CMD_RUN.md
-- Transport configuration: https://github.com/rstreamlabs/rstream-go/blob/main/docs/TRANSPORT.md
-- Tunnel property reference: https://github.com/rstreamlabs/rstream-go/blob/main/docs/TUNNEL_PROPERTIES.md
+- CLI workflow and authentication: https://github.com/rstreamlabs/rstream-go/blob/main/docs/001-cli-workflow.md
+- Declarative run workflows: https://github.com/rstreamlabs/rstream-go/blob/main/docs/008-cmd-run.md
+- Transport configuration: https://github.com/rstreamlabs/rstream-go/blob/main/docs/002-transport.md
+- Tunnel property reference: https://github.com/rstreamlabs/rstream-go/blob/main/docs/003-tunnel-properties.md
 
 ## Contributing
 

@@ -11,13 +11,13 @@
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/dispatch.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/bind_handler.hpp>
@@ -46,6 +46,8 @@ namespace metrics {
 class RSTREAM_GNUC_INTERNAL async_collector {
  public:
   using ptr = std::shared_ptr<async_collector>;
+
+  virtual ~async_collector() = default;
 
   using async_collect_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&, const core::detail::metrics::metrics&)>;
 
@@ -258,9 +260,14 @@ exposer::exposer(const executor_type& executor, const config& config, const sett
   add_collectable(rstream::core::metrics::default_registry());
 }
 
-exposer::~exposer()
+exposer::~exposer() noexcept
 {
-  cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void exposer::add_collectable(core::metrics::collectable::ptr collectable, const std::string& target)
@@ -354,7 +361,7 @@ void exposer::impl::arm_state_timer(unsigned int timeout_ms)
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -376,7 +383,7 @@ void exposer::impl::arm_state_timer(unsigned int timeout_ms)
       ptr->on_error(error::code::operation_timeout);
     }
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -867,7 +874,7 @@ void exposer::impl::session::on_write(bool close, const boost::system::error_cod
       if (m_response.result() == boost::beast::http::status::ok) {
         auto delay_s = std::chrono::duration_cast<std::chrono::microseconds>(timestamp::clock::now() - m_request_timestamp).count() / 1000000.0;
         m_context.m_metrics.m_requests_duration_seconds.labels(labels).observe(delay_s);
-        m_context.m_metrics.m_response_size_bytes.labels(labels).observe(bytes_transferred);
+        m_context.m_metrics.m_response_size_bytes.labels(labels).observe(static_cast<double>(bytes_transferred));
       }
       labels.insert({"code", std::to_string((int)m_response.result())});
       m_context.m_metrics.m_requests_total.labels(labels).increment();

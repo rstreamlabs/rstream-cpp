@@ -1486,11 +1486,11 @@ class BoostConan(ConanFile):
         if self._ranlib:
             ranlib_path = self._ranlib.replace("\\", "/")
             contents += f'<ranlib>"{ranlib_path}" '
-        cxxflags = " ".join(self.conf.get("tools.build:cxxflags", default=[], check_type=list)) + " "
-        cflags = " ".join(self.conf.get("tools.build:cflags", default=[], check_type=list)) + " "
         buildenv_vars = VirtualBuildEnv(self).vars()
+        cxxflags = buildenv_vars.get("CXXFLAGS", "") + " " + " ".join(self.conf.get("tools.build:cxxflags", default=[], check_type=list)) + " "
+        cflags = buildenv_vars.get("CFLAGS", "") + " " + " ".join(self.conf.get("tools.build:cflags", default=[], check_type=list)) + " "
         cppflags = buildenv_vars.get("CPPFLAGS", "") + " "
-        ldflags = " ".join(self.conf.get("tools.build:sharedlinkflags", default=[], check_type=list)) + " "
+        ldflags = buildenv_vars.get("LDFLAGS", "") + " " + " ".join(self.conf.get("tools.build:sharedlinkflags", default=[], check_type=list)) + " "
         asflags = buildenv_vars.get("ASFLAGS", "") + " "
 
         sysroot = self.conf.get("tools.build:sysroot")

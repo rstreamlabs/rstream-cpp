@@ -4,7 +4,7 @@
 
 #include <rstream/core/memory.hpp>
 
-int main(int argc, char** argv)
+int main()
 {
   std::size_t length = 100;
 
@@ -27,7 +27,7 @@ int main(int argc, char** argv)
   {
     auto memory = rstream::core::make_memory_allocated(length, std::make_shared<my_allocator>());
     std::cout << "user memory is accesible at #" << (uint64_t)memory.get_data() << std::endl;
-    for (int i = 0; i < length; i++) {
+    for (std::size_t i = 0; i < length; ++i) {
       ((uint8_t*)memory.get_data())[i] = (i % 256);
     }
   }

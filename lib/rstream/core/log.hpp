@@ -42,7 +42,11 @@ using str_sink = std::function<void(const std::string&)>;
 
 str_sink enable_ansicolor_stdout_mt(bool color = true);
 
+str_sink enable_ansicolor_stderr_mt(bool color = true);
+
 str_sink enable_json_stdout_mt(bool pretty = false);
+
+str_sink enable_json_stderr_mt(bool pretty = false);
 
 }  // namespace log
 
@@ -58,8 +62,9 @@ const logger& default_logger();
 template <class Clock>
 std::string format_timestamp(const std::chrono::time_point<Clock>& time_point)
 {
-  const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(time_point.time_since_epoch()).count() % 1000;
-  const auto time_t       = Clock::to_time_t(time_point);
+  const auto milliseconds = static_cast<unsigned long>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(time_point.time_since_epoch()).count() % 1000);
+  const auto time_t = Clock::to_time_t(time_point);
   return format_timestamp(milliseconds, time_t);
 }
 

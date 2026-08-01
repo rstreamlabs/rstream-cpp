@@ -43,11 +43,7 @@ enum class code {
   unknown_undefined_error,
 };
 
-extern inline const category& rstream_webtty_error_category()
-{
-  static class category category;
-  return category;
-}
+const category& rstream_webtty_error_category() noexcept;
 
 inline std::error_code make_error_code(code code)
 {

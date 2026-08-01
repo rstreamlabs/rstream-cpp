@@ -1,11 +1,26 @@
 // See LICENSE file in the project root for license information.
 
+#define BOOST_PROCESS_VERSION 1
+
 #include <cassert>
+#include <chrono>
+#include <cstdlib>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
+#include <vector>
 
 #include <boost/asio/io_context.hpp>
+#if __has_include(<boost/process/v1/args.hpp>)
+#include <boost/process/v1/args.hpp>
+#include <boost/process/v1/exe.hpp>
+#else
+#include <boost/process/args.hpp>
+#include <boost/process/exe.hpp>
+#endif
 
+#include <rstream/core/system.hpp>
+#include <rstream/webtty/detail/process.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/stream.hpp>
 #include <rstream/webtty/terminal.hpp>
@@ -23,7 +38,89 @@
 
 namespace stream = rstream::webtty::stream;
 
-#ifndef _WIN32
+#ifdef _WIN32
+static void check_windows_pty_rejects_overlapping_writes()
+{
+  boost::asio::io_context io_context;
+  auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::tty);
+  auto pty        = std::dynamic_pointer_cast<stream::pty_windows>(stream_ptr);
+  assert(pty);
+
+  const auto command_shell = rstream::core::get_environment_variable("COMSPEC");
+  assert(command_shell.has_value());
+  auto child = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe(*command_shell),
+      boost::process::args(std::vector<std::string>{"/d", "/s", "/c", "ping -n 30 127.0.0.1 >nul"}));
+
+  std::vector<char> first_payload(16 * 1024 * 1024, 'x');
+  const char second_payload[] = "second";
+  std::error_code first_error;
+  std::error_code second_error;
+  std::size_t first_completions  = 0;
+  std::size_t second_completions = 0;
+  stream::base::async_write_completion_handler first_handler =
+      [&](const std::error_code& error_code, std::size_t) {
+        first_error = error_code;
+        ++first_completions;
+      };
+  stream::base::async_write_completion_handler second_handler =
+      [&](const std::error_code& error_code, std::size_t) {
+        second_error = error_code;
+        ++second_completions;
+      };
+
+  pty->async_write_some(boost::asio::buffer(first_payload), std::move(first_handler));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  pty->async_write_some(boost::asio::buffer(second_payload), std::move(second_handler));
+  stream_ptr->close();
+
+  boost::system::error_code ignored;
+  child->terminate(ignored);
+  child->wait(ignored);
+  io_context.run();
+
+  assert(first_completions == 1);
+  assert(second_completions == 1);
+  assert(first_error == std::error_code(ERROR_OPERATION_ABORTED, std::system_category()));
+  assert(second_error == rstream::webtty::error::code::invalid_state);
+}
+
+static void check_windows_pty_cancel_resize_and_close_are_serialized()
+{
+  boost::asio::io_context io_context;
+  auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::tty);
+  auto pty        = std::dynamic_pointer_cast<stream::pty_windows>(stream_ptr);
+  assert(pty);
+
+  const auto command_shell = rstream::core::get_environment_variable("COMSPEC");
+  assert(command_shell.has_value());
+  auto child = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe(*command_shell),
+      boost::process::args(std::vector<std::string>{"/d", "/s", "/c", "ping -n 30 127.0.0.1 >nul"}));
+
+  std::thread resize_thread([pty] {
+    for (std::size_t iteration = 0; iteration < 100; ++iteration) {
+      std::error_code error_code;
+      pty->set_window_size({.m_row = 25, .m_col = 81, .m_xpixel = 0, .m_ypixel = 0}, error_code);
+      if (error_code) {
+        assert(error_code == std::error_code(ERROR_INVALID_HANDLE, std::system_category()));
+        return;
+      }
+    }
+  });
+  std::thread cancel_thread([pty] { pty->cancel(); });
+  resize_thread.join();
+  cancel_thread.join();
+  stream_ptr->close();
+  stream_ptr->close();
+
+  boost::system::error_code ignored;
+  child->terminate(ignored);
+  child->wait(ignored);
+}
+#else
 static void require_posix(bool condition, const char* message)
 {
   if (!condition) {
@@ -118,10 +215,21 @@ static void check_pty_stream_lifecycle_and_window_size()
   error_code.clear();
   pty->allocate(error_code);
   assert(!error_code);
+  pty->allocate(error_code);
+  assert(error_code == rstream::webtty::error::code::invalid_state);
+  error_code.clear();
   pty->set_window_size({.m_row = 40, .m_col = 120, .m_xpixel = 0, .m_ypixel = 0}, error_code);
   assert(!error_code);
 
+  auto pty_posix = std::dynamic_pointer_cast<stream::pty_posix>(stream_ptr);
+  assert(pty_posix);
+  pty_posix->on_success(error_code);
+  assert(!error_code);
   stream_ptr->close();
+  stream_ptr->close();
+
+  pty->allocate(error_code);
+  assert(!error_code);
   stream_ptr->close();
 }
 #endif
@@ -142,7 +250,10 @@ int main(int argc, char** argv)
   (void)argc;
   (void)argv;
   check_pipe_stream_lifecycle();
-#ifndef _WIN32
+#ifdef _WIN32
+  check_windows_pty_rejects_overlapping_writes();
+  check_windows_pty_cancel_resize_and_close_are_serialized();
+#else
   check_non_tty_file_descriptor_is_rejected();
   check_terminal_resize_and_reset_on_pty();
   check_pty_stream_lifecycle_and_window_size();

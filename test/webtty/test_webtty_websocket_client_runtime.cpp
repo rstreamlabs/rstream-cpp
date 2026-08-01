@@ -27,6 +27,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include <rstream/test/time.hpp>
 #include <rstream/webtty/client.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/webtty.hpp>
@@ -169,7 +170,7 @@ static std::string serialize(const protobuf::Message& message)
 {
   std::string payload;
   payload.resize(message.ByteSizeLong());
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));
   return payload;
 }
 
@@ -640,24 +641,24 @@ static void check_websocket_client_sends_open_stdin_eos_and_heartbeat()
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
       .m_websocket_target = std::string("/session"),
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::websocket,
-           .m_options       = {
-                     .m_interactive    = true,
-                     .m_allocate_tty   = false,
-                     .m_send_heartbeat = true,
+          .m_protocol_type = rstream::webtty::protocol::type::websocket,
+          .m_options       = {
+              .m_interactive    = true,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = true,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
   rstream::webtty::settings_client settings = {
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 10,
           },
       },
@@ -672,7 +673,7 @@ static void check_websocket_client_sends_open_stdin_eos_and_heartbeat()
     rstream::webtty::client client(io_context.get_executor(), config, settings);
     input.restore();
     boost::asio::steady_timer deadline(io_context);
-    deadline.expires_after(std::chrono::seconds(10));
+    deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
     deadline.async_wait([&](const std::error_code& error_code) {
       if (!error_code && !done) {
         timed_out = true;
@@ -718,24 +719,24 @@ static void check_websocket_client_e2e_sends_encrypted_stdin()
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
       .m_websocket_target = std::string("/e2e"),
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::websocket,
-           .m_options       = {
-                     .m_interactive    = true,
-                     .m_allocate_tty   = false,
-                     .m_send_heartbeat = false,
+          .m_protocol_type = rstream::webtty::protocol::type::websocket,
+          .m_options       = {
+              .m_interactive    = true,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = false,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
   rstream::webtty::settings_client settings = {
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
@@ -754,7 +755,7 @@ static void check_websocket_client_e2e_sends_encrypted_stdin()
     rstream::webtty::client client(io_context.get_executor(), config, settings);
     input.restore();
     boost::asio::steady_timer deadline(io_context);
-    deadline.expires_after(std::chrono::seconds(10));
+    deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
     deadline.async_wait([&](const std::error_code& error_code) {
       if (!error_code && !done) {
         timed_out = true;
@@ -787,24 +788,24 @@ static void check_websocket_client_sends_terminal_size_when_tty_allocated()
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
       .m_websocket_target = std::string("/tty"),
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::websocket,
-           .m_options       = {
-                     .m_interactive    = false,
-                     .m_allocate_tty   = true,
-                     .m_send_heartbeat = false,
+          .m_protocol_type = rstream::webtty::protocol::type::websocket,
+          .m_options       = {
+              .m_interactive    = false,
+              .m_allocate_tty   = true,
+              .m_send_heartbeat = false,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
   rstream::webtty::settings_client settings = {
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
@@ -818,7 +819,7 @@ static void check_websocket_client_sends_terminal_size_when_tty_allocated()
   {
     rstream::webtty::client client(io_context.get_executor(), config, settings);
     boost::asio::steady_timer deadline(io_context);
-    deadline.expires_after(std::chrono::seconds(10));
+    deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
     deadline.async_wait([&](const std::error_code& error_code) {
       if (!error_code && !done) {
         timed_out = true;

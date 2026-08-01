@@ -36,6 +36,8 @@ target_include_directories(
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/>
   $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/>)
 
+target_compile_features(${LIBRARY_NAME} PUBLIC cxx_std_20)
+
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
   target_link_libraries(${LIBRARY_NAME} PUBLIC atomic)
 endif()

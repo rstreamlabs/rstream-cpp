@@ -10,6 +10,10 @@
 #include "detail/plugin/element.hpp"
 #include "detail/plugin/factory.hpp"
 #include "detail/plugin/plugin.hpp"
+#include "detail/plugin/registry.hpp"
+
+#define RSTREAM_DETAIL_CONCAT_IMPL(_left, _right) _left##_right
+#define RSTREAM_DETAIL_CONCAT(_left, _right)      RSTREAM_DETAIL_CONCAT_IMPL(_left, _right)
 
 #define RSTREAM_PLUGIN_EXPORT_FULL(_plugin, ...)                                                                      \
   namespace rstream {                                                                                                 \
@@ -42,18 +46,21 @@
 #define RSTREAM_PLUGIN_STATIC_REGISTER(_name) \
   rstream::core::plugin::get_plugin_##_name()
 
-#define RSTREAM_PLUGIN_STATIC_DEFINE_FULL(_plugin, _name, ...)                                                        \
-  namespace rstream {                                                                                                 \
-  namespace core {                                                                                                    \
-  namespace plugin {                                                                                                  \
-  rstream::core::plugin::plugin::ptr get_plugin_##_name()                                                             \
-  {                                                                                                                   \
-    boost::system::error_code error_code;                                                                             \
-    const auto location = boost::dll::this_line_location(error_code);                                                 \
-    return std::make_shared<_plugin>(error_code ? rstream::core::plugin::plugin::location() : location, __VA_ARGS__); \
-  }                                                                                                                   \
-  }                                                                                                                   \
-  }                                                                                                                   \
+#define RSTREAM_PLUGIN_STATIC_DEFINE_FULL(_plugin, _name, ...)                                                                                                       \
+  namespace rstream {                                                                                                                                                \
+  namespace core {                                                                                                                                                   \
+  namespace plugin {                                                                                                                                                 \
+  rstream::core::plugin::plugin::ptr get_plugin_##_name()                                                                                                            \
+  {                                                                                                                                                                  \
+    boost::system::error_code error_code;                                                                                                                            \
+    const auto location = boost::dll::this_line_location(error_code);                                                                                                \
+    return std::make_shared<_plugin>(error_code ? rstream::core::plugin::plugin::location() : location, __VA_ARGS__);                                                \
+  }                                                                                                                                                                  \
+  namespace {                                                                                                                                                        \
+  const bool RSTREAM_DETAIL_CONCAT(g_registered_plugin_, _name) = rstream::core::detail::plugin::register_static_plugin(&rstream::core::plugin::get_plugin_##_name); \
+  }                                                                                                                                                                  \
+  }                                                                                                                                                                  \
+  }                                                                                                                                                                  \
   }
 
 #define RSTREAM_PLUGIN_STATIC_DEFINE(...) \

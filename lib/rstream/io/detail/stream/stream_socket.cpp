@@ -66,6 +66,23 @@ stream_socket::stream_socket(const executor_type& executor)
 {
 }
 
+stream_socket::stream_socket(stream_socket&& other)
+    : stream_socket(other.get_executor())
+{
+  m_impl.swap(other.m_impl);
+}
+
+stream_socket& stream_socket::operator=(stream_socket&& other)
+{
+  if (this != &other) {
+    auto replacement = std::make_shared<impl>(other.get_executor());
+    stream_socket_base<endpoint>::operator=(other);
+    m_impl       = std::move(other.m_impl);
+    other.m_impl = std::move(replacement);
+  }
+  return *this;
+}
+
 stream_socket::stream_socket(stream_socket_ptr native_handle)
     : stream_socket_base(native_handle->get_executor()),
       m_impl(std::make_shared<impl>(native_handle))

@@ -14,6 +14,7 @@ namespace metrics {
 class collectable {
  public:
   using ptr                              = std::shared_ptr<collectable>;
+  virtual ~collectable()                 = default;
   virtual void collect(metrics& metrics) = 0;
   metrics collect();
 };

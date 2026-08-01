@@ -4,6 +4,8 @@
 
 #include <exception>
 
+#include <rstream/config.hpp>
+
 namespace rstream {
 namespace core {
 namespace detail {
@@ -18,7 +20,7 @@ wrapper_common::description::description(metric::type type, const std::string& n
 
 sample wrapper_common::get_sample()
 {
-  throw std::logic_error(std::string("unexpected call hierarchy for function '") + __PRETTY_FUNCTION__ + "'");
+  throw std::logic_error(std::string("unexpected call hierarchy for function '") + RSTREAM_STRFUNC + "'");
 }
 
 labels wrapper_common::get_labels(bool recursive) const

@@ -2,9 +2,22 @@
 
 # process tests
 
-add_test_target(${PROJECT_NAME}-test-ncat-runtime test_ncat_runtime.cpp)
-target_link_libraries(${PROJECT_NAME}-test-ncat-runtime ${PROJECT_NAME}::ncat)
-add_dependencies(${PROJECT_NAME}-test-ncat-runtime ${PROJECT_NAME}-plugin-io-generic)
-add_custom_command(TARGET ${PROJECT_NAME}-test-ncat-runtime POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}-test-ncat-runtime>/../lib/rstream"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${PROJECT_NAME}-plugin-io-generic>" "$<TARGET_FILE_DIR:${PROJECT_NAME}-test-ncat-runtime>/../lib/rstream/")
+if(WIN32)
+  find_program(RSTREAM_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+  if(NOT RSTREAM_POWERSHELL_EXECUTABLE)
+    message(FATAL_ERROR "PowerShell is required to run the Windows ncat runtime test.")
+  endif()
+  add_test(
+    NAME ${PROJECT_NAME}-test-ncat-windows-runtime
+    COMMAND
+      ${RSTREAM_POWERSHELL_EXECUTABLE}
+      -NoProfile
+      -ExecutionPolicy Bypass
+      -File ${CMAKE_CURRENT_SOURCE_DIR}/test_ncat_windows_runtime.ps1
+      -Ncat $<TARGET_FILE:${PROJECT_NAME}-ncat>)
+  rstream_configure_test(${PROJECT_NAME}-test-ncat-windows-runtime)
+  set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS ${PROJECT_NAME}-ncat)
+else()
+  add_test_target(${PROJECT_NAME}-test-ncat-runtime test_ncat_runtime.cpp ${PROJECT_NAME}::ncat ${PROJECT_NAME}::${PROJECT_NAME})
+  rstream_enable_runtime_plugins(${PROJECT_NAME}-test-ncat-runtime ${PROJECT_NAME}-plugin-io-generic)
+endif()

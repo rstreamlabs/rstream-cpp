@@ -328,11 +328,11 @@ struct settings {
 struct settings_client {
   settings m_common;
   std::uint32_t m_std_in_buffer_size;
-  payload_crypto::ptr m_payload_crypto;
-  boost::optional<endpoint_identity> m_endpoint_identity;
-  boost::optional<endpoint_identity_public> m_expected_server_identity;
-  byte_vector m_client_credential;
-  std::string m_client_principal_id;
+  payload_crypto::ptr m_payload_crypto                                 = {};
+  boost::optional<endpoint_identity> m_endpoint_identity               = boost::none;
+  boost::optional<endpoint_identity_public> m_expected_server_identity = boost::none;
+  byte_vector m_client_credential                                      = {};
+  std::string m_client_principal_id                                    = {};
 };
 
 struct settings_server {
@@ -342,17 +342,17 @@ struct settings_server {
   std::uint32_t m_std_err_buffer_size;
   execution_mode m_execution_mode;
   protocol::username m_default_username;
-  bool m_allow_client_user = false;
-  boost::optional<std::string> m_auth_token;
-  payload_crypto_resolver::ptr m_payload_crypto_resolver;
-  boost::optional<endpoint_identity> m_endpoint_identity;
-  bool m_require_client_proof = false;
-  std::map<std::string, byte_vector> m_authorized_client_signing_keys;
-  std::function<boost::optional<byte_vector>(const byte_vector&)> m_authorized_client_signing_key_resolver;
-  std::function<boost::optional<byte_vector>(const byte_vector&, const byte_vector&, const byte_vector&)> m_client_proof_credential_verifier;
-  std::string m_workspace_id;
-  std::string m_project_id;
-  std::string m_server_id;
+  bool m_allow_client_user                                                                                                                   = false;
+  boost::optional<std::string> m_auth_token                                                                                                  = boost::none;
+  payload_crypto_resolver::ptr m_payload_crypto_resolver                                                                                     = {};
+  boost::optional<endpoint_identity> m_endpoint_identity                                                                                     = boost::none;
+  bool m_require_client_proof                                                                                                                = false;
+  std::map<std::string, byte_vector> m_authorized_client_signing_keys                                                                        = {};
+  std::function<boost::optional<byte_vector>(const byte_vector&)> m_authorized_client_signing_key_resolver                                   = {};
+  std::function<boost::optional<byte_vector>(const byte_vector&, const byte_vector&, const byte_vector&)> m_client_proof_credential_verifier = {};
+  std::string m_workspace_id                                                                                                                 = {};
+  std::string m_project_id                                                                                                                   = {};
+  std::string m_server_id                                                                                                                    = {};
 };
 
 struct terminal_size {

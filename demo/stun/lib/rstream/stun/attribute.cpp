@@ -286,7 +286,7 @@ void attribute_value_message_integrity::hmac_sha1(const void* data, std::size_t 
 std::string attribute_value_message_integrity::to_string(const attribute_value_message_integrity::output_data::array_type& data)
 {
   std::stringstream str;
-  for (auto i = 0; i != data.size(); ++i) {
+  for (std::size_t i = 0; i != data.size(); ++i) {
     str << (boost::format("%02x") % (int)data.data()[i]);
   }
   return str.str();
@@ -482,7 +482,7 @@ namespace stun {
 namespace helpers {
 
 template <>
-std::size_t byte_size_long_value<stun_address_family>(const stun_address_family& value)
+std::size_t byte_size_long_value<stun_address_family>(const stun_address_family&)
 {
   std::size_t size = 0;
   size += sizeof(std::uint8_t);
@@ -521,7 +521,7 @@ std::size_t byte_size_long_value<attribute_value_username>(const attribute_value
 }
 
 template <>
-std::size_t byte_size_long_value<attribute_value_message_integrity>(const attribute_value_message_integrity& value)
+std::size_t byte_size_long_value<attribute_value_message_integrity>(const attribute_value_message_integrity&)
 {
   std::size_t size = 0;
   size += sizeof(attribute_value_message_integrity::output_data);
@@ -529,7 +529,7 @@ std::size_t byte_size_long_value<attribute_value_message_integrity>(const attrib
 }
 
 template <>
-std::size_t byte_size_long_value<attribute_value_fingerprint>(const attribute_value_fingerprint& value)
+std::size_t byte_size_long_value<attribute_value_fingerprint>(const attribute_value_fingerprint&)
 {
   std::size_t size = 0;
   size += sizeof(std::uint32_t);
@@ -595,7 +595,7 @@ std::size_t byte_size_long_value<attribute_value_priority>(const attribute_value
 }
 
 template <>
-std::size_t byte_size_long_value<attribute_value_use_candidate>(const attribute_value_use_candidate& value)
+std::size_t byte_size_long_value<attribute_value_use_candidate>(const attribute_value_use_candidate&)
 {
   return 0;
 }
@@ -641,7 +641,7 @@ std::size_t byte_size_long_value<attribute_value_padding>(const attribute_value_
 }
 
 template <>
-std::size_t byte_size_long_value<attribute_value_cache_timeout>(const attribute_value_cache_timeout& value)
+std::size_t byte_size_long_value<attribute_value_cache_timeout>(const attribute_value_cache_timeout&)
 {
   return 0;
 }
@@ -796,7 +796,7 @@ void serialize_value<attribute_value_priority>(void* dst, const attribute_value_
 }
 
 template <>
-void serialize_value<attribute_value_use_candidate>(void* dst, const attribute_value_use_candidate& src, std::size_t& offset)
+void serialize_value<attribute_value_use_candidate>(void*, const attribute_value_use_candidate&, std::size_t&)
 {
 }
 
@@ -831,7 +831,7 @@ void serialize_value<attribute_value_padding>(void* dst, const attribute_value_p
 }
 
 template <>
-void serialize_value<attribute_value_cache_timeout>(void* dst, const attribute_value_cache_timeout& src, std::size_t& offset)
+void serialize_value<attribute_value_cache_timeout>(void*, const attribute_value_cache_timeout&, std::size_t&)
 {
 }
 
@@ -996,7 +996,7 @@ void parse_value<attribute_value_priority>(attribute_value_priority& dst, const 
 }
 
 template <>
-void parse_value<attribute_value_use_candidate>(attribute_value_use_candidate& dst, const rstream::core::memory memory, std::size_t& offset)
+void parse_value<attribute_value_use_candidate>(attribute_value_use_candidate&, const rstream::core::memory, std::size_t&)
 {
 }
 
@@ -1032,7 +1032,7 @@ void parse_value<attribute_value_padding>(attribute_value_padding& dst, const rs
 }
 
 template <>
-void parse_value<attribute_value_cache_timeout>(attribute_value_cache_timeout& dst, const rstream::core::memory memory, std::size_t& offset)
+void parse_value<attribute_value_cache_timeout>(attribute_value_cache_timeout&, const rstream::core::memory, std::size_t&)
 {
 }
 
@@ -1170,7 +1170,7 @@ void serialize_json_value<attribute_value_priority>(nlohmann::json& json, const 
 }
 
 template <>
-void serialize_json_value<attribute_value_use_candidate>(nlohmann::json& json, const attribute_value_use_candidate& value)
+void serialize_json_value<attribute_value_use_candidate>(nlohmann::json&, const attribute_value_use_candidate&)
 {
 }
 
@@ -1189,10 +1189,10 @@ void serialize_json_value<attribute_value_ice_controlling>(nlohmann::json& json,
 template <>
 void serialize_json_value<attribute_value_change_request>(nlohmann::json& json, const attribute_value_change_request& value)
 {
-  if (value.get_value() | attribute_value_change_request::change_ip) {
+  if (value.get_value() & attribute_value_change_request::change_ip) {
     json["flags"].push_back("change_ip");
   }
-  if (value.get_value() | attribute_value_change_request::change_port) {
+  if (value.get_value() & attribute_value_change_request::change_port) {
     json["flags"].push_back("change_port");
   }
 }
@@ -1210,7 +1210,7 @@ void serialize_json_value<attribute_value_padding>(nlohmann::json& json, const a
 }
 
 template <>
-void serialize_json_value<attribute_value_cache_timeout>(nlohmann::json& json, const attribute_value_cache_timeout& value)
+void serialize_json_value<attribute_value_cache_timeout>(nlohmann::json&, const attribute_value_cache_timeout&)
 {
 }
 

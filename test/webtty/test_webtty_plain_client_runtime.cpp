@@ -25,6 +25,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <rstream/test/time.hpp>
 #include <rstream/webtty/client.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
@@ -213,7 +214,7 @@ static void write_message(tcp::socket& socket, const protobuf::Message& message)
   std::uint32_t frame_size = htonl(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));
   if (!payload.empty()) {
     boost::asio::write(socket, boost::asio::buffer(payload));
   }
@@ -269,13 +270,6 @@ static void to_proto(protobuf::EndpointIdentity& dst, const rstream::webtty::end
   dst.set_encryption_key_id(string_from_bytes(src.m_encryption_key_id));
   dst.set_encryption_public_key(string_from_bytes(src.m_encryption_public_key));
   dst.set_key_envelope_suite(protobuf::KEY_ENVELOPE_SUITE_HPKE_X25519_HKDF_SHA256_AES_256_GCM);
-}
-
-static void to_proto(protobuf::KeyEnvelope& dst, const rstream::webtty::key_envelope& src)
-{
-  dst.set_recipient_key_id(string_from_bytes(src.m_recipient_key_id));
-  dst.set_encapsulated_key(string_from_bytes(src.m_encapsulated_key));
-  dst.set_wrapped_key(string_from_bytes(src.m_wrapped_key));
 }
 
 static void to_proto(protobuf::PayloadCrypto& dst, const rstream::webtty::payload_crypto_metadata& src)
@@ -643,14 +637,20 @@ class fake_error_server {
   std::exception_ptr m_exception;
 };
 
-class fake_invalid_payload_server {
+enum class invalid_server_message {
+  malformed_payload,
+  stdin_data,
+};
+
+class fake_invalid_message_server {
  public:
-  fake_invalid_payload_server()
-      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port()))
+  explicit fake_invalid_message_server(invalid_server_message message)
+      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port())),
+        m_message(message)
   {
   }
 
-  ~fake_invalid_payload_server()
+  ~fake_invalid_message_server()
   {
     join();
   }
@@ -671,7 +671,12 @@ class fake_invalid_payload_server {
         protobuf::Message ack;
         ack.mutable_ack();
         write_message(socket, ack);
-        write_payload(socket, "not-a-protobuf-message");
+        if (m_message == invalid_server_message::malformed_payload) {
+          write_payload(socket, "not-a-protobuf-message");
+        }
+        else {
+          write_message(socket, data_message(protobuf::Data::TYPE_STDIN, "invalid-server-input"));
+        }
       }
       catch (...) {
         m_exception = std::current_exception();
@@ -692,6 +697,7 @@ class fake_invalid_payload_server {
  private:
   boost::asio::io_context m_io_context;
   tcp::acceptor m_acceptor;
+  invalid_server_message m_message;
   std::thread m_thread;
   std::exception_ptr m_exception;
 };
@@ -738,7 +744,7 @@ class fake_cancel_server {
 
   bool wait_for_ack()
   {
-    return m_ack_sent.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    return m_ack_sent.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready;
   }
 
   void join()
@@ -766,16 +772,16 @@ static rstream::webtty::client::config plain_client_config(unsigned short port)
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(port)),
       .m_websocket_target = boost::none,
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::plain,
-           .m_options       = {
-                     .m_interactive    = false,
-                     .m_allocate_tty   = false,
-                     .m_send_heartbeat = false,
+          .m_protocol_type = rstream::webtty::protocol::type::plain,
+          .m_options       = {
+              .m_interactive    = false,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = false,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
 }
@@ -786,8 +792,8 @@ static rstream::webtty::settings_client plain_client_settings()
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
@@ -808,24 +814,24 @@ static void check_plain_client_processes_server_messages()
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
       .m_websocket_target = boost::none,
       .m_protocol_config  = {
-           .m_protocol_type = rstream::webtty::protocol::type::plain,
-           .m_options       = {
-                     .m_interactive    = false,
-                     .m_allocate_tty   = false,
-                     .m_send_heartbeat = false,
+          .m_protocol_type = rstream::webtty::protocol::type::plain,
+          .m_options       = {
+              .m_interactive    = false,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = false,
           },
-           .m_env_vars = {},
-           .m_cmd_args = {"/bin/sh", "-c", "unused"},
-           .m_workdir  = {},
-           .m_username = {},
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
       },
   };
   rstream::webtty::settings_client settings = {
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
@@ -918,7 +924,7 @@ static void check_plain_client_reports_server_error_during_open()
 
 static void check_plain_client_rejects_invalid_payload_after_open()
 {
-  fake_invalid_payload_server server;
+  fake_invalid_message_server server(invalid_server_message::malformed_payload);
   server.start();
 
   boost::asio::io_context io_context;
@@ -935,6 +941,28 @@ static void check_plain_client_rejects_invalid_payload_after_open()
   server.join();
 
   assert(result == rstream::webtty::error::make_error_code(rstream::webtty::error::code::protocol_error));
+  assert(return_code == -1);
+}
+
+static void check_plain_client_rejects_stdin_from_server()
+{
+  fake_invalid_message_server server(invalid_server_message::stdin_data);
+  server.start();
+
+  boost::asio::io_context io_context;
+  auto config   = plain_client_config(server.port());
+  auto settings = plain_client_settings();
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  std::error_code result;
+  int return_code = 0;
+  client.async_run([&](const std::error_code& error_code, int code) {
+    result      = error_code;
+    return_code = code;
+  });
+  io_context.run();
+  server.join();
+
+  assert(result == rstream::webtty::error::make_error_code(rstream::webtty::error::code::unexpected_message));
   assert(return_code == -1);
 }
 
@@ -977,6 +1005,7 @@ int main(int argc, char** argv)
   check_plain_client_e2e_sends_stdin_and_processes_server_messages();
   check_plain_client_reports_server_error_during_open();
   check_plain_client_rejects_invalid_payload_after_open();
+  check_plain_client_rejects_stdin_from_server();
   check_plain_client_cancel_after_open_sends_error();
   return 0;
 }

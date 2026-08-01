@@ -2,7 +2,11 @@
 
 #pragma once
 
+#ifndef BOOST_PROCESS_VERSION
 #define BOOST_PROCESS_VERSION 1
+#elif BOOST_PROCESS_VERSION != 1
+#error "rstream WebTTY requires Boost.Process v1"
+#endif
 
 #ifndef _WIN32
 #include <grp.h>

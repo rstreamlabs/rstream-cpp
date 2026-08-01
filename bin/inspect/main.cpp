@@ -8,9 +8,6 @@
 #include <rstream/core/log.hpp>
 #include <rstream/core/plugin.hpp>
 #include <rstream/core/version.hpp>
-#ifdef RSTREAM_ENABLE_STATIC_PLUGINS
-#include <rstream/static-plugins/static-plugins.hpp>
-#endif
 
 static const char USAGE[] = R"(
 rstream-inspect - https://rstream.io/ - inspect rstream plugins and elements
@@ -38,11 +35,6 @@ void show_plugins(const std::vector<std::string>& search_paths)
     config["search_paths"] = std::list<std::string>(search_paths.begin(), search_paths.end());
   }
   rstream::core::plugin::factory factory(config);
-#ifdef RSTREAM_ENABLE_STATIC_PLUGINS
-  for (const auto& plugin : rstream::static_plugins::get_io_plugins()) {
-    factory.register_plugin(plugin);
-  }
-#endif
   std::cout << std::endl;
   auto plugins = factory.get_plugins();
   if (plugins.size() == 0) {

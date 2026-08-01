@@ -15,6 +15,7 @@ namespace detail {
 namespace stream {
 
 class stream_socket_ssl;
+class acceptor_ssl;
 
 class stream_socket : public stream_socket_base<endpoint> {
  public:
@@ -24,9 +25,18 @@ class stream_socket : public stream_socket_base<endpoint> {
 
   template <typename native_acceptor_type, typename native_socket_type, typename native_endpoint_type>
   friend class acceptor_impl;
+  friend class acceptor_ssl;
   friend class stream_socket_ssl;
 
   stream_socket(const executor_type& executor);
+
+  stream_socket(const stream_socket&) = delete;
+
+  stream_socket(stream_socket&& other);
+
+  stream_socket& operator=(const stream_socket&) = delete;
+
+  stream_socket& operator=(stream_socket&& other);
 
   virtual ~stream_socket() = default;
 

@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <boost/asio/connect.hpp>
@@ -24,6 +25,7 @@
 #include <openssl/sha.h>
 #include <sys/socket.h>
 
+#include <rstream/test/time.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/server.hpp>
 #include <rstream/webtty/webtty.hpp>
@@ -41,7 +43,7 @@ static unsigned short unused_tcp_port()
 static void set_receive_timeout(tcp::socket& socket)
 {
   timeval timeout = {
-      .tv_sec  = 5,
+      .tv_sec  = static_cast<time_t>(rstream::test::timeout(std::chrono::seconds(5)).count()),
       .tv_usec = 0,
   };
   auto rc = setsockopt(socket.native_handle(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
@@ -54,7 +56,7 @@ static void write_message(tcp::socket& socket, const protobuf::Message& message)
   std::uint32_t frame_size = htonl(size);
   boost::asio::write(socket, boost::asio::buffer(&frame_size, sizeof(frame_size)));
   std::vector<char> payload(size);
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));
   if (!payload.empty()) {
     boost::asio::write(socket, boost::asio::buffer(payload));
   }
@@ -229,7 +231,8 @@ static protobuf::Message eos_message(protobuf::Data::Type type)
 static rstream::webtty::byte_vector sha256_message(const google::protobuf::Message& message)
 {
   std::string bytes;
-  assert(message.SerializeToString(&bytes));
+  const auto serialized = message.SerializeToString(&bytes);
+  assert(serialized);
   unsigned char digest[SHA256_DIGEST_LENGTH] = {};
   SHA256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest);
   return rstream::webtty::byte_vector(digest, digest + SHA256_DIGEST_LENGTH);
@@ -314,12 +317,12 @@ static rstream::webtty::settings_server plain_server_settings(rstream::webtty::e
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
-      .m_timeouts_start_ms       = 5000,
+      .m_timeouts_start_ms       = rstream::test::timeout_ms(5000),
       .m_std_out_buffer_size     = 64 * 1024,
       .m_std_err_buffer_size     = 64 * 1024,
       .m_execution_mode          = execution_mode,
@@ -413,7 +416,7 @@ static tcp::socket connect_with_retry(boost::asio::io_context& io_context, unsig
 {
   tcp::socket socket(io_context);
   tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), port);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(5));
   boost::system::error_code error_code;
   do {
     socket.close();
@@ -655,8 +658,8 @@ static void check_plain_server_e2e_accepts_client_credential_verifier()
   assert(!error_code);
   const auto credential = std::string("{\"type\":\"test.workspace.credential\",\"v\":1}");
   auto verifier         = [client_identity, credential](const rstream::webtty::byte_vector& client_key_id,
-                                                const rstream::webtty::byte_vector& client_public_key,
-                                                const rstream::webtty::byte_vector& client_credential) -> boost::optional<rstream::webtty::byte_vector> {
+                                                        const rstream::webtty::byte_vector& client_public_key,
+                                                        const rstream::webtty::byte_vector& client_credential) -> boost::optional<rstream::webtty::byte_vector> {
     assert(client_key_id == client_identity.m_signing.m_key_id);
     assert(client_public_key == client_identity.m_signing.m_public_key);
     assert(string_from_bytes(client_credential) == credential);
@@ -713,7 +716,8 @@ static void check_plain_server_e2e_rejects_missing_session_key_grant()
   auto open = open_message({"/bin/cat"});
   add_client_proof(*open.mutable_open(), hello.server_hello(), client_identity, "plain");
   write_message(socket, open);
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_missing_client_proof()
@@ -738,7 +742,8 @@ static void check_plain_server_e2e_rejects_missing_client_proof()
   auto hello  = read_message(socket);
   assert(hello.payload_case() == protobuf::Message::PayloadCase::kServerHello);
   write_message(socket, open_message({"/bin/cat"}, client_crypto));
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_expired_client_proof()
@@ -765,7 +770,8 @@ static void check_plain_server_e2e_rejects_expired_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello.server_hello(), client_identity, "plain", -60, -30);
   write_message(socket, open);
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_unauthorized_client_proof()
@@ -795,7 +801,8 @@ static void check_plain_server_e2e_rejects_unauthorized_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello.server_hello(), denied_client_identity, "plain");
   write_message(socket, open);
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_plain_server_e2e_rejects_plaintext_data()
@@ -823,7 +830,8 @@ static void check_plain_server_e2e_rejects_plaintext_data()
   auto ack = read_message(socket);
   assert(ack.payload_case() == protobuf::Message::PayloadCase::kAck);
   write_message(socket, data_message(protobuf::Data::TYPE_STDIN, "plaintext\n"));
-  assert(read_error_or_eof(socket));
+  const auto rejected = read_error_or_eof(socket);
+  assert(rejected);
 }
 
 static void check_login_execution_mode_requires_user()
@@ -862,24 +870,57 @@ static void check_login_execution_mode_runs_as_configured_user()
   assert(out.data().data() == "login-ok");
 }
 
+static void check_plain_server_cancel_keeps_active_child_resources_alive()
+{
+  for (std::size_t iteration = 0; iteration < 16; ++iteration) {
+    plain_webtty_server server;
+    server.start();
+    boost::asio::io_context io_context;
+    auto socket = connect_with_retry(io_context, server.port());
+    write_message(socket, open_message({"/bin/sh", "-c", "printf active; exec sleep 30"}));
+    auto ack = read_message(socket);
+    assert(ack.payload_case() == protobuf::Message::PayloadCase::kAck);
+    auto out = read_message(socket);
+    assert(out.payload_case() == protobuf::Message::PayloadCase::kData);
+    assert(out.data().type() == protobuf::Data::TYPE_STDOUT);
+    assert(out.data().data() == "active");
+    server.stop();
+    boost::system::error_code ignored;
+    socket.close(ignored);
+  }
+}
+
+template <typename check_type>
+static void run_check(const char* name, check_type&& check)
+{
+  try {
+    std::forward<check_type>(check)();
+  }
+  catch (const std::exception& error) {
+    std::cerr << name << " failed: " << error.what() << std::endl;
+    throw;
+  }
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
   plain_webtty_server server;
   server.start();
-  check_invalid_command_returns_protocol_error_message(server.port());
-  check_managed_attach_is_rejected(server.port());
-  check_plain_server_runs_child_and_streams_stdout_stderr(server.port());
-  check_plain_server_forwards_stdin_to_child_process(server.port());
-  check_plain_server_e2e_forwards_stdin_to_child_process();
-  check_plain_server_e2e_accepts_client_credential_verifier();
-  check_plain_server_e2e_rejects_missing_session_key_grant();
-  check_plain_server_e2e_rejects_missing_client_proof();
-  check_plain_server_e2e_rejects_expired_client_proof();
-  check_plain_server_e2e_rejects_unauthorized_client_proof();
-  check_plain_server_e2e_rejects_plaintext_data();
-  check_login_execution_mode_requires_user();
-  check_login_execution_mode_runs_as_configured_user();
+  run_check("invalid command", [&server] { check_invalid_command_returns_protocol_error_message(server.port()); });
+  run_check("managed attach rejection", [&server] { check_managed_attach_is_rejected(server.port()); });
+  run_check("stdout and stderr streaming", [&server] { check_plain_server_runs_child_and_streams_stdout_stderr(server.port()); });
+  run_check("stdin forwarding", [&server] { check_plain_server_forwards_stdin_to_child_process(server.port()); });
+  run_check("E2E stdin forwarding", check_plain_server_e2e_forwards_stdin_to_child_process);
+  run_check("client credential verification", check_plain_server_e2e_accepts_client_credential_verifier);
+  run_check("missing session key rejection", check_plain_server_e2e_rejects_missing_session_key_grant);
+  run_check("missing client proof rejection", check_plain_server_e2e_rejects_missing_client_proof);
+  run_check("expired client proof rejection", check_plain_server_e2e_rejects_expired_client_proof);
+  run_check("unauthorized client proof rejection", check_plain_server_e2e_rejects_unauthorized_client_proof);
+  run_check("plaintext rejection", check_plain_server_e2e_rejects_plaintext_data);
+  run_check("login mode user requirement", check_login_execution_mode_requires_user);
+  run_check("login mode configured user", check_login_execution_mode_runs_as_configured_user);
+  run_check("cancellation with active child", check_plain_server_cancel_keeps_active_child_resources_alive);
   return 0;
 }

@@ -15,14 +15,14 @@ namespace tcp {
 }  // namespace rstream
 
 template <>
-void rstream::plugin::io_generic::tcp::stream_socket::configure_internal(rstream::io::detail::stream::socket_mode mode, bool connected, const boost::asio::ip::tcp::endpoint& endpoint, const boost::urls::url& url, boost::system::error_code& error_code)
+void rstream::plugin::io_generic::tcp::stream_socket::configure_internal(rstream::io::detail::stream::socket_mode mode, bool connected, const boost::asio::ip::tcp::endpoint&, const boost::urls::url& url, boost::system::error_code& error_code)
 {
   if (!connected) {
     return;
   }
   (void)mode;
-  const auto& params = url.params();
-  bool no_delay      = true;
+  const auto params = rstream::io::detail::stream::url_params(url);
+  bool no_delay     = true;
   if (!error_code) {
     auto it = params.find("tcp.no_delay");
     if (it != params.end()) {

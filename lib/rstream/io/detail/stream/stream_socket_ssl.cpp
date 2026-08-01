@@ -2,13 +2,15 @@
 
 #include "stream_socket_ssl.hpp"
 
+#include <chrono>
 #include <cstdlib>
+#include <limits>
 
 #include <openssl/opensslv.h>
 
 #include <rstream/config.hpp>
 
-#define SSL_STREAM_PRINT_PEER_PKEY    1
+#define SSL_STREAM_PRINT_PEER_PKEY 1
 #ifdef RSTREAM_WITH_OPENSSL_ENGINE
 #define SSL_STREAM_USE_OPENSSL_ENGINE 1
 #else
@@ -28,8 +30,9 @@
 #define SSL_STREAM_USE_STRAND 1
 
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
-#include <openssl/engine.h>
 #include <openssl/ui.h>
+
+#include "openssl_engine_compat.hpp"
 #endif
 #if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
 #include <openssl/provider.h>
@@ -37,8 +40,8 @@
 #endif
 
 #include <boost/asio/bind_executor.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/ip/address.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 
 #include <fmt/ranges.h>
@@ -47,6 +50,7 @@
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/log.hpp>
+#include <rstream/core/system.hpp>
 
 #include "error.hpp"
 
@@ -254,9 +258,9 @@ class stream_socket_ssl::impl::async_shutdown_operation : public std::enable_sha
 
   bool m_complete;
 
-  boost::asio::deadline_timer m_timer;
+  boost::asio::steady_timer m_timer;
 
-  async_handshake_completion_handler m_handler;
+  async_shutdown_completion_handler m_handler;
 };
 
 stream_socket_ssl::stream_socket_ssl(stream_socket_ptr next_layer, const ssl::config& config, type type)
@@ -363,8 +367,8 @@ stream_socket_ssl::impl::~impl()
 {
 #if SSL_STREAM_USE_OPENSSL_ENGINE == 1
   if (m_engine) {
-    ::ENGINE_finish(m_engine);
-    ::ENGINE_free(m_engine);
+    openssl_engine_compat::finish(m_engine);
+    openssl_engine_compat::free(m_engine);
     m_engine = nullptr;
   }
 #endif
@@ -387,13 +391,7 @@ void stream_socket_ssl::impl::open(const endpoint& endpoint, boost::system::erro
 
 void stream_socket_ssl::impl::close(boost::system::error_code& error_code)
 {
-  (void)error_code;
-  auto handler = [ptr = shared_from_this()](const boost::system::error_code& error_code) {
-    (void)error_code;
-    boost::system::error_code tmp;
-    ptr->m_next_layer->close(tmp);
-  };
-  async_shutdown(handler);
+  m_next_layer->close(error_code);
 }
 
 endpoint stream_socket_ssl::impl::remote_endpoint(boost::system::error_code& error_code)
@@ -425,28 +423,28 @@ void stream_socket_ssl::impl::async_connect(const endpoint& endpoint, async_conn
 #if SSL_STREAM_USE_STRAND == 1
 void stream_socket_ssl::impl::async_write_some(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const boost::asio::const_buffer&, async_write_some_completion_handler&&)) & impl::async_write_some_internal, shared_from_this(), buffer, std::move(handler)));
+  boost::asio::dispatch(m_strand, std::bind_front((void (impl::*)(const boost::asio::const_buffer&, async_write_some_completion_handler&&))&impl::async_write_some_internal, shared_from_this(), buffer, std::move(handler)));
 }
 #endif
 
 #if SSL_STREAM_USE_STRAND == 1
 void stream_socket_ssl::impl::async_write_some(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&&)) & impl::async_write_some_internal, shared_from_this(), buffer, std::move(handler)));
+  boost::asio::dispatch(m_strand, std::bind_front((void (impl::*)(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&&))&impl::async_write_some_internal, shared_from_this(), buffer, std::move(handler)));
 }
 #endif
 
 #if SSL_STREAM_USE_STRAND == 1
 void stream_socket_ssl::impl::async_read_some(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&&)) & impl::async_read_some_internal, shared_from_this(), buffer, std::move(handler)));
+  boost::asio::dispatch(m_strand, std::bind_front((void (impl::*)(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&&))&impl::async_read_some_internal, shared_from_this(), buffer, std::move(handler)));
 }
 #endif
 
 #if SSL_STREAM_USE_STRAND == 1
 void stream_socket_ssl::impl::async_read_some(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&&)) & impl::async_read_some_internal, shared_from_this(), buffer, std::move(handler)));
+  boost::asio::dispatch(m_strand, std::bind_front((void (impl::*)(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&&))&impl::async_read_some_internal, shared_from_this(), buffer, std::move(handler)));
 }
 #endif
 
@@ -480,7 +478,9 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  m_ssl_stream.async_handshake(handshake_type, std::move(handler));
+  m_ssl_stream.async_handshake(
+      handshake_type,
+      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
 }
 
 void stream_socket_ssl::impl::
@@ -496,7 +496,8 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  std::allocate_shared<async_shutdown_operation>(core::allocator::wrapper<async_shutdown_operation>(m_allocator), shared_from_this(), std::forward<decltype(handler)>(handler))->run();
+  auto operation_allocator = boost::asio::get_associated_allocator(handler);
+  std::allocate_shared<async_shutdown_operation>(operation_allocator, shared_from_this(), std::forward<decltype(handler)>(handler))->run();
 }
 
 void stream_socket_ssl::impl::
@@ -512,7 +513,8 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  std::allocate_shared<async_connect_operation>(core::allocator::wrapper<async_connect_operation>(m_allocator), shared_from_this(), endpoint, std::forward<decltype(handler)>(handler))->run();
+  auto operation_allocator = boost::asio::get_associated_allocator(handler);
+  std::allocate_shared<async_connect_operation>(operation_allocator, shared_from_this(), endpoint, std::forward<decltype(handler)>(handler))->run();
 }
 
 void stream_socket_ssl::impl::
@@ -528,7 +530,9 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  m_ssl_stream.async_write_some(buffer, std::move(handler));
+  m_ssl_stream.async_write_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
 }
 
 void stream_socket_ssl::impl::
@@ -544,7 +548,9 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  m_ssl_stream.async_write_some(buffer, std::move(handler));
+  m_ssl_stream.async_write_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
 }
 
 void stream_socket_ssl::impl::
@@ -560,7 +566,9 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  m_ssl_stream.async_read_some(buffer, std::move(handler));
+  m_ssl_stream.async_read_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
 }
 
 void stream_socket_ssl::impl::
@@ -576,13 +584,15 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  m_ssl_stream.async_read_some(buffer, std::move(handler));
+  m_ssl_stream.async_read_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
 }
 
 boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 {
   boost::system::error_code error_code;
-  boost::asio::ssl::context_base::method method;
+  auto method = m_type == type::client ? boost::asio::ssl::context_base::method::tls_client : boost::asio::ssl::context_base::method::tls_server;
   if (m_config.m_tlsv12 || m_config.m_tlsv13) {
     if (m_config.m_tlsv12 && m_config.m_tlsv13) {
 #ifdef DEBUG_BUILD
@@ -598,21 +608,13 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
         method = boost::asio::ssl::context_base::method::tlsv12_server;
       }
     }
-    else if (m_config.m_tlsv13) {
+    else {
       if (m_type == type::client) {
         method = boost::asio::ssl::context_base::method::tlsv13_client;
       }
       else {
         method = boost::asio::ssl::context_base::method::tlsv13_server;
       }
-    }
-  }
-  else {
-    if (m_type == type::client) {
-      method = boost::asio::ssl::context_base::method::tls_client;
-    }
-    else {
-      method = boost::asio::ssl::context_base::method::tls_server;
     }
   }
   boost::asio::ssl::context ssl_context(method);
@@ -752,7 +754,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
         throw boost::system::system_error(error_code);
       }
       const char* cmd_name = "LOAD_CERT_CTRL";
-      if (!ENGINE_ctrl(m_engine, ENGINE_CTRL_GET_CMD_FROM_NAME, 0, (void*)cmd_name, NULL)) {
+      if (!openssl_engine_compat::ctrl(m_engine, ENGINE_CTRL_GET_CMD_FROM_NAME, 0, const_cast<char*>(cmd_name), nullptr)) {
 #ifdef DEBUG_BUILD
         m_logger->warn("SSL engine does not support loading certificates");
 #endif
@@ -764,7 +766,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
       } params;
       params.cert_id = m_config.m_cert.get().c_str();
       params.cert    = nullptr;
-      if (!ENGINE_ctrl_cmd(m_engine, cmd_name, 0, &params, NULL, 1)) {
+      if (!openssl_engine_compat::ctrl_cmd(m_engine, cmd_name, 0, &params, nullptr, 1)) {
         error_code = translate_error(::ERR_get_error());
       }
       if (error_code) {
@@ -967,7 +969,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
       }
       EVP_PKEY* private_key = nullptr;
       if (m_config.m_passphrase) {
-        UI_METHOD* ui_method = UI_create_method((char*)"rstream-cpp user interface");
+        UI_METHOD* ui_method = UI_create_method(const_cast<char*>("rstream-cpp user interface"));
         if (!ui_method) {
 #ifdef DEBUG_BUILD
           m_logger->warn("unable to create SSL user interface method");
@@ -978,11 +980,15 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
         UI_method_set_closer(ui_method, UI_method_get_closer(UI_OpenSSL()));
         UI_method_set_reader(ui_method, ssl_ui_reader);
         UI_method_set_writer(ui_method, ssl_ui_writer);
-        private_key = ENGINE_load_private_key(m_engine, m_config.m_key.get().c_str(), ui_method, (void*)m_config.m_passphrase.get().c_str());
+        private_key = openssl_engine_compat::load_private_key(
+            m_engine,
+            m_config.m_key.get().c_str(),
+            ui_method,
+            const_cast<char*>(m_config.m_passphrase.get().c_str()));
         UI_destroy_method(ui_method);
       }
       else {
-        private_key = ENGINE_load_private_key(m_engine, m_config.m_key.get().c_str(), nullptr, nullptr);
+        private_key = openssl_engine_compat::load_private_key(m_engine, m_config.m_key.get().c_str(), nullptr, nullptr);
       }
       if (!private_key) {
         error_code = translate_error(::ERR_get_error());
@@ -1214,10 +1220,14 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
   }
   {
     auto verify_certificate = [this](bool preverified, boost::asio::ssl::verify_context& context) {
-#if SSL_STREAM_PRINT_PEER_PKEY == 1
+#if SSL_STREAM_PRINT_PEER_PKEY == 1 && defined(DEBUG_BUILD)
       auto print_pkey = [this](EVP_PKEY* pkey, int peer_cert_type, const char* subject_name) {
         const char* key_type_name = ::EVP_PKEY_get0_type_name(pkey);
         BIO* bio                  = ::BIO_new(BIO_s_mem());
+        if (!bio) {
+          m_logger->warn("failed to allocate BIO for peer public key");
+          return;
+        }
         if (::PEM_write_bio_PUBKEY(bio, pkey)) {
           char* pem_data;
           long pem_length = BIO_get_mem_data(bio, &pem_data);
@@ -1245,23 +1255,19 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
           else {
             peer_cert_type_str = "unknown";
           }
-#ifdef DEBUG_BUILD
           m_logger->trace("peer public key ({}) ({}){}\n{}", key_type_name, peer_cert_type_str, subject_name ? fmt::format(" ({})", subject_name) : "", str);
-#endif
         }
         else {
-#ifdef DEBUG_BUILD
           m_logger->warn("failed to write peer public key to BIO");
-#endif
         }
         BIO_free(bio);
       };
-#endif
-      EVP_PKEY* pkey      = nullptr;
-      char* subject_name  = nullptr;
-      int peer_cert_type  = 0;
-      X509_STORE_CTX* ctx = static_cast<X509_STORE_CTX*>(context.native_handle());
-      int depth           = ::X509_STORE_CTX_get_error_depth(ctx);
+      EVP_PKEY* pkey       = nullptr;
+      char* subject_name   = nullptr;
+      int peer_cert_type   = 0;
+      bool owns_public_key = false;
+      X509_STORE_CTX* ctx  = static_cast<X509_STORE_CTX*>(context.native_handle());
+      int depth            = ::X509_STORE_CTX_get_error_depth(ctx);
       if (depth == 0) {
         X509* cert = ::X509_STORE_CTX_get_current_cert(ctx);
         if (cert) {
@@ -1272,7 +1278,8 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #else
             peer_cert_type = 0;
 #endif
-            subject_name = X509_NAME_oneline(X509_get_subject_name(cert), nullptr, 0);
+            owns_public_key = true;
+            subject_name    = X509_NAME_oneline(X509_get_subject_name(cert), nullptr, 0);
           }
         }
         else {
@@ -1284,11 +1291,18 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #endif
         }
         if (pkey) {
-#if SSL_STREAM_PRINT_PEER_PKEY == 1
           print_pkey(pkey, peer_cert_type, subject_name);
-#endif
+        }
+        if (subject_name) {
+          ::OPENSSL_free(subject_name);
+        }
+        if (owns_public_key) {
+          ::EVP_PKEY_free(pkey);
         }
       }
+#else
+      static_cast<void>(context);
+#endif
       return m_config.m_peer_verification ? preverified : true;
     };
     ssl_context.set_verify_callback(verify_certificate, error_code);
@@ -1309,7 +1323,7 @@ void stream_socket_ssl::impl::init_engine(const std::string& engine, const boost
     return;
   }
   ::ERR_clear_error();
-  ENGINE* native_engine = ::ENGINE_by_id(engine.c_str());
+  ENGINE* native_engine = openssl_engine_compat::by_id(engine.c_str());
   if (!native_engine) {
     error_code = translate_error(::ERR_get_error());
   }
@@ -1320,31 +1334,38 @@ void stream_socket_ssl::impl::init_engine(const std::string& engine, const boost
     return;
   }
   if (module && !module.get().empty()) {
-    if (::ENGINE_ctrl_cmd(native_engine, "MODULE_PATH", 0, (void*)module.get().c_str(), NULL, 1) != 1) {
+    if (openssl_engine_compat::ctrl_cmd(
+            native_engine,
+            "MODULE_PATH",
+            0,
+            const_cast<char*>(module.get().c_str()),
+            nullptr,
+            1)
+        != 1) {
       error_code = translate_error(::ERR_get_error());
     }
     if (error_code) {
 #ifdef DEBUG_BUILD
       m_logger->warn("failed to configure SSL engine PKCS#11 module [error_code: {}]", error_code.message());
 #endif
-      ::ENGINE_free(native_engine);
+      openssl_engine_compat::free(native_engine);
       return;
     }
   }
   if (pin && !pin.get().empty()) {
-    if (::ENGINE_ctrl_cmd(native_engine, "PIN", 0, (void*)pin.get().c_str(), NULL, 1) != 1) {
+    if (openssl_engine_compat::ctrl_cmd(native_engine, "PIN", 0, const_cast<char*>(pin.get().c_str()), nullptr, 1) != 1) {
       error_code = translate_error(::ERR_get_error());
     }
     if (error_code) {
 #ifdef DEBUG_BUILD
       m_logger->warn("failed to configure SSL engine PKCS#11 PIN [error_code: {}]", error_code.message());
 #endif
-      ::ENGINE_free(native_engine);
+      openssl_engine_compat::free(native_engine);
       return;
     }
   }
-  if (::ENGINE_init(native_engine) != 1) {
-    ENGINE_free(native_engine);
+  if (openssl_engine_compat::init(native_engine) != 1) {
+    openssl_engine_compat::free(native_engine);
     error_code = translate_error(::ERR_get_error());
   }
   if (error_code) {
@@ -1364,12 +1385,12 @@ boost::optional<std::string> stream_socket_ssl::impl::get_pkcs11_pin(boost::syst
     error_code = error::make_error_code(error::code::ssl_configuration_error);
     return boost::none;
   }
-  const char* value = std::getenv(m_config.m_pkcs11_pin_env.get().c_str());
-  if (!value || value[0] == '\0') {
+  const auto value = rstream::core::get_environment_variable(m_config.m_pkcs11_pin_env.get());
+  if (!value || value->empty()) {
     error_code = error::make_error_code(error::code::ssl_configuration_error);
     return boost::none;
   }
-  return std::string(value);
+  return value.value();
 }
 
 X509* stream_socket_ssl::impl::load_pkcs11_certificate(const std::string& uri, boost::system::error_code& error_code)
@@ -1431,7 +1452,7 @@ X509* stream_socket_ssl::impl::load_pkcs11_certificate(const std::string& uri, b
   }
 #ifdef ENGINE_CTRL_GET_CMD_FROM_NAME
   const char* cmd_name = "LOAD_CERT_CTRL";
-  if (!ENGINE_ctrl(m_engine, ENGINE_CTRL_GET_CMD_FROM_NAME, 0, (void*)cmd_name, NULL)) {
+  if (!openssl_engine_compat::ctrl(m_engine, ENGINE_CTRL_GET_CMD_FROM_NAME, 0, const_cast<char*>(cmd_name), nullptr)) {
     error_code = error::make_error_code(error::code::ssl_configuration_error);
     return nullptr;
   }
@@ -1441,7 +1462,7 @@ X509* stream_socket_ssl::impl::load_pkcs11_certificate(const std::string& uri, b
   } params;
   params.cert_id = uri.c_str();
   params.cert    = nullptr;
-  if (!ENGINE_ctrl_cmd(m_engine, cmd_name, 0, &params, NULL, 1)) {
+  if (!openssl_engine_compat::ctrl_cmd(m_engine, cmd_name, 0, &params, nullptr, 1)) {
     error_code = translate_error(::ERR_get_error());
     if (!error_code) {
       error_code = error::make_error_code(error::code::ssl_configuration_error);
@@ -1519,7 +1540,7 @@ EVP_PKEY* stream_socket_ssl::impl::load_pkcs11_private_key(const std::string& ur
 #endif
     return nullptr;
   }
-  EVP_PKEY* private_key = ::ENGINE_load_private_key(m_engine, uri.c_str(), nullptr, nullptr);
+  EVP_PKEY* private_key = openssl_engine_compat::load_private_key(m_engine, uri.c_str(), nullptr, nullptr);
   if (!private_key) {
     error_code = translate_error(::ERR_get_error());
     if (!error_code) {
@@ -1688,11 +1709,18 @@ void stream_socket_ssl::impl::async_connect_operation::do_connect()
 #endif
       std::vector<unsigned char> alpn_data;
       for (const auto& proto : alpn_protos) {
+        if (proto.size() > std::numeric_limits<unsigned char>::max()) {
+          error_code = error::make_error_code(error::code::ssl_configuration_error);
+          break;
+        }
         alpn_data.push_back(static_cast<unsigned char>(proto.size()));
         alpn_data.insert(alpn_data.end(), proto.begin(), proto.end());
       }
-      if (!SSL_set_alpn_protos(m_ptr->m_ssl_stream.native_handle(), alpn_data.data(), static_cast<unsigned int>(alpn_data.size()))) {
-        error_code = boost::system::error_code(static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category());
+      if (!error_code && alpn_data.size() > std::numeric_limits<unsigned int>::max()) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
+      if (!error_code && SSL_set_alpn_protos(m_ptr->m_ssl_stream.native_handle(), alpn_data.data(), static_cast<unsigned int>(alpn_data.size())) != 0) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
       }
     }
     else {
@@ -1769,7 +1797,7 @@ void stream_socket_ssl::impl::async_connect_operation::on_complete(const boost::
 
 stream_socket_ssl::impl::async_shutdown_operation::async_shutdown_operation(ptr ptr, async_shutdown_completion_handler&& handler)
     : m_ptr(ptr),
-      m_strand(ptr->m_next_layer->get_executor()),
+      m_strand(ptr->m_strand),
       m_logger({"rstream", "io", "stream", "ssl", "shtdwn", fmt::format("#{}", fmt::ptr(this))}),
       m_complete(false),
       m_timer(ptr->m_next_layer->get_executor()),
@@ -1788,7 +1816,7 @@ void stream_socket_ssl::impl::async_shutdown_operation::arm_timer(unsigned long 
   if (timeout_ms == 0) {
     return;
   }
-  m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = std::bind(&async_shutdown_operation::on_timer_cb, shared_from_this(), std::placeholders::_1);
   m_timer.async_wait(boost::asio::bind_executor(m_strand, completion_handler));
 }
@@ -1815,6 +1843,9 @@ void stream_socket_ssl::impl::async_shutdown_operation::on_timer_cb(const boost:
   if (m_complete || error_code) {
     return;
   }
+#ifdef DEBUG_BUILD
+  assert(m_ptr->m_strand.running_in_this_thread());
+#endif
   m_complete = true;
   {
     boost::system::error_code tmp;
@@ -1831,11 +1862,11 @@ void stream_socket_ssl::impl::async_shutdown_operation::on_shutdown(const boost:
   if (m_complete) {
     return;
   }
+#ifdef DEBUG_BUILD
+  assert(m_ptr->m_strand.running_in_this_thread());
+#endif
   m_complete = true;
-  {
-    boost::system::error_code tmp;
-    m_timer.cancel(tmp);
-  }
+  m_timer.cancel();
   on_complete(error_code);
 }
 
@@ -1843,6 +1874,7 @@ void stream_socket_ssl::impl::async_shutdown_operation::on_complete(const boost:
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
+  assert(m_ptr->m_strand.running_in_this_thread());
 #endif
 #ifdef DEBUG_BUILD
   m_logger->trace("SSL stream shutdown completed [error_code: {}]", (error_code ? error_code.message() : "none"));

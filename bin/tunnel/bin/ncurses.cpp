@@ -18,6 +18,8 @@
 #include <unistd.h>
 
 #include <rstream/config.hpp>
+#include <rstream/core/log.hpp>
+#include <rstream/core/system.hpp>
 
 #include "error.hpp"
 
@@ -48,11 +50,11 @@ class RSTREAM_GNUC_INTERNAL ncurses::impl : public std::enable_shared_from_this<
 
   static void render_status(WINDOW* win, const rstream::tunnel::status_proxy& status);
 
-  static void render_connections(WINDOW* win, int scroll_pos, int selected, const std::vector<std::string>& connections);
+  static void render_connections(WINDOW* win, std::size_t scroll_pos, std::size_t selected, const std::vector<std::string>& connections);
 
   static void render_footer(WINDOW* win);
 
-  static void render_screen(WINDOW* win, int scroll_pos, int selected, const rstream::tunnel::status_proxy& status, const std::vector<std::string>& connections);
+  static void render_screen(WINDOW* win, std::size_t scroll_pos, std::size_t selected, const rstream::tunnel::status_proxy& status, const std::vector<std::string>& connections);
 
   static const std::size_t g_max_connections = 20;
 
@@ -81,9 +83,14 @@ ncurses::ncurses(const executor_type& executor)
   m_impl = std::make_shared<impl>(executor);
 }
 
-ncurses::~ncurses()
+ncurses::~ncurses() noexcept
 {
-  join();
+  try {
+    join();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void ncurses::async_run(async_run_completion_handler&& handler)
@@ -149,8 +156,21 @@ void ncurses::impl::join()
     thread.swap(m_thread);
     m_condition_variable.notify_one();
   }
-  if (thread) {
-    thread->join();
+  if (thread && thread->joinable()) {
+    try {
+      if (thread->get_id() == std::this_thread::get_id()) {
+        thread->detach();
+      }
+      else {
+        thread->join();
+      }
+    }
+    catch (...) {
+      if (thread->joinable()) {
+        thread->detach();
+      }
+      throw;
+    }
   }
 }
 
@@ -170,9 +190,7 @@ void ncurses::impl::render_new_connection(const rstream::io_rstrm::endpoint& end
     auto now_time_t = std::chrono::system_clock::to_time_t(now);
     auto ms         = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     ss << "[date: "
-       << std::put_time(std::gmtime(&now_time_t), "%Y-%m-%d %H:%M:%S")
-       << '.' << std::setw(3) << std::setfill('0') << ms.count()
-       << " UTC"
+       << rstream::core::format_timestamp(static_cast<unsigned long>(ms.count()), now_time_t)
        << ", stream_id: "
        << endpoint.m_id_name.value_or("-")
        << ", source_ip: "
@@ -193,15 +211,16 @@ void ncurses::impl::run()
     const auto program_location = boost::filesystem::canonical(boost::dll::program_location());
     const auto terminfodb       = boost::filesystem::canonical(program_location.parent_path().parent_path() / "share" / "terminfo.db");
     if (boost::filesystem::exists(terminfodb)) {
-      const auto env = std::getenv("TERMINFO");
-      if (env == nullptr) {
+      const auto env = rstream::core::get_environment_variable("TERMINFO");
+      if (!env) {
         setenv("TERMINFO", terminfodb.string().c_str(), 1);
       }
     }
   }
   catch (...) {
   }
-  SCREEN* screen = newterm(std::getenv("TERM"), stdout, stdin);
+  auto term      = rstream::core::get_environment_variable("TERM");
+  SCREEN* screen = newterm(term ? term->data() : nullptr, stdout, stdin);
   if (screen == nullptr) {
     error_code = error::code::ncurses_terminal;
   }
@@ -213,43 +232,46 @@ void ncurses::impl::run()
     keypad(stdscr, TRUE);
     nodelay(stdscr, TRUE);
     int max_row, max_col;
-    WINDOW* win    = nullptr;
-    int scroll_pos = 0, selected = 0;
-    int ch = KEY_RESIZE;
+    WINDOW* win            = nullptr;
+    std::size_t scroll_pos = 0;
+    std::size_t selected   = 0;
+    int ch                 = KEY_RESIZE;
     do {
-      switch (ch) {
-        case KEY_RESIZE:
-          getmaxyx(stdscr, max_row, max_col);
-          clearok(stdscr, TRUE);
-          if (win != nullptr) {
-            wresize(win, max_row - 2, max_col - 2);
-            mvwin(win, 1, 1);
-          }
-          else {
-            win = newwin(max_row - 2, max_col - 2, 1, 1);
-          }
-          wclear(stdscr);
-          wrefresh(stdscr);
-          break;
-        case KEY_UP:
-          if (selected > 0) {
-            selected--;
-            if (selected < scroll_pos) {
-              scroll_pos = selected;
-            }
-          }
-          break;
-        case KEY_DOWN:
-          if (selected < m_connections.size() - 1) {
-            selected++;
-            if (selected >= scroll_pos + g_max_connections) {
-              scroll_pos = selected - g_max_connections + 1;
-            }
-          }
-          break;
+      if (ch == KEY_RESIZE) {
+        getmaxyx(stdscr, max_row, max_col);
+        clearok(stdscr, TRUE);
+        if (win != nullptr) {
+          wresize(win, max_row - 2, max_col - 2);
+          mvwin(win, 1, 1);
+        }
+        else {
+          win = newwin(max_row - 2, max_col - 2, 1, 1);
+        }
+        wclear(stdscr);
+        wrefresh(stdscr);
       }
       {
         std::unique_lock<std::mutex> lock(m_mutex);
+        switch (ch) {
+          case KEY_UP:
+            if (selected > 0) {
+              --selected;
+              if (selected < scroll_pos) {
+                scroll_pos = selected;
+              }
+            }
+            break;
+          case KEY_DOWN:
+            if (!m_connections.empty() && selected + 1 < m_connections.size()) {
+              ++selected;
+              if (selected >= scroll_pos + g_max_connections) {
+                scroll_pos = selected - g_max_connections + 1;
+              }
+            }
+            break;
+          default:
+            break;
+        }
         if (!m_running) {
           break;
         }
@@ -309,7 +331,7 @@ void ncurses::impl::render_status(WINDOW* win, const rstream::tunnel::status_pro
   print_truncated(win, ("forwarded   : " + status.m_forwarded.value_or("-")).c_str());
 }
 
-void ncurses::impl::render_connections(WINDOW* win, int scroll_pos, int selected, const std::vector<std::string>& connections)
+void ncurses::impl::render_connections(WINDOW* win, std::size_t scroll_pos, std::size_t selected, const std::vector<std::string>& connections)
 {
   print_truncated(win, "incoming connections:");
   wprintw(win, "\n");
@@ -317,7 +339,8 @@ void ncurses::impl::render_connections(WINDOW* win, int scroll_pos, int selected
     print_truncated(win, "no connection");
   }
   else {
-    for (int i = scroll_pos; i < scroll_pos + g_max_connections && i < connections.size(); ++i) {
+    const auto end = std::min(connections.size(), scroll_pos + g_max_connections);
+    for (std::size_t i = scroll_pos; i < end; ++i) {
       if (i == selected) {
         wattron(win, A_REVERSE);
         print_truncated(win, connections[i].c_str());
@@ -339,7 +362,7 @@ void ncurses::impl::render_footer(WINDOW* win)
   mvwprintw(win, getmaxy(win) - 1, 0, "press 'q' or 'Ctrl-C' to exit");
 }
 
-void ncurses::impl::render_screen(WINDOW* win, int scroll_pos, int selected, const rstream::tunnel::status_proxy& status, const std::vector<std::string>& connections)
+void ncurses::impl::render_screen(WINDOW* win, std::size_t scroll_pos, std::size_t selected, const rstream::tunnel::status_proxy& status, const std::vector<std::string>& connections)
 {
   werase(win);
   render_header(win);

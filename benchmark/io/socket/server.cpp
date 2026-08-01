@@ -9,7 +9,6 @@
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
@@ -171,7 +170,7 @@ int main(int argc, char** argv)
   class server server(io_context.get_executor(), endpoint_iterator, config.m_block_size);
   std::list<std::thread> threads;
   for (std::size_t i = 0; i < config.m_thread_count; ++i) {
-    threads.push_back(std::thread(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context)));
+    threads.push_back(std::thread(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context)));
   }
   io_context.run();
   for (auto it = threads.begin(); it != threads.end();) {

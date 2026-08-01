@@ -32,7 +32,7 @@ void rstream::plugin::io_generic::serial::stream_socket::open_internal(const rst
 }
 
 template <>
-void rstream::plugin::io_generic::serial::stream_socket::configure_internal(rstream::io::detail::stream::socket_mode mode, bool connected, const rstream::plugin::io_generic::serial::descriptor& endpoint, const boost::urls::url& url, boost::system::error_code& error_code)
+void rstream::plugin::io_generic::serial::stream_socket::configure_internal(rstream::io::detail::stream::socket_mode mode, bool connected, const rstream::plugin::io_generic::serial::descriptor& endpoint, const boost::urls::url&, boost::system::error_code& error_code)
 {
   if (connected) {
     return;
@@ -93,7 +93,7 @@ rstream::plugin::io_generic::serial::descriptor rstream::plugin::io_generic::ser
 }
 
 template <>
-void rstream::plugin::io_generic::serial::stream_socket::async_connect_internal(const rstream::plugin::io_generic::serial::descriptor& endpoint, async_connect_completion_handler&& handler)
+void rstream::plugin::io_generic::serial::stream_socket::async_connect_internal(const rstream::plugin::io_generic::serial::descriptor&, async_connect_completion_handler&& handler)
 {
   rstream::core::invoke_completion_handler(get_executor(), std::move(handler), boost::system::error_code());
 }

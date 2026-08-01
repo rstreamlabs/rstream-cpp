@@ -38,6 +38,7 @@ class memory {
   const memory share(std::size_t offset, std::size_t size) const;
 
  private:
+  friend memory make_memory_shared(allocator::ptr allocator, memory& other, std::size_t offset, std::size_t size);
   memory(const memory& other, allocator::ptr allocator);
   std::shared_ptr<impl> m_impl;
 };

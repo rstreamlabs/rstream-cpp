@@ -178,7 +178,13 @@ boost::asio::awaitable<void> coro_tunnel(rstream::io_rstrm::client& client, std:
       throw boost::system::system_error(error_code);
     }
     else {
-      endpoint = rstream::io_rstrm::endpoint({name, address});
+      endpoint = rstream::io_rstrm::endpoint({
+          .m_id_name                       = name,
+          .m_server_address                = address,
+          .m_server_address_from_uri_param = false,
+          .m_secret                        = boost::none,
+          .m_source_ip                     = boost::none,
+      });
     }
   }
   auto executor = co_await boost::asio::this_coro::executor;
@@ -193,7 +199,7 @@ boost::asio::awaitable<void> coro_tunnel(rstream::io_rstrm::client& client, std:
   using op_type       = decltype(boost::asio::co_spawn(executor, coro_client(endpoint, std::string("")), boost::asio::deferred));
   std::vector<op_type> ops;
   ops.reserve(g_config.m_clients_count);
-  for (int i = 0; i < g_config.m_clients_count; ++i) {
+  for (std::size_t i = 0; i < g_config.m_clients_count; ++i) {
     ops.emplace_back(boost::asio::co_spawn(executor, coro_client(endpoint, std::to_string(i)), boost::asio::deferred));
   }
   co_await (std::move(await_listener) && [&, ops = std::move(ops)]() mutable -> boost::asio::awaitable<void> {
@@ -228,7 +234,7 @@ boost::asio::awaitable<void> coro_main(const std::string& uri)
   using op_type = decltype(boost::asio::co_spawn(executor, coro_tunnel(client, std::string("")), boost::asio::deferred));
   std::vector<op_type> ops;
   ops.reserve(g_config.m_tunnels_count);
-  for (int i = 0; i < g_config.m_tunnels_count; ++i) {
+  for (std::size_t i = 0; i < g_config.m_tunnels_count; ++i) {
     ops.emplace_back(boost::asio::co_spawn(executor, coro_tunnel(client, std::string("test-") + std::to_string(i)), boost::asio::deferred));
   }
   co_await boost::asio::experimental::make_parallel_group(std::move(ops)).async_wait(boost::asio::experimental::wait_for_all(), boost::asio::use_awaitable);
@@ -275,8 +281,8 @@ int run(int argc, char** argv)
   threads.reserve(jobs);
   if (jobs > 1) {
     auto n = jobs - 1;
-    for (unsigned int i = 0; i < n; ++i) {
-      threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+    for (decltype(n) i = 0; i < n; ++i) {
+      threads.emplace_back(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
     }
   }
   io_context.run();

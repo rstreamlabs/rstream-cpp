@@ -73,10 +73,10 @@ class header : public helpers::message_base<header> {
   bool is_response() const;
 
  private:
-  msg_type m_type;
-  std::uint16_t m_payload_length;
-  msg_magic m_magic;
-  msg_transaction_id m_transaction_id;
+  msg_type m_type                = 0;
+  std::uint16_t m_payload_length = 0;
+  msg_magic m_magic              = 0;
+  msg_transaction_id m_transaction_id{};
 };
 
 class attribute_header : public helpers::message_base<attribute_header> {
@@ -88,8 +88,8 @@ class attribute_header : public helpers::message_base<attribute_header> {
   const std::uint16_t& get_length() const;
 
  private:
-  msg_type m_type;
-  std::uint16_t m_length;
+  msg_type m_type        = 0;
+  std::uint16_t m_length = 0;
 };
 
 class attribute : public helpers::message_base<attribute> {

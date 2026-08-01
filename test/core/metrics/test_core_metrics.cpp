@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -23,12 +24,12 @@ class static_collectable : public rstream::core::metrics::collectable {
 
   void collect(metrics::metrics& out) override
   {
-    out.push_back((metrics::metric){
+    out.push_back(metrics::metric{
         .m_name    = "rstream_test_collectable",
         .m_help    = "collectable help",
         .m_type    = metrics::metric::type::gauge,
         .m_samples = {
-            (metrics::sample){
+            metrics::sample{
                 .m_value     = 12.5,
                 .m_labels    = {{"source", "custom"}},
                 .m_timestamp = std::chrono::system_clock::now(),
@@ -99,8 +100,8 @@ void test_registry_collects_registered_metrics()
   counter.labels({{"method", "GET"}}).increment(3.0);
 
   auto gauge = rstream::core::metrics::gauge("rstream_test_gauge", "gauge help", {{"base", "root"}}, registry);
-  gauge.increment();
   gauge.decrement(0.25);
+  gauge.set_current_time({{"trace", "current-time"}});
   gauge.labels({{"method", "POST"}}).set(9.5, {{"trace", "gauge"}});
 
   auto histogram = rstream::core::metrics::histogram(
@@ -146,6 +147,7 @@ void test_registry_collects_registered_metrics()
       saw_gauge = true;
       compare(metric.m_type == metrics::metric::type::gauge, true);
       compare(metric.m_samples.size(), static_cast<std::size_t>(2));
+      compare(metric.m_samples.front().m_examplar.at("trace"), std::string("current-time"));
     }
     if (metric.m_name == "rstream_test_histogram") {
       saw_hist = true;
@@ -153,7 +155,12 @@ void test_registry_collects_registered_metrics()
       compare(metric.m_samples.size(), static_cast<std::size_t>(2));
       const auto* value = boost::get<metrics::sample::histogram>(&metric.m_samples.front().m_value);
       compare(value != nullptr, true);
-      compare(value->m_sample_count > 0, true);
+      compare(value->m_sample_count, static_cast<std::uint64_t>(2));
+      compare(value->m_buckets.size(), static_cast<std::size_t>(4));
+      compare(value->m_buckets.at(0).m_cumulative_count, static_cast<std::uint64_t>(1));
+      compare(value->m_buckets.at(1).m_cumulative_count, static_cast<std::uint64_t>(1));
+      compare(value->m_buckets.at(2).m_cumulative_count, static_cast<std::uint64_t>(2));
+      compare(value->m_buckets.at(3).m_cumulative_count, static_cast<std::uint64_t>(2));
     }
     if (metric.m_name == "rstream_test_summary") {
       saw_summary = true;
@@ -256,6 +263,7 @@ void test_system_collector_is_thread_safe_singleton()
   std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
   std::vector<rstream::core::metrics::collectable::ptr> collectors(32);
   std::vector<std::thread> threads;
+  threads.reserve(collectors.size());
   for (std::size_t i = 0; i < collectors.size(); ++i) {
     threads.emplace_back([&collectors, i]() {
       collectors[i] = rstream::core::metrics::system_collector();
@@ -270,6 +278,47 @@ void test_system_collector_is_thread_safe_singleton()
   }
 }
 
+void test_summary_concurrent_collection()
+{
+  std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
+  auto summary = rstream::core::metrics::summary(
+      "rstream_test_concurrent_summary",
+      "summary help",
+      {},
+      nullptr,
+      {{0.5}, {0.9}},
+      std::chrono::milliseconds(2),
+      2);
+  for (std::size_t i = 0; i < 499; ++i) {
+    summary.observe(static_cast<double>(i));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  std::atomic<bool> start{false};
+  std::vector<std::thread> threads;
+  threads.reserve(16);
+  for (std::size_t i = 0; i < 16; ++i) {
+    threads.emplace_back([&summary, &start]() {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (std::size_t j = 0; j < 100; ++j) {
+        (void)summary.get_sample();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    });
+  }
+  start.store(true, std::memory_order_release);
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  const auto sample = summary.get_sample();
+  const auto* value = boost::get<metrics::sample::summary>(&sample.m_value);
+  compare(value != nullptr, true);
+  compare(value->m_sample_count, static_cast<std::uint64_t>(499));
+}
+
 void run()
 {
   test_1();
@@ -279,6 +328,7 @@ void run()
   test_histogram_and_info_reject_invalid_inputs();
   test_collectable_and_system_registry();
   test_system_collector_is_thread_safe_singleton();
+  test_summary_concurrent_collection();
 }
 
 int main(int argc, char** argv)

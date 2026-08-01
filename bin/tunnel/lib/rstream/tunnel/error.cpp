@@ -7,6 +7,12 @@ namespace tunnel {
 
 namespace error {
 
+const category& rstream_tunnel_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::tunnel::error::category";

@@ -59,7 +59,7 @@ const plugin::info& plugin::get_info() const
 
 plugin::extended_info plugin::get_extended_info() const
 {
-  return (extended_info){get_info(), m_impl->get_type(), get_location()};
+  return extended_info{get_info(), m_impl->get_type(), get_location()};
 }
 
 const config& plugin::get_config()
@@ -97,11 +97,10 @@ void plugin::impl::initialize(const config& config, const shared_library& parent
   if (m_data) {
     throw std::logic_error("object already initialized");
   }
-  data data = {
+  m_data.emplace(data{
       .m_config = config,
       .m_parent = parent,
-  };
-  m_data = data;
+  });
 #ifdef DEBUG_BUILD
   m_logger->trace("plugin initialized");
 #endif

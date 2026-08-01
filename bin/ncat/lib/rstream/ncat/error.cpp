@@ -7,6 +7,12 @@ namespace ncat {
 
 namespace error {
 
+const category& rstream_ncat_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::ncat::error::category";

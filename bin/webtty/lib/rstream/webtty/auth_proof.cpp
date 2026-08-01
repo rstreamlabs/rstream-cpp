@@ -58,11 +58,6 @@ void append(byte_vector& dst, const byte_vector& src)
   dst.insert(dst.end(), src.begin(), src.end());
 }
 
-void append(byte_vector& dst, const std::string& src)
-{
-  dst.insert(dst.end(), src.begin(), src.end());
-}
-
 std::string trim_copy(const std::string& value)
 {
   auto begin = value.begin();

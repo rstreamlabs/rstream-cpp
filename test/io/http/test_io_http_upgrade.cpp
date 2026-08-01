@@ -1,15 +1,19 @@
 // See LICENSE file in the project root for license information.
 
 #include <array>
+#include <chrono>
 #include <iostream>
 
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/local/connect_pair.hpp>
-#include <boost/asio/local/stream_protocol.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/read.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
@@ -19,6 +23,7 @@
 #include <rstream/core/memory.hpp>
 #include <rstream/core/random.hpp>
 #include <rstream/io/detail/http/upgrade.hpp>
+#include <rstream/test/stream_pair.hpp>
 
 static const std::size_t g_buffer_size = 200;
 
@@ -61,12 +66,12 @@ static void check_handshake_rejects_non_upgrade_response()
   namespace http = boost::beast::http;
 
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   auto socket_a      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_a     = std::make_shared<adaptor_type>(*socket_a);
   auto socket_b      = std::make_shared<socket_type>(io_context.get_executor());
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
 
   bool client_called = false;
   adaptor_a->async_handshake("host", "/", [&](const boost::system::error_code& error_code) {
@@ -88,12 +93,12 @@ static void check_accept_rejects_non_upgrade_request()
   namespace http = boost::beast::http;
 
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   auto socket_a      = std::make_shared<socket_type>(io_context.get_executor());
   auto socket_b      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_b     = std::make_shared<adaptor_type>(*socket_b);
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
 
   bool server_called = false;
   adaptor_b->async_accept([&](const boost::system::error_code& error_code) {
@@ -119,17 +124,146 @@ static void check_accept_rejects_non_upgrade_request()
   assert(client_called);
 }
 
+static void check_handshake_cancellation_reaches_the_transport()
+{
+  boost::asio::io_context io_context;
+  using socket_type  = rstream::test::stream_socket;
+  using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
+  socket_type socket_a(io_context.get_executor());
+  socket_type socket_b(io_context.get_executor());
+  adaptor_type adaptor(socket_a);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
+  boost::asio::cancellation_signal cancellation;
+  boost::asio::steady_timer deadline(io_context, std::chrono::milliseconds(200));
+  bool deadline_expired = false;
+  bool handler_called   = false;
+  deadline.async_wait([&](const boost::system::error_code& error_code) {
+    if (!error_code) {
+      deadline_expired = true;
+      socket_a.close();
+    }
+  });
+  adaptor.async_handshake(
+      "host", "/",
+      boost::asio::bind_cancellation_slot(cancellation.slot(), [&](const boost::system::error_code& error_code) {
+        handler_called = true;
+        assert(!deadline_expired);
+        assert(error_code == boost::asio::error::operation_aborted);
+        deadline.cancel();
+      }));
+  boost::asio::post(io_context, [&] {
+    cancellation.emit(boost::asio::cancellation_type::terminal);
+  });
+  io_context.run();
+  assert(handler_called);
+  assert(!deadline_expired);
+}
+
+static void check_accept_cancellation_reaches_the_transport()
+{
+  boost::asio::io_context io_context;
+  using socket_type  = rstream::test::stream_socket;
+  using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
+  socket_type socket_a(io_context.get_executor());
+  socket_type socket_b(io_context.get_executor());
+  adaptor_type adaptor(socket_a);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
+  boost::asio::cancellation_signal cancellation;
+  boost::asio::steady_timer deadline(io_context, std::chrono::milliseconds(200));
+  bool deadline_expired = false;
+  bool handler_called   = false;
+  deadline.async_wait([&](const boost::system::error_code& error_code) {
+    if (!error_code) {
+      deadline_expired = true;
+      socket_a.close();
+    }
+  });
+  adaptor.async_accept(
+      boost::asio::bind_cancellation_slot(cancellation.slot(), [&](const boost::system::error_code& error_code) {
+        handler_called = true;
+        assert(!deadline_expired);
+        assert(error_code == boost::asio::error::operation_aborted);
+        deadline.cancel();
+      }));
+  boost::asio::post(io_context, [&] {
+    cancellation.emit(boost::asio::cancellation_type::terminal);
+  });
+  io_context.run();
+  assert(handler_called);
+  assert(!deadline_expired);
+}
+
+static void check_decorators_are_applied()
+{
+  boost::asio::io_context io_context;
+  using socket_type  = rstream::test::stream_socket;
+  using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
+  socket_type socket_a(io_context.get_executor());
+  socket_type socket_b(io_context.get_executor());
+  adaptor_type adaptor_a(socket_a);
+  adaptor_type adaptor_b(socket_b);
+  rstream::test::connect_stream_pair(socket_a, socket_b);
+  bool request_decorated  = false;
+  bool response_decorated = false;
+  bool client_called      = false;
+  bool server_called      = false;
+  adaptor_a.set_decorator(
+      [&](adaptor_type::request_type& request) {
+        request_decorated = true;
+        request.set("X-Rstream-Test", "request");
+      });
+  adaptor_b.set_decorator(
+      [&](adaptor_type::response_type& response) {
+        response_decorated = true;
+        response.set("X-Rstream-Test", "response");
+      });
+  adaptor_a.async_handshake("host", "/", [&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    client_called = true;
+  });
+  adaptor_b.async_accept([&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    server_called = true;
+  });
+  io_context.run();
+  assert(request_decorated);
+  assert(response_decorated);
+  assert(client_called);
+  assert(server_called);
+}
+
+static void check_request_decorator_exception_completes_handshake()
+{
+  boost::asio::io_context io_context;
+  using socket_type  = rstream::test::stream_socket;
+  using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
+  socket_type socket(io_context.get_executor());
+  adaptor_type adaptor(socket);
+  adaptor.set_decorator(
+      [](adaptor_type::request_type&) {
+        throw boost::system::system_error(rstream::io::error::code::unsupported_operation);
+      });
+  bool handler_called = false;
+  adaptor.async_handshake("host", "/", [&](const boost::system::error_code& error_code) {
+    handler_called = true;
+    assert(error_code == rstream::io::error::code::unsupported_operation);
+  });
+  assert(!handler_called);
+  io_context.run();
+  assert(handler_called);
+}
+
 static void check_upgrade_roundtrip()
 {
   rstream::core::log::enable_ansicolor_stdout_mt();
   boost::asio::io_context io_context;
-  using socket_type  = boost::asio::local::stream_protocol::socket;
+  using socket_type  = rstream::test::stream_socket;
   using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
   auto socket_a      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_a     = std::make_shared<adaptor_type>(*socket_a);
   auto socket_b      = std::make_shared<socket_type>(io_context.get_executor());
   auto adaptor_b     = std::make_shared<adaptor_type>(*socket_b);
-  boost::asio::local::connect_pair(*socket_a, *socket_b);
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
   auto run_a = [socket = socket_a, adaptor = adaptor_a]() -> boost::asio::awaitable<void> {
     std::cout << "async handshake..." << std::endl;
     co_await adaptor->async_handshake("host", "/", boost::asio::use_awaitable);
@@ -163,6 +297,35 @@ static void check_upgrade_roundtrip()
   io_context.run();
 }
 
+static void check_deferred_upgrade_is_lazy()
+{
+  boost::asio::io_context io_context;
+  using socket_type  = rstream::test::stream_socket;
+  using adaptor_type = rstream::io::detail::http::upgrade<socket_type&>;
+  socket_type socket_a(io_context.get_executor());
+  socket_type socket_b(io_context.get_executor());
+  rstream::test::connect_stream_pair(socket_a, socket_b);
+  adaptor_type adaptor_a(socket_a);
+  adaptor_type adaptor_b(socket_b);
+  auto handshake_operation = adaptor_a.async_handshake("host", "/", boost::asio::deferred);
+  auto accept_operation    = adaptor_b.async_accept(boost::asio::deferred);
+  assert(io_context.poll() == 0);
+  io_context.restart();
+
+  std::size_t completion_count = 0;
+  std::move(handshake_operation)([&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    ++completion_count;
+  });
+  std::move(accept_operation)([&](const boost::system::error_code& error_code) {
+    assert(!error_code);
+    ++completion_count;
+  });
+  assert(completion_count == 0);
+  io_context.run();
+  assert(completion_count == 2);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -170,6 +333,11 @@ int main(int argc, char** argv)
   check_upgrade_predicates();
   check_handshake_rejects_non_upgrade_response();
   check_accept_rejects_non_upgrade_request();
+  check_handshake_cancellation_reaches_the_transport();
+  check_accept_cancellation_reaches_the_transport();
+  check_decorators_are_applied();
+  check_request_decorator_exception_completes_handshake();
   check_upgrade_roundtrip();
+  check_deferred_upgrade_is_lazy();
   return 0;
 }

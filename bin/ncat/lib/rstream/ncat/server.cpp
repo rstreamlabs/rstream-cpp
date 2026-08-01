@@ -2,9 +2,14 @@
 
 #include "server.hpp"
 
+#ifndef BOOST_PROCESS_VERSION
 #define BOOST_PROCESS_VERSION 1
+#elif BOOST_PROCESS_VERSION != 1
+#error "rstream ncat requires Boost.Process v1"
+#endif
 
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <iterator>
 #include <map>
@@ -16,7 +21,6 @@
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/io_context.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
@@ -24,6 +28,7 @@
 #endif
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #if __has_include(<boost/process/v1/async.hpp>)
@@ -59,6 +64,7 @@
 #include <rstream/core/log.hpp>
 #include <rstream/core/memory.hpp>
 #include <rstream/core/object_id.hpp>
+#include <rstream/core/system.hpp>
 #ifdef RSTREAM_WITH_IO_STREAMS
 #include <rstream/io/detail/stream/async_connect.hpp>
 #include <rstream/io/stream.hpp>
@@ -68,25 +74,6 @@
 
 namespace rstream {
 namespace ncat {
-
-static bool is_eof_error(const boost::system::error_code& error_code)
-{
-  if (!error_code) {
-    return false;
-  }
-  if (error_code == boost::system::error_code(boost::asio::error::eof)) {
-    return true;
-  }
-#ifdef _WIN32
-  if (error_code == boost::system::error_code(boost::asio::error::broken_pipe)) {
-    return true;
-  }
-  if (error_code.value() == ERROR_BROKEN_PIPE && error_code.category() == std::system_category()) {
-    return true;
-  }
-#endif
-  return false;
-}
 
 static boost::asio::io_context& get_io_context(const boost::asio::any_io_executor& executor)
 {
@@ -305,6 +292,8 @@ class RSTREAM_GNUC_INTERNAL server::impl : public std::enable_shared_from_this<i
 
 class RSTREAM_GNUC_INTERNAL server::impl::session {
  public:
+  virtual ~session() = default;
+
   virtual void async_run(async_run_completion_handler&& handler) = 0;
 
   virtual void cancel() = 0;
@@ -502,9 +491,14 @@ server::server(const executor_type& executor, const config& config, const settin
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-server::~server()
+server::~server() noexcept
 {
-  m_impl->cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void server::async_run(async_run_completion_handler&& handler)
@@ -582,7 +576,7 @@ void server::impl::arm_state_timer(unsigned int timeout_ms)
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -604,7 +598,7 @@ void server::impl::arm_state_timer(unsigned int timeout_ms)
       ptr->on_error(error::code::operation_timeout);
     }
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -856,11 +850,11 @@ server::impl::session_id_type server::impl::generate_session_id()
 
 server::impl::session_proxy::session_proxy(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const io::address& upstream_address)
     : m_executor(downstream_socket.get_executor()),
-      m_strand(downstream_socket.get_executor()),
+      m_strand(m_executor),
       m_settings(settings),
       m_downstream_socket(std::move(downstream_socket)),
-      m_upstream_socket(downstream_socket.get_executor()),
-      m_resolver(downstream_socket.get_executor()),
+      m_upstream_socket(m_executor),
+      m_resolver(m_executor),
       m_session_id(session_id),
       m_upstream_address(upstream_address),
       m_logger({"rstream", "ncat", "session", fmt::format("#{}", session_id)}),
@@ -925,7 +919,7 @@ void server::impl::session_proxy::arm_state_timer(unsigned int timeout_ms, const
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -945,7 +939,7 @@ void server::impl::session_proxy::arm_state_timer(unsigned int timeout_ms, const
     }
     ptr->cancel_internal(cause);
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -1058,11 +1052,13 @@ void server::impl::session_proxy::do_read(type type)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto& buffer = type == type::downstream ? *m_buffer_read_downstream : *m_buffer_read_upstream;
-  buffer.reset_size();
-  auto completion_handler = std::bind(&session_proxy::on_read, shared_from_this(), std::placeholders::_1, std::placeholders::_2, type);
-  auto& socket            = type == type::downstream ? m_downstream_socket : m_upstream_socket;
-  socket.async_read_some(core::helpers::mutable_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+  auto buffer = type == type::downstream ? m_buffer_read_downstream : m_buffer_read_upstream;
+  buffer->reset_size();
+  auto completion_handler = [self = shared_from_this(), buffer, type](const boost::system::error_code& error_code, std::size_t size) {
+    self->on_read(error_code, size, type);
+  };
+  auto& socket = type == type::downstream ? m_downstream_socket : m_upstream_socket;
+  socket.async_read_some(core::helpers::mutable_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
 
 void server::impl::session_proxy::on_read(const boost::system::error_code& error_code, std::size_t size, type type)
@@ -1088,10 +1084,12 @@ void server::impl::session_proxy::do_write(type type)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto& buffer            = type == type::downstream ? *m_buffer_read_upstream : *m_buffer_read_downstream;
-  auto completion_handler = std::bind(&session_proxy::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2, type);
-  auto& socket            = type == type::downstream ? m_downstream_socket : m_upstream_socket;
-  boost::asio::async_write(socket, core::helpers::const_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+  auto buffer             = type == type::downstream ? m_buffer_read_upstream : m_buffer_read_downstream;
+  auto completion_handler = [self = shared_from_this(), buffer, type](const boost::system::error_code& error_code, std::size_t size) {
+    self->on_write(error_code, size, type);
+  };
+  auto& socket = type == type::downstream ? m_downstream_socket : m_upstream_socket;
+  boost::asio::async_write(socket, core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
 
 void server::impl::session_proxy::on_write(const boost::system::error_code& error_code, std::size_t size, type type)
@@ -1176,7 +1174,7 @@ void server::impl::session_proxy::on_close(const boost::system::error_code& erro
 
 server::impl::session_exec::session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec, bool downstream_half_close)
     : m_executor(downstream_socket.get_executor()),
-      m_strand(downstream_socket.get_executor()),
+      m_strand(m_executor),
       m_settings(settings),
       m_downstream_socket(std::move(downstream_socket)),
       m_session_id(session_id),
@@ -1270,16 +1268,16 @@ void server::impl::session_exec::start_child()
       std::string shell;
       std::vector<std::string> args;
 #ifdef _WIN32
-      if (const char* comspec = std::getenv("COMSPEC")) {
-        shell = comspec;
+      if (const auto comspec = rstream::core::get_environment_variable("COMSPEC")) {
+        shell = comspec.value();
       }
       else {
         shell = "cmd.exe";
       }
       args = {"/C", m_exec.m_cmd};
 #else
-      if (const char* env_shell = std::getenv("SHELL")) {
-        shell = env_shell;
+      if (const auto env_shell = rstream::core::get_environment_variable("SHELL")) {
+        shell = env_shell.value();
       }
       else {
         shell = "/bin/sh";
@@ -1393,10 +1391,12 @@ void server::impl::session_exec::do_read_downstream()
   if (m_state != state::running || m_stop_read_downstream) {
     return;
   }
-  auto& buffer = *m_buffer_read_downstream;
-  buffer.reset_size();
-  auto completion_handler = std::bind(&session_exec::on_read_downstream, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  m_downstream_socket.async_read_some(core::helpers::mutable_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+  auto buffer = m_buffer_read_downstream;
+  buffer->reset_size();
+  auto completion_handler = [self = shared_from_this(), buffer](const boost::system::error_code& error_code, std::size_t size) {
+    self->on_read_downstream(error_code, size);
+  };
+  m_downstream_socket.async_read_some(core::helpers::mutable_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
 
 void server::impl::session_exec::on_read_downstream(const boost::system::error_code& error_code, std::size_t size)
@@ -1408,7 +1408,7 @@ void server::impl::session_exec::on_read_downstream(const boost::system::error_c
     return;
   }
   if (error_code) {
-    if (is_eof_error(error_code)) {
+    if (core::helpers::is_eof_error(error_code)) {
       if (!m_downstream_half_close) {
         on_close(boost::system::error_code());
         return;
@@ -1440,9 +1440,11 @@ void server::impl::session_exec::do_write_child()
   if (m_state != state::running || m_stop_read_downstream) {
     return;
   }
-  auto& buffer            = *m_buffer_read_downstream;
-  auto completion_handler = std::bind(&session_exec::on_write_child, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  boost::asio::async_write(m_child_stdin, core::helpers::const_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+  auto buffer             = m_buffer_read_downstream;
+  auto completion_handler = [self = shared_from_this(), buffer](const boost::system::error_code& error_code, std::size_t size) {
+    self->on_write_child(error_code, size);
+  };
+  boost::asio::async_write(m_child_stdin, core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
 
 void server::impl::session_exec::on_write_child(const boost::system::error_code& error_code, std::size_t size)
@@ -1455,7 +1457,7 @@ void server::impl::session_exec::on_write_child(const boost::system::error_code&
     return;
   }
   if (error_code) {
-    if (is_eof_error(error_code)) {
+    if (core::helpers::is_eof_error(error_code)) {
       m_stop_read_downstream = true;
     }
     else {
@@ -1475,11 +1477,13 @@ void server::impl::session_exec::do_read_child(child_stream stream)
   if (m_state != state::running) {
     return;
   }
-  auto& buffer = (stream == child_stream::std_out) ? *m_buffer_read_upstream : *m_buffer_read_stderr;
-  buffer.reset_size();
-  auto completion_handler = std::bind(&session_exec::on_read_child, shared_from_this(), std::placeholders::_1, std::placeholders::_2, stream);
-  auto& pipe              = (stream == child_stream::std_out) ? m_child_stdout : m_child_stderr;
-  pipe.async_read_some(core::helpers::mutable_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+  auto buffer = (stream == child_stream::std_out) ? m_buffer_read_upstream : m_buffer_read_stderr;
+  buffer->reset_size();
+  auto completion_handler = [self = shared_from_this(), buffer, stream](const boost::system::error_code& error_code, std::size_t size) {
+    self->on_read_child(error_code, size, stream);
+  };
+  auto& pipe = (stream == child_stream::std_out) ? m_child_stdout : m_child_stderr;
+  pipe.async_read_some(core::helpers::mutable_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
 
 void server::impl::session_exec::on_read_child(const boost::system::error_code& error_code, std::size_t size, child_stream stream)
@@ -1491,7 +1495,7 @@ void server::impl::session_exec::on_read_child(const boost::system::error_code& 
     return;
   }
   if (error_code) {
-    if (is_eof_error(error_code)) {
+    if (core::helpers::is_eof_error(error_code)) {
       if (stream == child_stream::std_out) {
         m_child_stdout_eos = true;
       }
@@ -1521,9 +1525,11 @@ void server::impl::session_exec::do_write_downstream(child_stream stream)
   if (m_state != state::running) {
     return;
   }
-  auto& buffer            = (stream == child_stream::std_out) ? *m_buffer_read_upstream : *m_buffer_read_stderr;
-  auto completion_handler = std::bind(&session_exec::on_write_downstream, shared_from_this(), std::placeholders::_1, std::placeholders::_2, stream);
-  boost::asio::async_write(m_downstream_socket, core::helpers::const_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+  auto buffer             = (stream == child_stream::std_out) ? m_buffer_read_upstream : m_buffer_read_stderr;
+  auto completion_handler = [self = shared_from_this(), buffer, stream](const boost::system::error_code& error_code, std::size_t size) {
+    self->on_write_downstream(error_code, size, stream);
+  };
+  boost::asio::async_write(m_downstream_socket, core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
 
 void server::impl::session_exec::on_write_downstream(const boost::system::error_code& error_code, std::size_t size, child_stream stream)
@@ -1608,7 +1614,6 @@ void server::impl::session_exec::on_close(const boost::system::error_code& error
   m_buffer_read_downstream = nullptr;
   m_buffer_read_upstream   = nullptr;
   m_buffer_read_stderr     = nullptr;
-  m_child                  = nullptr;
 }
 
 }  // namespace ncat

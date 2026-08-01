@@ -3,6 +3,7 @@
 #include "client.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <set>
@@ -12,11 +13,11 @@
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
 #include <boost/asio/read.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/buffers_adaptor.hpp>
@@ -27,6 +28,7 @@
 #include <rstream/config.hpp>
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/detail/protobuf.hpp>
 #include <rstream/core/helpers/protobuf.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/core/memory.hpp>
@@ -42,6 +44,7 @@
 #include <rstream/nperf/protobuf/messages.pb.h>
 
 #include "detail/convert.hpp"
+#include "detail/statistics.hpp"
 #include "error.hpp"
 #include "nperf.hpp"
 
@@ -268,9 +271,9 @@ class RSTREAM_GNUC_INTERNAL client::impl::base::session : public std::enable_sha
 
   void do_connect(const io::address& address, const resolver_type::results_type& results);
 
-  void on_connect(const boost::system::error_code& error_code, const io::address& address, const resolver_type::results_type::endpoint_type& endpoint);
+  void on_connect(const boost::system::error_code& error_code, const io::address& address, const resolver_type::results_type::endpoint_type&);
 
-  void do_handshake_websocket(const io::address& address, const resolver_type::results_type::endpoint_type& endpoint);
+  void do_handshake_websocket(const io::address& address);
 
   void do_handshake_protobuf();
 
@@ -324,8 +327,6 @@ class RSTREAM_GNUC_INTERNAL client::impl::base::session : public std::enable_sha
 
   payloader_type m_payloader;
 
-  const session_id_type m_session_id;
-
   rstream::core::logger m_logger;
 
   state m_state;
@@ -360,17 +361,20 @@ class RSTREAM_GNUC_INTERNAL client::impl::base::session : public std::enable_sha
   } m_ping;
 };
 
-static sample compute_sample(const std::vector<std::uint64_t>& sample, sample::type type);
-
 client::client(const executor_type& executor, const config& config, const settings_client& settings)
     : io::io_object(executor)
 {
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-client::~client()
+client::~client() noexcept
 {
-  m_impl->cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void client::async_run(options options, const callbacks& callbacks, async_run_completion_handler&& handler)
@@ -438,8 +442,8 @@ void client::impl::async_run_internal(options options, const callbacks& callback
         else {
           if (m_parent->m_settings.m_period_ms != 0) {
             if (!m_timer) {
-              m_timer = std::make_shared<boost::asio::deadline_timer>(m_parent->m_executor);
-              m_timer->expires_at(m_start + boost::posix_time::milliseconds(m_parent->m_settings.m_period_ms));
+              m_timer = std::make_shared<boost::asio::steady_timer>(m_parent->m_executor);
+              m_timer->expires_at(m_start + std::chrono::milliseconds(m_parent->m_settings.m_period_ms));
               auto completion_handler = std::bind(&task::on_run, shared_from_this(), std::placeholders::_1);
               m_timer->async_wait(boost::asio::bind_executor(m_parent->m_strand, completion_handler));
               return;
@@ -450,7 +454,7 @@ void client::impl::async_run_internal(options options, const callbacks& callback
         }
       }
       if (m_options_tmp == m_options) {
-        m_start = boost::asio::deadline_timer::traits_type::now();
+        m_start = boost::asio::steady_timer::clock_type::now();
       }
       auto completion_handler = std::bind(&task::on_run, shared_from_this(), std::placeholders::_1);
       auto option             = (1U << m_i);
@@ -468,7 +472,7 @@ void client::impl::async_run_internal(options options, const callbacks& callback
       assert(m_parent->m_strand.running_in_this_thread());
 #endif
       auto cause = error_code;
-      if (cause && m_timer && m_cancelled) {
+      if (m_cancelled) {
         cause = error::code::operation_aborted;
       }
       else if (cause && m_parent->m_settings.m_retry) {
@@ -548,10 +552,10 @@ void client::impl::async_run_internal(options options, const callbacks& callback
     struct callbacks m_callbacks;
     async_run_completion_handler m_handler;
     unsigned int m_i;
-    boost::asio::deadline_timer::traits_type::time_type m_start;
+    boost::asio::steady_timer::time_point m_start;
     std::shared_ptr<base> m_base;
     boost::signals2::scoped_connection m_signal_state;
-    std::shared_ptr<boost::asio::deadline_timer> m_timer;
+    std::shared_ptr<boost::asio::steady_timer> m_timer;
     std::shared_ptr<client::impl> m_parent;
   };
   auto task            = std::make_shared<struct task>(options, callbacks, std::move(handler));
@@ -703,7 +707,7 @@ void client::impl::base::arm_state_timer(unsigned int timeout_ms, const boost::s
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -723,7 +727,7 @@ void client::impl::base::arm_state_timer(unsigned int timeout_ms, const boost::s
     }
     ptr->cancel_internal(cause);
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -743,7 +747,7 @@ void client::impl::base::arm_metrics_timer()
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
     std::function<void(const boost::system::error_code&)> m_on_timer_cb;
   };
@@ -760,7 +764,7 @@ void client::impl::base::arm_metrics_timer()
   };
   task_ptr->m_signal_state = m_state_changed_signal.connect(on_state_cb);
   auto arm_timer           = [task_ptr, ptr, timeout_ms = m_settings.m_period_metrics_ms]() {
-    task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+    task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
     auto completion_handler = boost::asio::bind_executor(ptr->m_strand, task_ptr->m_on_timer_cb);
     task_ptr->m_timer.async_wait(completion_handler);
   };
@@ -837,7 +841,7 @@ void client::impl::base::do_open(const resolver_type::results_type& results)
         .m_on_connection_handshake_us_cb = rstream::core::wrap_function<void(std::uint64_t, std::uint64_t)>(m_strand, std::bind(&base::on_connection_handshake_us_cb, ptr, session.first, std::placeholders::_1, std::placeholders::_2)),
     };
     set_session_state(session.first, session_state::opening);
-    auto completion_handler = std::bind((void(base::*)(session_id_type, const boost::system::error_code&)) & base::on_open, shared_from_this(), session.first, std::placeholders::_1);
+    auto completion_handler = std::bind((void (base::*)(session_id_type, const boost::system::error_code&))&base::on_open, shared_from_this(), session.first, std::placeholders::_1);
     session.second.first->async_open(open_callbacks, m_config.m_address, results, boost::asio::bind_executor(m_strand, completion_handler));
   }
 }
@@ -1037,16 +1041,16 @@ metrics client::impl::base::get_metrics(metrics_type type) const
       .m_data      = {},
   };
   if (type == metrics_type::connection) {
-    metrics.m_data = compute_sample(m_metrics.m_connection_sample_us, sample::type::connection);
+    metrics.m_data = detail::compute_sample(m_metrics.m_connection_sample_us, sample::type::connection);
   }
   else if (type == metrics_type::handshake) {
-    metrics.m_data = compute_sample(m_metrics.m_handshake_sample_us, sample::type::handshake);
+    metrics.m_data = detail::compute_sample(m_metrics.m_handshake_sample_us, sample::type::handshake);
   }
   else {
     metrics.m_final   = m_state == state::disconnected;
     metrics.m_options = m_options;
     if (m_options & option::ping) {
-      metrics.m_data = compute_sample(m_metrics.m_ping_sample_us, sample::type::ping);
+      metrics.m_data = detail::compute_sample(m_metrics.m_ping_sample_us, sample::type::ping);
     }
     else {
       struct speed speed = {
@@ -1074,13 +1078,17 @@ client::impl::base::session::session(const executor_type& executor, protocol pro
     : m_executor(executor),
       m_strand(executor),
       m_socket(executor),
-      m_session_id(session_id),
       m_logger({"rstream", "nperf", "client", "session", fmt::format("#{}", session_id)}),
       m_state(state::null),
       m_options(options),
       m_settings(settings),
       m_http_buffers_adaptor(boost::asio::mutable_buffer(nullptr, 0)),
-      m_ping({.m_active = false, .m_busy = false})
+      m_ping({
+          .m_active    = false,
+          .m_busy      = false,
+          .m_timestamp = {},
+          .m_data      = {},
+      })
 {
   if (protocol == protocol::websocket) {
     m_websocket = std::make_shared<websocket_type::element_type>(m_socket);
@@ -1136,7 +1144,7 @@ void client::impl::base::session::do_connect(const io::address& address, const r
   boost::asio::async_connect(m_socket, results, boost::asio::bind_executor(m_strand, completion_handler));
 }
 
-void client::impl::base::session::on_connect(const boost::system::error_code& error_code, const io::address& address, const resolver_type::results_type::endpoint_type& endpoint)
+void client::impl::base::session::on_connect(const boost::system::error_code& error_code, const io::address& address, const resolver_type::results_type::endpoint_type&)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -1161,7 +1169,7 @@ void client::impl::base::session::on_connect(const boost::system::error_code& er
   }
   else {
     if (m_websocket) {
-      do_handshake_websocket(address, endpoint);
+      do_handshake_websocket(address);
     }
     else {
       do_handshake_protobuf();
@@ -1169,7 +1177,7 @@ void client::impl::base::session::on_connect(const boost::system::error_code& er
   }
 }
 
-void client::impl::base::session::do_handshake_websocket(const io::address& address, const resolver_type::results_type::endpoint_type& endpoint)
+void client::impl::base::session::do_handshake_websocket(const io::address& address)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -1256,7 +1264,7 @@ void client::impl::base::session::on_read_incoming_protobuf_data(const boost::sy
   }
   else {
     rstream::nperf::protobuf::Message message;
-    if (message.ParseFromArray(m_buffer.get_const_data(), m_buffer.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer.get_const_data(), m_buffer.get_size())) {
       on_read_incoming_protobuf_message(message, loop);
     }
     else {
@@ -1324,9 +1332,11 @@ void client::impl::base::session::do_send_protobuf_message(const rstream::nperf:
 #ifdef DEBUG_BUILD
   m_logger->trace("sending message to peer\n{}", core::helpers::to_json_string(message));
 #endif
-  std::size_t buffer_size = message.ByteSizeLong();
-  auto buffer             = rstream::core::make_buffer_allocated(buffer_size);
-  message.SerializeToArray(buffer.map().get_data(), buffer_size);
+  rstream::core::buffer buffer;
+  if (!rstream::core::detail::serialize_protobuf_message(message, buffer)) {
+    on_error(error::code::protocol_error);
+    return;
+  }
   auto completion_handler = std::bind(&session::on_send_protobuf_message, shared_from_this(), std::placeholders::_1, loop);
   m_payloader->async_send(buffer, boost::asio::bind_executor(m_strand, completion_handler));
 }
@@ -1497,16 +1507,12 @@ void client::impl::base::session::do_read_write(enum loop loop)
     if (m_ping.m_active || m_ping.m_busy || m_state == state::closing) {
       return;
     }
-    m_ping.m_active    = true;
-    m_ping.m_busy      = true;
-    m_ping.m_timestamp = timestamp::clock::now();
-    auto randchar      = []() -> char {
-      const char set[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-      return set[std::rand() % (sizeof(set) - 1)];
-    };
+    m_ping.m_active       = true;
+    m_ping.m_busy         = true;
+    m_ping.m_timestamp    = timestamp::clock::now();
     auto ping_buffer_size = std::min(m_ping.m_data.static_capacity, (std::size_t)m_settings.m_ping_buffer_size);
-    m_ping.m_data         = boost::beast::websocket::ping_data(ping_buffer_size, 0);
-    std::generate_n(m_ping.m_data.begin(), ping_buffer_size, randchar);
+    auto ping_data        = rstream::core::random_str64(ping_buffer_size);
+    m_ping.m_data.assign(ping_data.data(), ping_data.size());
     if (m_websocket) {
       m_websocket->async_ping(m_ping.m_data, boost::asio::bind_executor(boost::asio::any_io_executor{m_strand}, std::bind(completion_handler, std::placeholders::_1, 0)));
     }
@@ -1670,8 +1676,6 @@ void client::impl::base::session::on_close(const boost::system::error_code& erro
     boost::system::error_code tmp;
     m_socket.close(tmp);
   }
-  m_websocket = nullptr;
-  m_payloader = nullptr;
   if (m_handler_open) {
     rstream::core::invoke_completion_handler(m_executor, std::move(m_handler_open), cause);
   }
@@ -1680,32 +1684,6 @@ void client::impl::base::session::on_close(const boost::system::error_code& erro
     rstream::core::invoke_completion_handler(m_executor, std::move(m_handler_run), cause);
   }
   m_handler_run = nullptr;
-  m_buffer      = nullptr;
-}
-
-sample compute_sample(const std::vector<std::uint64_t>& sample, sample::type type)
-{
-  struct sample result = {};
-  result.m_type        = type;
-  result.m_size        = sample.size();
-  if (result.m_size > 0) {
-    auto minmax       = std::minmax_element(sample.begin(), sample.end());
-    result.m_min_us   = *minmax.first;
-    result.m_max_us   = *minmax.second;
-    auto sum          = std::accumulate(sample.begin(), sample.end(), 0);
-    auto mean         = (double)sum / result.m_size;
-    result.m_mean_us  = mean;
-    auto sq_sum       = std::inner_product(sample.begin(), sample.end(), sample.begin(), 0);
-    auto stdev        = std::sqrt((double)sq_sum / result.m_size - mean * mean);
-    result.m_stdev_us = stdev;
-  }
-  else {
-    result.m_min_us   = 0;
-    result.m_max_us   = 0;
-    result.m_mean_us  = 0;
-    result.m_stdev_us = 0;
-  }
-  return result;
 }
 
 }  // namespace nperf

@@ -2,6 +2,7 @@
 
 #include "server.hpp"
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -10,12 +11,12 @@
 #include <sstream>
 
 #include <boost/asio/bind_executor.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/buffers_adaptor.hpp>
@@ -30,6 +31,7 @@
 #include <rstream/config.hpp>
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/detail/protobuf.hpp>
 #include <rstream/core/exception.hpp>
 #include <rstream/core/helpers/protobuf.hpp>
 #include <rstream/core/log.hpp>
@@ -233,7 +235,7 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   void do_read_write(enum loop loop);
 
-  void on_read_write(const boost::system::error_code& error_code, std::size_t bytes_transferred, enum loop loop);
+  void on_read_write(const boost::system::error_code& error_code, std::size_t, enum loop loop);
 
   void on_control_callback(boost::beast::websocket::frame_type kind, const boost::beast::string_view& payload);
 
@@ -256,8 +258,6 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
   payloader_type m_payloader;
 
   const settings_server m_settings;
-
-  const session_id_type m_session_id;
 
   rstream::core::logger m_logger;
 
@@ -286,9 +286,14 @@ server::server(const executor_type& executor, const config& config, const settin
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-server::~server()
+server::~server() noexcept
 {
-  m_impl->cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void server::async_run(async_run_completion_handler&& handler)
@@ -366,7 +371,7 @@ void server::impl::arm_state_timer(unsigned int timeout_ms)
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -388,7 +393,7 @@ void server::impl::arm_state_timer(unsigned int timeout_ms)
       ptr->on_error(error::code::operation_timeout);
     }
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -630,7 +635,6 @@ server::impl::session::session(socket_type&& socket, const settings_server& sett
       m_strand(socket.get_executor()),
       m_socket(std::move(socket)),
       m_settings(settings),
-      m_session_id(session_id),
       m_logger({"rstream", "nperf", "session", fmt::format("#{}", session_id)}),
       m_state(state::null),
       m_options(0),
@@ -715,7 +719,7 @@ void server::impl::session::arm_state_timer(unsigned int timeout_ms, const boost
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -735,7 +739,7 @@ void server::impl::session::arm_state_timer(unsigned int timeout_ms, const boost
     }
     ptr->cancel_internal(cause);
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -807,7 +811,6 @@ void server::impl::session::do_process_http_request()
 #else
   m_logger->trace("HTTP request '{}' '{}'", std::string(m_http_request.method_string()), std::string(m_http_request.target()));
 #endif
-  boost::system::error_code error_code;
   // see if it is a websocket upgrade
   if (boost::beast::websocket::is_upgrade(m_http_request)) {
     if (m_http_request.method() == boost::beast::http::verb::get) {
@@ -917,7 +920,7 @@ void server::impl::session::on_read_incoming_protobuf_data(const boost::system::
   }
   else {
     rstream::nperf::protobuf::Message message;
-    if (message.ParseFromArray(m_buffer.get_const_data(), m_buffer.get_size())) {
+    if (core::detail::parse_protobuf_message(message, m_buffer.get_const_data(), m_buffer.get_size())) {
       on_read_incoming_protobuf_message(message, loop);
     }
     else {
@@ -988,9 +991,11 @@ void server::impl::session::do_send_protobuf_message(const rstream::nperf::proto
 #ifdef DEBUG_BUILD
   m_logger->trace("sending message to peer\n{}", core::helpers::to_json_string(message));
 #endif
-  std::size_t buffer_size = message.ByteSizeLong();
-  auto buffer             = rstream::core::make_buffer_allocated(buffer_size);
-  message.SerializeToArray(buffer.map().get_data(), buffer_size);
+  rstream::core::buffer buffer;
+  if (!rstream::core::detail::serialize_protobuf_message(message, buffer)) {
+    on_error(error::code::protocol_error);
+    return;
+  }
   auto completion_handler = std::bind(&session::on_send_protobuf_message, shared_from_this(), std::placeholders::_1, loop);
   m_payloader->async_send(buffer, boost::asio::bind_executor(m_strand, completion_handler));
 }
@@ -1156,7 +1161,7 @@ void server::impl::session::do_read_write(enum loop loop)
   }
 }
 
-void server::impl::session::on_read_write(const boost::system::error_code& error_code, std::size_t bytes_transferred, enum loop loop)
+void server::impl::session::on_read_write(const boost::system::error_code& error_code, std::size_t, enum loop loop)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
@@ -1244,17 +1249,14 @@ void server::impl::session::on_close(const boost::system::error_code& error_code
   }
   auto cause = m_error_code ? m_error_code : error_code;
   set_state(state::disconnected);
-  if (m_handler) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), cause);
-  }
-  m_handler = nullptr;
   {
     boost::system::error_code tmp;
     m_socket.close(tmp);
   }
-  m_websocket = nullptr;
-  m_payloader = nullptr;
-  m_buffer    = nullptr;
+  if (m_handler) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), cause);
+  }
+  m_handler = nullptr;
 }
 
 }  // namespace nperf

@@ -11,9 +11,33 @@ env:
   CONAN_VERSION: "2.26.2"
 jobs:
   build:
-    name: Conan create
+    name: Linux ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: ubuntu-latest
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - linkage: shared
+            shared: "True"
+            plugin_mode: static
+            static_plugins: "True"
+          - linkage: shared
+            shared: "True"
+            plugin_mode: dynamic
+            static_plugins: "False"
+          - linkage: static
+            shared: "False"
+            plugin_mode: static
+            static_plugins: "True"
+          - linkage: static
+            shared: "False"
+            plugin_mode: dynamic
+            static_plugins: "False"
     steps:
       - name: Install dependencies
         shell: bash
@@ -41,33 +65,290 @@ jobs:
         id: conan-cache
         with:
           path: ~/.conan2/p
-          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: compiler-cache
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Install Conan
         shell: bash
         run: |
           pipx install "conan==${CONAN_VERSION}"
-          echo "${HOME}/.local/bin" >> $GITHUB_PATH
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Configure Conan
         shell: bash
         run: |
           set -euo pipefail
           conan profile detect -f
           conan config install conan/config
+      - name: Configure compiler cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${CCACHE_DIR}"
+          ccache --set-config=max_size=1G
+          ccache --set-config=compression=true
+          ccache --zero-stats
+      - name: Validate public dependencies
+        if: ${{ matrix.linkage == 'shared' && matrix.plugin_mode == 'static' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan graph info . --format=json > conan-graph.json
+          python conan/check_public_dependencies.py conan-graph.json
+          if conan graph info . -o "rstream/*:boost_ref=boost/1.91.0@private/stable" > private-graph.log 2>&1; then
+            echo "A private dependency override was accepted outside package production." >&2
+            exit 1
+          fi
+          grep -F "Private dependency overrides are reserved for distribution package builds." private-graph.log
       - name: Build Conan package
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default .
+          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+            -s:b compiler.cppstd=20 \
+            -s:h compiler.cppstd=20 \
+            -o "rstream/*:shared=${{ matrix.shared }}" \
+            -o "rstream/*:static_plugins=${{ matrix.static_plugins }}" \
+            -o "rstream/*:enable_testing=True" \
+            -o "rstream/*:enable_strict_warnings=True" \
+            -o "rstream/*:warnings_as_errors=True" \
+            .
+      - name: Show compiler cache statistics
+        if: ${{ always() }}
+        shell: bash
+        run: ccache --show-stats
       - name: Trim Conan cache
-        if: ${{ success() }}
+        if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
+        if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: ~/.conan2/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+  macos:
+    name: macOS ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    runs-on: macos-latest
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - linkage: shared
+            shared: "True"
+            plugin_mode: static
+            static_plugins: "True"
+          - linkage: shared
+            shared: "True"
+            plugin_mode: dynamic
+            static_plugins: "False"
+          - linkage: static
+            shared: "False"
+            plugin_mode: static
+            static_plugins: "True"
+          - linkage: static
+            shared: "False"
+            plugin_mode: dynamic
+            static_plugins: "False"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.x"
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: conan-cache
+        with:
+          path: ~/.conan2/p
+          key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
+          restore-keys: |
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: compiler-cache
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install compiler cache
+        shell: bash
+        run: brew list ccache >/dev/null 2>&1 || brew install ccache
+      - name: Install Conan
+        shell: bash
+        run: python -m pip install "conan==${CONAN_VERSION}"
+      - name: Configure Conan
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan profile detect -f
+          conan config install conan/config
+      - name: Configure compiler cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${CCACHE_DIR}"
+          ccache --set-config=max_size=1G
+          ccache --set-config=compression=true
+          ccache --zero-stats
+      - name: Build Conan package
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+            -s:b compiler.cppstd=20 \
+            -s:h compiler.cppstd=20 \
+            -o "rstream/*:shared=${{ matrix.shared }}" \
+            -o "rstream/*:static_plugins=${{ matrix.static_plugins }}" \
+            -o "rstream/*:enable_testing=True" \
+            -o "rstream/*:enable_strict_warnings=True" \
+            -o "rstream/*:warnings_as_errors=True" \
+            .
+      - name: Show compiler cache statistics
+        if: ${{ always() }}
+        shell: bash
+        run: ccache --show-stats
+      - name: Trim Conan cache
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          conan cache clean "*" --source --build --download --temp
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ~/.conan2/p
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+  windows:
+    name: Windows ${{ matrix.linkage }} libraries
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    runs-on: windows-latest
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - linkage: shared
+            shared: "True"
+          - linkage: static
+            shared: "False"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.x"
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: conan-cache
+        with:
+          path: ~/.conan2/p
+          key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
+          restore-keys: |
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
+            conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
+            conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        id: compiler-cache
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
+            ccache-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install compiler cache
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+            choco install ccache --yes --no-progress
+          }
+      - name: Install Conan
+        shell: pwsh
+        run: python -m pip install "conan==$env:CONAN_VERSION"
+      - name: Configure Conan
+        shell: pwsh
+        run: |
+          conan profile detect -f
+          conan config install conan/config
+      - name: Configure compiler cache
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:CCACHE_DIR | Out-Null
+          ccache --set-config=max_size=1G
+          ccache --set-config=compression=true
+          ccache --zero-stats
+      - name: Build and test Conan package
+        shell: pwsh
+        run: |
+          foreach ($staticPlugins in @("True", "False")) {
+            conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
+              -s:b compiler.cppstd=20 `
+              -s:h compiler.cppstd=20 `
+              -o "rstream/*:shared=${{ matrix.shared }}" `
+              -o "rstream/*:static_plugins=$staticPlugins" `
+              -o "rstream/*:enable_testing=True" `
+              -o "rstream/*:enable_strict_warnings=True" `
+              -o "rstream/*:warnings_as_errors=True" `
+              .
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+      - name: Show compiler cache statistics
+        if: ${{ always() }}
+        shell: pwsh
+        run: ccache --show-stats
+      - name: Trim Conan cache
+        if: ${{ always() && !cancelled() }}
+        shell: pwsh
+        run: conan cache clean "*" --source --build --download --temp
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ~/.conan2/p
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}

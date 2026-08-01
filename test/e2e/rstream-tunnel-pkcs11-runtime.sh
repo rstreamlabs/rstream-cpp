@@ -153,6 +153,8 @@ done
 PKCS11_MODULE="${RSTREAM_TEST_PKCS11_MODULE:-${RSTREAM_RUNTIME_PKCS11_MODULE:-}}"
 if [ -z "$PKCS11_MODULE" ]; then
   PKCS11_MODULE=$(first_existing_file \
+    /opt/homebrew/opt/softhsm/lib/softhsm/libsofthsm2.so \
+    /usr/local/opt/softhsm/lib/softhsm/libsofthsm2.so \
     /opt/homebrew/lib/softhsm/libsofthsm2.so \
     /usr/local/lib/softhsm/libsofthsm2.so \
     /usr/lib/softhsm/libsofthsm2.so \
@@ -167,6 +169,8 @@ fi
 OPENSSL_MODULES_DIR="${OPENSSL_MODULES:-}"
 if [ -z "$OPENSSL_MODULES_DIR" ]; then
   OPENSSL_MODULES_DIR=$(first_existing_dir \
+    /opt/homebrew/opt/libp11/lib/ossl-modules \
+    /usr/local/opt/libp11/lib/ossl-modules \
     /opt/homebrew/lib/ossl-modules \
     /usr/local/lib/ossl-modules \
     /usr/lib64/ossl-modules \
@@ -180,6 +184,8 @@ fi
 OPENSSL_ENGINES_DIR="${OPENSSL_ENGINES:-}"
 if [ -z "$OPENSSL_ENGINES_DIR" ]; then
   OPENSSL_ENGINES_DIR=$(first_existing_dir \
+    /opt/homebrew/opt/libp11/lib/engines-3 \
+    /usr/local/opt/libp11/lib/engines-3 \
     /opt/homebrew/lib/engines-3 \
     /usr/local/lib/engines-3 \
     /usr/lib64/engines-3 \

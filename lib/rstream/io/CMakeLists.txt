@@ -10,6 +10,13 @@ set(LIBRARY_NAME "${PROJECT_NAME}-lib-${LIBRARY_COMPONENT}")
 file(GLOB_RECURSE SOURCES *.cpp)
 file(GLOB_RECURSE HEADERS *.hpp)
 
+if(MSVC AND ENABLE_STRICT_WARNINGS)
+  # Boost.Asio buffer iterators trigger C4702 in valid template instantiations.
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/detail/metrics/exposer.cpp"
+    PROPERTIES COMPILE_OPTIONS /wd4702)
+endif()
+
 if(NOT WITH_MAXMINDDB)
   list(FILTER SOURCES EXCLUDE REGEX ".*geoip.cpp")
   list(FILTER HEADERS EXCLUDE REGEX ".*geoip.hpp")
@@ -24,12 +31,19 @@ set(GENERATED_SOURCES "")
 if(EMBED_DEFAULT_CA_CERTIFICATES)
   list(APPEND GENERATED_SOURCES "${GENERATED_SOURCE_DIR}/default_ca_certificates.cpp")
   set(EMBED_DEFAULT_CA_CERTIFICATES_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/script/embed-default-ca-certificates.py")
+  set(EMBED_DEFAULT_CA_CERTIFICATES_INPUT "${CMAKE_CURRENT_SOURCE_DIR}/data/cacert.pem")
+  set(EMBED_DEFAULT_CA_CERTIFICATES_SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/data/cacert.pem.sha256")
   add_custom_command(
     OUTPUT ${GENERATED_SOURCES}
-    DEPENDS 
+    DEPENDS
       ${EMBED_DEFAULT_CA_CERTIFICATES_EXECUTABLE}
+      ${EMBED_DEFAULT_CA_CERTIFICATES_INPUT}
+      ${EMBED_DEFAULT_CA_CERTIFICATES_SHA256}
     COMMAND
+      ${Python3_EXECUTABLE}
       ${EMBED_DEFAULT_CA_CERTIFICATES_EXECUTABLE}
+      --input=${EMBED_DEFAULT_CA_CERTIFICATES_INPUT}
+      --sha256=${EMBED_DEFAULT_CA_CERTIFICATES_SHA256}
       --cpp-out=${GENERATED_SOURCES}
   VERBATIM)
 endif()
@@ -59,6 +73,8 @@ target_include_directories(
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/lib/>
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/>
   $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/>)
+
+target_compile_features(${LIBRARY_NAME} PUBLIC cxx_std_20)
 
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
   target_link_libraries(${LIBRARY_NAME} PUBLIC atomic)
@@ -104,20 +120,6 @@ if(RSTREAM_OPENSSL_ENGINE_FOUND)
     ${LIBRARY_NAME}
     PRIVATE
     -DRSTREAM_WITH_OPENSSL_ENGINE)
-endif()
-
-if(ENABLE_STATIC_PLUGINS)
-  if(BUILD_SHARED_LIBS)
-    target_link_libraries(
-      ${LIBRARY_NAME}
-      PRIVATE
-      ${PROJECT_NAME}::static-plugins)
-  else()
-    target_link_libraries(
-      ${LIBRARY_NAME}
-      PUBLIC
-      ${PROJECT_NAME}::static-plugins)
-  endif()
 endif()
 
 if(EMBED_DEFAULT_CA_CERTIFICATES)

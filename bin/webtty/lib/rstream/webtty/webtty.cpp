@@ -13,6 +13,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #include <lmcons.h>
@@ -46,6 +47,7 @@ struct os_details {
   std::string hostname;
 };
 
+#ifndef _WIN32
 std::string trim_copy(const std::string& value)
 {
   auto begin = value.begin();
@@ -100,7 +102,33 @@ std::string unquote_value(const std::string& value)
   return out;
 }
 
-#ifndef _WIN32
+template <typename Lookup>
+bool lookup_passwd(Lookup&& lookup, struct passwd& entry, std::vector<char>& buffer, std::error_code& error_code)
+{
+  constexpr std::size_t default_buffer_size = 16 * 1024;
+  constexpr std::size_t maximum_buffer_size = 1024 * 1024;
+  const auto configured_buffer_size         = ::sysconf(_SC_GETPW_R_SIZE_MAX);
+  auto buffer_size                          = configured_buffer_size > 0 ? static_cast<std::size_t>(configured_buffer_size) : default_buffer_size;
+  buffer_size                               = std::min(buffer_size, maximum_buffer_size);
+  for (;;) {
+    buffer.resize(buffer_size);
+    struct passwd* result    = nullptr;
+    const auto lookup_result = lookup(&entry, buffer.data(), buffer.size(), &result);
+    if (lookup_result == 0) {
+      if (result == nullptr) {
+        error_code = std::make_error_code(std::errc::no_such_file_or_directory);
+        return false;
+      }
+      error_code.clear();
+      return true;
+    }
+    if (lookup_result != ERANGE || buffer_size == maximum_buffer_size) {
+      error_code = std::error_code(lookup_result, std::generic_category());
+      return false;
+    }
+    buffer_size = std::min(buffer_size * 2, maximum_buffer_size);
+  }
+}
 
 std::vector<std::uint32_t> lookup_group_ids(const struct passwd* pw, std::error_code& error_code)
 {
@@ -136,12 +164,12 @@ std::vector<std::uint32_t> lookup_group_ids(const struct passwd* pw, std::error_
   }
   native_groups.resize(static_cast<std::size_t>(group_count));
   for (auto group : native_groups) {
-    if constexpr (std::is_signed_v<native_group_type>) {
-      if (group < 0) {
-        error_code = std::make_error_code(std::errc::invalid_argument);
-        return {};
-      }
+#ifdef __APPLE__
+    if (group < 0) {
+      error_code = std::make_error_code(std::errc::invalid_argument);
+      return {};
     }
+#endif
     if (static_cast<std::uint64_t>(group) > std::numeric_limits<std::uint32_t>::max()) {
       error_code = std::make_error_code(std::errc::invalid_argument);
       return {};
@@ -150,8 +178,6 @@ std::vector<std::uint32_t> lookup_group_ids(const struct passwd* pw, std::error_
   }
   return groups;
 }
-
-#endif
 
 std::optional<std::map<std::string, std::string>> parse_os_release()
 {
@@ -193,6 +219,7 @@ std::string release_codename(const std::optional<std::map<std::string, std::stri
   return "";
 }
 
+#ifndef __APPLE__
 std::string release_pretty_fallback(const std::optional<std::map<std::string, std::string>>& release)
 {
   if (!release) {
@@ -210,7 +237,9 @@ std::string release_pretty_fallback(const std::optional<std::map<std::string, st
   }
   return version;
 }
+#endif
 
+#ifdef __APPLE__
 std::string product_pretty(const std::string& name, const std::string& version)
 {
   if (!name.empty() && !version.empty()) {
@@ -249,19 +278,17 @@ std::pair<std::string, std::string> macos_product()
   const auto data = buffer.str();
   return {plist_value(data, "ProductName"), plist_value(data, "ProductVersion")};
 }
+#endif
 
 std::string kernel_release()
 {
-#ifdef _WIN32
-  return "";
-#else
   struct utsname info;
   if (uname(&info) != 0) {
     return "";
   }
   return info.release;
-#endif
 }
+#endif
 
 std::string hostname()
 {
@@ -352,21 +379,20 @@ std::pair<std::string, std::string> windows_version()
   OSVERSIONINFOEXW info    = {};
   info.dwOSVersionInfoSize = sizeof(info);
   auto module              = ::GetModuleHandleW(L"ntdll.dll");
-  if (module) {
+  bool version_available   = false;
+  if (module != nullptr) {
     using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
     auto fn               = reinterpret_cast<RtlGetVersionFn>(::GetProcAddress(module, "RtlGetVersion"));
-    if (fn) {
-      fn(reinterpret_cast<PRTL_OSVERSIONINFOW>(&info));
-    }
-    else {
-      ::GetVersionExW(reinterpret_cast<LPOSVERSIONINFOW>(&info));
+    if (fn != nullptr) {
+      version_available = fn(reinterpret_cast<PRTL_OSVERSIONINFOW>(&info)) == 0;
     }
   }
-  else {
-    ::GetVersionExW(reinterpret_cast<LPOSVERSIONINFOW>(&info));
+  std::string version;
+  if (version_available) {
+    std::ostringstream version_stream;
+    version_stream << info.dwMajorVersion << "." << info.dwMinorVersion << "." << info.dwBuildNumber;
+    version = version_stream.str();
   }
-  std::ostringstream version_stream;
-  version_stream << info.dwMajorVersion << "." << info.dwMinorVersion << "." << info.dwBuildNumber;
   auto product_info = windows_product_info();
   std::string pretty;
   if (!product_info.first.empty() && !product_info.second.empty()) {
@@ -375,7 +401,7 @@ std::pair<std::string, std::string> windows_version()
   else if (!product_info.first.empty()) {
     pretty = product_info.first;
   }
-  return {version_stream.str(), pretty};
+  return {version, pretty};
 }
 #endif
 
@@ -499,16 +525,16 @@ void parse_environment(env_vars& dst, const std::vector<std::string>& src)
       value = str.substr(pos + delimiter.size());
     }
     else {
-      key      = str;
-      auto env = std::getenv(key.c_str());
-      if (env != nullptr) {
-        value = env;
+      key            = str;
+      const auto env = rstream::core::get_environment_variable(key);
+      if (env) {
+        value = env.value();
       }
       else {
         continue;
       }
     }
-    dst.push_back((environment){.m_key = key, .m_value = value});
+    dst.push_back(environment{.m_key = key, .m_value = value});
   }
 }
 
@@ -547,9 +573,9 @@ void add_environment_variable(std::list<environment>& dst, const std::string& ke
 
 void add_environment_variable(env_vars& dst, const std::string& key, bool force)
 {
-  auto value = std::getenv(key.c_str());
-  if (value != nullptr) {
-    add_environment_variable(dst, key, value, force);
+  const auto value = rstream::core::get_environment_variable(key);
+  if (value) {
+    add_environment_variable(dst, key, value.value(), force);
   }
 }
 
@@ -609,7 +635,7 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
   if (error_code) {
     return;
   }
-  const char* userprofile = getenv("USERPROFILE");
+  const auto userprofile = rstream::core::get_environment_variable("USERPROFILE");
   if (!userprofile) {
 #ifdef DEBUG_BUILD
     g_logger->warn("USERPROFILE environment variable is not set");
@@ -619,7 +645,7 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
   if (error_code) {
     return;
   }
-  const char* comspec = std::getenv("ComSpec");
+  const auto comspec = rstream::core::get_environment_variable("ComSpec");
   if (!comspec) {
 #ifdef DEBUG_BUILD
     g_logger->warn("ComSpec environment variable is not set");
@@ -628,8 +654,8 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
   }
   user_info = {
       .m_name  = username,
-      .m_shell = comspec,
-      .m_home  = userprofile,
+      .m_shell = comspec.value(),
+      .m_home  = userprofile.value(),
   };
 }
 
@@ -638,33 +664,49 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
 void get_user_info(user_info& user_info, const username& username, std::error_code& error_code)
 {
   error_code.clear();
-  identifier user   = username ? username.get() : getuid();
-  struct passwd* pw = nullptr;
-  errno             = 0;
+  identifier user = username ? username.get() : getuid();
+  struct passwd passwd_entry{};
+  std::vector<char> passwd_buffer;
+  bool found = false;
   if (user.type() == typeid(std::string)) {
-    pw = getpwnam(boost::get<std::string>(user).c_str());
+    const auto& name = boost::get<std::string>(user);
+    found            = lookup_passwd(
+        [&name](struct passwd* entry, char* buffer, std::size_t size, struct passwd** result) {
+          return ::getpwnam_r(name.c_str(), entry, buffer, size, result);
+        },
+        passwd_entry,
+        passwd_buffer,
+        error_code);
   }
   else if (user.type() == typeid(std::uint32_t)) {
-    pw = getpwuid(boost::get<std::uint32_t>(user));
-  }
-  if (!pw) {
-    error_code = errno == 0 ? error::code::server_error : std::error_code(errno, std::system_category());
+    const auto uid = static_cast<uid_t>(boost::get<std::uint32_t>(user));
+    found          = lookup_passwd(
+        [uid](struct passwd* entry, char* buffer, std::size_t size, struct passwd** result) {
+          return ::getpwuid_r(uid, entry, buffer, size, result);
+        },
+        passwd_entry,
+        passwd_buffer,
+        error_code);
   }
   else {
-    auto groups = lookup_group_ids(pw, error_code);
-    if (error_code) {
-      return;
-    }
-    user_info = {
-        .m_name   = pw->pw_name,
-        .m_shell  = pw->pw_shell,
-        .m_home   = pw->pw_dir,
-        .m_uid    = pw->pw_uid,
-        .m_gid    = pw->pw_gid,
-        .m_groups = groups,
-    };
-    error_code.clear();
+    error_code = std::make_error_code(std::errc::invalid_argument);
   }
+  if (!found) {
+    return;
+  }
+  auto groups = lookup_group_ids(&passwd_entry, error_code);
+  if (error_code) {
+    return;
+  }
+  user_info = {
+      .m_name   = passwd_entry.pw_name,
+      .m_shell  = passwd_entry.pw_shell,
+      .m_home   = passwd_entry.pw_dir,
+      .m_uid    = passwd_entry.pw_uid,
+      .m_gid    = passwd_entry.pw_gid,
+      .m_groups = groups,
+  };
+  error_code.clear();
 }
 
 #endif

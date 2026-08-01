@@ -9,7 +9,7 @@ namespace tcp {
 
 rstream::core::plugin::element::info stream::get_stream_info()
 {
-  return (rstream::core::plugin::element::info){.m_name = "tcp", .m_description = "TCP transport layer"};
+  return rstream::core::plugin::element::info{.m_name = "tcp", .m_description = "TCP transport layer"};
 }
 
 }  // namespace tcp

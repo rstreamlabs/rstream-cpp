@@ -2,7 +2,10 @@
 
 #pragma once
 
+#include <string_view>
+
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/error.hpp>
 
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/memory.hpp>
@@ -10,6 +13,32 @@
 namespace rstream {
 namespace core {
 namespace helpers {
+
+template <typename ActualErrorCode, typename ExpectedErrorCode>
+bool matches_error(const ActualErrorCode& actual, const ExpectedErrorCode& expected) noexcept
+{
+  if (actual.value() != expected.value()) {
+    return false;
+  }
+  return std::string_view(actual.category().name()) == expected.category().name();
+}
+
+template <typename ErrorCode>
+bool is_eof_error(const ErrorCode& error_code) noexcept
+{
+  if (!error_code) {
+    return false;
+  }
+  if (matches_error(error_code, boost::system::error_code(boost::asio::error::eof))) {
+    return true;
+  }
+#ifdef _WIN32
+  if (matches_error(error_code, boost::system::error_code(boost::asio::error::broken_pipe))) {
+    return true;
+  }
+#endif
+  return false;
+}
 
 class memory_sequence {
  public:

@@ -29,20 +29,44 @@ foreach(proto_file ${proto_files})
   list(APPEND GENERATED_HEADERS ${proto_hdr_src})
 endforeach()
 
+set(PROTOBUF_CPP_OUT ${GENERATED_SOURCE_DIR})
+if(MSVC AND BUILD_SHARED_LIBS)
+  set(PROTOBUF_EXPORT_MACRO RSTREAM_WEBTTY_PROTOBUF_EXPORT)
+  set(PROTOBUF_CPP_OUT "dllexport_decl=${PROTOBUF_EXPORT_MACRO}:${GENERATED_SOURCE_DIR}")
+endif()
+
 add_custom_command(
   OUTPUT ${GENERATED_SOURCES}
   DEPENDS ${proto_files}
   COMMAND
     ${Protobuf_PROTOC_EXECUTABLE}
     --proto_path=${proto_path}
-    --cpp_out=${GENERATED_SOURCE_DIR}
+    --cpp_out=${PROTOBUF_CPP_OUT}
     ${proto_files}
   VERBATIM)
+
+rstream_configure_generated_protobuf_warnings(${GENERATED_SOURCES})
 
 # library definition
 
 add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS} ${GENERATED_SOURCES})
 add_library(${PROJECT_NAME}::${LIBRARY_COMPONENT} ALIAS ${LIBRARY_NAME})
+
+if(MSVC AND BUILD_SHARED_LIBS)
+  target_compile_definitions(
+    ${LIBRARY_NAME}
+    PRIVATE "${PROTOBUF_EXPORT_MACRO}=__declspec(dllexport)"
+    INTERFACE "${PROTOBUF_EXPORT_MACRO}=__declspec(dllimport)")
+endif()
+
+if(ENABLE_STRICT_WARNINGS AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # GCC 13 reports Boost.Asio's type-erased executor storage as potentially
+  # uninitialized while instantiating the Beast websocket read operation.
+  set_source_files_properties(
+    client.cpp
+    server.cpp
+    PROPERTIES COMPILE_OPTIONS -Wno-maybe-uninitialized)
+endif()
 
 set_target_properties(
   ${LIBRARY_NAME}
@@ -61,8 +85,11 @@ endif()
 target_include_directories(
   ${LIBRARY_NAME}
   PUBLIC
-  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/bin/webtty/lib/>
-  PRIVATE
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/bin/webtty/lib/>)
+
+target_include_directories(
+  ${LIBRARY_NAME}
+  SYSTEM PRIVATE
   $<BUILD_INTERFACE:${GENERATED_SOURCE_DIR}>/)
 
 target_link_libraries(
