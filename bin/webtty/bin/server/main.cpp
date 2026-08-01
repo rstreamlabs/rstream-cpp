@@ -477,10 +477,9 @@ int run(int argc, char** argv)
       if (!authorized_client_keys.empty() || !authorized_clients_file.empty()) {
         throw std::runtime_error("workspace-managed WebTTY servers use trusted workspace devices for client authorization; remove --authorized-client-key, --authorized-clients-file, and RSTREAM_WEBTTY_AUTHORIZED_CLIENT_KEYS");
       }
-      auto enrollment_value                       = *enrollment;
-      settings.m_client_proof_credential_verifier = [enrollment_value](const rstream::webtty::byte_vector& client_key_id,
-                                                                       const rstream::webtty::byte_vector& client_public_key,
-                                                                       const rstream::webtty::byte_vector& credential) -> boost::optional<rstream::webtty::byte_vector> {
+      settings.m_client_proof_credential_verifier = [enrollment_value = *enrollment](const rstream::webtty::byte_vector& client_key_id,
+                                                                                     const rstream::webtty::byte_vector& client_public_key,
+                                                                                     const rstream::webtty::byte_vector& credential) -> boost::optional<rstream::webtty::byte_vector> {
         return verify_workspace_client_credential(enrollment_value, client_key_id, client_public_key, credential);
       };
     }
@@ -559,7 +558,7 @@ int run(int argc, char** argv)
   if (jobs > 1) {
     auto n = jobs - 1;
     threads.reserve(n);
-    for (unsigned int i = 0; i < n; ++i) {
+    for (decltype(n) i = 0; i < n; ++i) {
       threads.emplace_back([&io_context]() { io_context.run(); });
     }
   }

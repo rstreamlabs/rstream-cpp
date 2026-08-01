@@ -134,9 +134,8 @@ void resolver_impl<native_resolver_type, native_endpoint_type>::async_resolve_in
 }
 
 template <typename native_resolver_type, typename native_endpoint_type>
-void resolver_impl<native_resolver_type, native_endpoint_type>::async_resolve_internal(const boost::urls::url& url, rstream::core::completion_handler<void(const boost::system::error_code&, const typename native_resolver_type::results_type&)>&& handler)
+void resolver_impl<native_resolver_type, native_endpoint_type>::async_resolve_internal(const boost::urls::url&, rstream::core::completion_handler<void(const boost::system::error_code&, const typename native_resolver_type::results_type&)>&& handler)
 {
-  (void)url;
   rstream::core::invoke_completion_handler(get_executor(), std::move(handler), boost::asio::error::not_found, native_resolver_type::results_type());
 }
 
@@ -170,7 +169,7 @@ void basic_resolver_impl<native_endpoint_type>::async_resolve_internal(const boo
 }
 
 template <typename native_endpoint_type>
-void basic_resolver_impl<native_endpoint_type>::resolve_internal(const boost::urls::url& url, native_endpoint_type& endpoint, boost::system::error_code& error_code)
+void basic_resolver_impl<native_endpoint_type>::resolve_internal(const boost::urls::url&, native_endpoint_type&, boost::system::error_code& error_code)
 {
   error_code = boost::asio::error::not_found;
 }

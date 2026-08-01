@@ -2,11 +2,10 @@
 
 #pragma once
 
+#include <boost/asio/associated_allocator.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/bind_executor.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/dispatch.hpp>
 #include <boost/asio/redirect_error.hpp>
 
 #include <rstream/core/completion_handler.hpp>
@@ -35,7 +34,7 @@ async_connect(rstream::io::detail::stream::stream_socket& socket, iterator begin
   return boost::asio::async_initiate<iterator_connect_handler, void(const boost::system::error_code&, iterator)>(
       [&socket](auto&& handler, iterator begin, iterator end) {
         auto awaitable = [](rstream::io::detail::stream::stream_socket& socket, iterator begin, iterator end) -> boost::asio::awaitable<iterator> {
-          iterator it;
+          iterator it = end;
           rstream::core::logger logger({"rstream", "io", "stream", "connect"});
           boost::system::error_code error_code;
           if (begin == end) {
@@ -50,10 +49,11 @@ async_connect(rstream::io::detail::stream::stream_socket& socket, iterator begin
               if (!error_code) {
                 break;
               }
-              else {
-                boost::system::error_code tmp;
-                socket.close(tmp);
+              if (error_code == boost::asio::error::operation_aborted) {
+                break;
               }
+              boost::system::error_code ignored_error;
+              socket.close(ignored_error);
             }
           }
           if (error_code) {
@@ -61,9 +61,9 @@ async_connect(rstream::io::detail::stream::stream_socket& socket, iterator begin
           }
           co_return it;
         };
-        boost::asio::co_spawn(
-            socket.get_executor(), awaitable(socket, begin, end),
-            [&socket, handler = std::move(handler)](const std::exception_ptr exception, iterator it) mutable {
+        auto completion_handler = rstream::core::bind_associated_handler(
+            std::forward<decltype(handler)>(handler),
+            [&socket](auto& handler, const std::exception_ptr exception, iterator it) {
               boost::system::error_code error_code;
               if (exception) {
                 try {
@@ -78,6 +78,7 @@ async_connect(rstream::io::detail::stream::stream_socket& socket, iterator begin
               }
               rstream::core::invoke_completion_handler(socket.get_executor(), std::move(handler), error_code, it);
             });
+        boost::asio::co_spawn(socket.get_executor(), awaitable(socket, begin, end), std::move(completion_handler));
       },
       handler, begin, end);
 }
@@ -88,12 +89,17 @@ async_connect(rstream::io::detail::stream::stream_socket& socket, const endpoint
 {
   return boost::asio::async_initiate<range_connect_handler, void(const boost::system::error_code&, rstream::io::detail::stream::endpoint)>(
       [&socket](auto&& handler, const endpoint_sequence& endpoints) {
-        auto sequence = std::make_shared<endpoint_sequence>(endpoints);
-        async_connect(
-            socket, sequence->cbegin(), sequence->cend(),
-            [&socket, sequence, handler = std::move(handler)](const boost::system::error_code& error_code, typename endpoint_sequence::const_iterator it) mutable {
-              rstream::core::invoke_completion_handler(socket.get_executor(), std::move(handler), error_code, error_code ? rstream::io::detail::stream::endpoint() : it->endpoint());
+        auto allocator          = boost::asio::get_associated_allocator(handler);
+        auto sequence           = std::allocate_shared<endpoint_sequence>(allocator, endpoints);
+        auto completion_handler = rstream::core::bind_associated_handler(
+            std::forward<decltype(handler)>(handler),
+            [&socket, sequence](auto& handler, const boost::system::error_code& error_code, typename endpoint_sequence::const_iterator it) mutable {
+              auto endpoint = error_code ? rstream::io::detail::stream::endpoint() : it->endpoint();
+              sequence.reset();
+              rstream::core::invoke_completion_handler(socket.get_executor(), std::move(handler), error_code, std::move(endpoint));
             });
+        async_connect(
+            socket, sequence->cbegin(), sequence->cend(), std::move(completion_handler));
       },
       handler, endpoints);
 }

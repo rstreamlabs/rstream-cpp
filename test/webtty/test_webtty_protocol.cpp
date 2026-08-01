@@ -1,16 +1,19 @@
 // See LICENSE file in the project root for license information.
 
+#include <atomic>
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <boost/url.hpp>
 
 #include <rstream/io-rstrm/io-rstrm.hpp>
+#include <rstream/test/environment.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/webtty.hpp>
@@ -22,51 +25,7 @@
 namespace protocol = rstream::webtty::protocol;
 namespace protobuf = rstream::webtty::protobuf;
 
-class env_guard {
- public:
-  explicit env_guard(const char* key)
-      : m_key(key)
-  {
-    const char* value = std::getenv(key);
-    if (value != nullptr) {
-      m_present = true;
-      m_value   = value;
-    }
-  }
-
-  ~env_guard()
-  {
-    if (m_present) {
-      set(m_value);
-    }
-    else {
-      unset();
-    }
-  }
-
-  void set(const std::string& value)
-  {
-#ifdef _WIN32
-    _putenv_s(m_key, value.c_str());
-#else
-    setenv(m_key, value.c_str(), 1);
-#endif
-  }
-
-  void unset()
-  {
-#ifdef _WIN32
-    _putenv_s(m_key, "");
-#else
-    unsetenv(m_key);
-#endif
-  }
-
- private:
-  const char* m_key;
-  bool m_present = false;
-  std::string m_value;
-};
+using env_guard = rstream::test::environment_guard;
 
 static boost::urls::url parse_url(const std::string& uri)
 {
@@ -224,6 +183,36 @@ static void check_user_info_error_paths_do_not_report_success()
   protocol::username missing_by_id = protocol::identifier(std::numeric_limits<std::uint32_t>::max());
   protocol::get_user_info(user_info, missing_by_id, error_code);
   assert(error_code);
+}
+
+static void check_user_info_is_reentrant()
+{
+  protocol::user_info expected;
+  std::error_code error_code;
+  protocol::get_user_info(expected, boost::none, error_code);
+  assert(!error_code);
+  constexpr std::size_t thread_count    = 8;
+  constexpr std::size_t iteration_count = 64;
+  std::atomic<bool> valid               = true;
+  std::vector<std::thread> threads;
+  threads.reserve(thread_count);
+  for (std::size_t thread_index = 0; thread_index < thread_count; ++thread_index) {
+    threads.emplace_back([&expected, &valid]() {
+      for (std::size_t iteration = 0; iteration < iteration_count; ++iteration) {
+        protocol::user_info actual;
+        std::error_code actual_error;
+        protocol::get_user_info(actual, boost::none, actual_error);
+        if (actual_error || actual.m_name != expected.m_name || actual.m_shell != expected.m_shell || actual.m_home != expected.m_home || actual.m_uid != expected.m_uid || actual.m_gid != expected.m_gid || actual.m_groups != expected.m_groups) {
+          valid.store(false, std::memory_order_relaxed);
+          return;
+        }
+      }
+    });
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  assert(valid.load(std::memory_order_relaxed));
 }
 #endif
 
@@ -452,6 +441,7 @@ int main(int argc, char** argv)
   check_identifier_and_username_parsing();
 #ifndef _WIN32
   check_user_info_error_paths_do_not_report_success();
+  check_user_info_is_reentrant();
 #endif
   check_webtty_uri_is_publishable_and_labelled();
   check_managed_webtty_uri_is_publishable_and_labelled();

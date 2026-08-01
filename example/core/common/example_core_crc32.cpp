@@ -4,7 +4,7 @@
 
 #include <rstream/core/crc32.hpp>
 
-int main(int argc, char** argv)
+int main()
 {
   std::string str("this is a string");
   std::cout << std::hex << std::uppercase << rstream::core::crc32(str.c_str(), str.length()) << std::endl;

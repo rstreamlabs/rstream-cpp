@@ -24,6 +24,7 @@
 #include <rstream/ncat/client.hpp>
 #include <rstream/ncat/error.hpp>
 #include <rstream/ncat/server.hpp>
+#include <rstream/test/time.hpp>
 
 using tcp = boost::asio::ip::tcp;
 
@@ -44,7 +45,7 @@ static unsigned short unused_tcp_port()
 static tcp::socket connect_with_retry(boost::asio::io_context& io_context, unsigned short port)
 {
   tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), port);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(5));
   boost::system::error_code error_code;
   do {
     tcp::socket socket(io_context);
@@ -210,8 +211,8 @@ class ncat_server_fixture {
             .m_read_downstream_buffer_size_bytes = 64 * 1024,
             .m_read_upstream_buffer_size_bytes   = 64 * 1024,
             .m_timeouts_ms                       = {
-                                      .m_start = 5000,
-                                      .m_open  = 5000,
+                .m_start = rstream::test::timeout_ms(5000),
+                .m_open  = rstream::test::timeout_ms(5000),
             },
         }),
         m_server(std::make_shared<rstream::ncat::server>(m_io_context.get_executor(), config, m_settings))
@@ -346,6 +347,56 @@ class interactive_echo_server {
         std::array<char, 12> input{};
         boost::asio::read(socket, boost::asio::buffer(input));
         assert(std::string(input.data(), input.size()) == "client-input");
+        boost::asio::write(socket, boost::asio::buffer(std::string("server-output")));
+        boost::system::error_code error_code;
+        socket.shutdown(tcp::socket::shutdown_send, error_code);
+      }
+      catch (...) {
+        m_exception = std::current_exception();
+      }
+    });
+  }
+
+  void join()
+  {
+    if (m_thread.joinable()) {
+      m_thread.join();
+    }
+    if (m_exception) {
+      std::rethrow_exception(m_exception);
+    }
+  }
+
+ private:
+  boost::asio::io_context m_io_context;
+  tcp::acceptor m_acceptor;
+  std::thread m_thread;
+  std::exception_ptr m_exception;
+};
+
+class output_server {
+ public:
+  output_server()
+      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port()))
+  {
+  }
+
+  ~output_server()
+  {
+    join();
+  }
+
+  unsigned short port() const
+  {
+    return m_acceptor.local_endpoint().port();
+  }
+
+  void start()
+  {
+    m_thread = std::thread([this] {
+      try {
+        tcp::socket socket(m_io_context);
+        m_acceptor.accept(socket);
         boost::asio::write(socket, boost::asio::buffer(std::string("server-output")));
         boost::system::error_code error_code;
         socket.shutdown(tcp::socket::shutdown_send, error_code);
@@ -509,7 +560,7 @@ static void check_client_pipes_stdin_to_socket_and_socket_to_stdout()
     rstream::ncat::client client(io_context.get_executor(), config, settings);
     input.restore();
     boost::asio::steady_timer deadline(io_context);
-    deadline.expires_after(std::chrono::seconds(10));
+    deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
     deadline.async_wait([&](const boost::system::error_code& error_code) {
       if (!error_code && !done) {
         timed_out = true;
@@ -527,6 +578,37 @@ static void check_client_pipes_stdin_to_socket_and_socket_to_stdout()
     assert(!result);
   }
   server.join();
+  assert(stdout_capture.read_all() == "server-output");
+}
+
+static void check_non_interactive_client_accepts_graceful_peer_close()
+{
+  output_server server;
+  server.start();
+
+  fd_capture stdout_capture(STDOUT_FILENO);
+  boost::asio::io_context io_context;
+  rstream::ncat::client::config config = {
+      .m_address         = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
+      .m_interactive     = false,
+      .m_non_interactive = true,
+  };
+  rstream::ncat::settings_client settings = {
+      .m_common                        = {},
+      .m_read_socket_buffer_size_bytes = 64 * 1024,
+      .m_read_std_in_buffer_size_bytes = 64 * 1024,
+  };
+  boost::system::error_code result;
+  bool done = false;
+  rstream::ncat::client client(io_context.get_executor(), config, settings);
+  client.async_run([&](const boost::system::error_code& error_code) {
+    result = error_code;
+    done   = true;
+  });
+  io_context.run();
+  server.join();
+  assert(done);
+  assert(!result);
   assert(stdout_capture.read_all() == "server-output");
 }
 
@@ -560,7 +642,7 @@ static void check_client_cancel_closes_pending_socket_read()
   });
 
   boost::asio::steady_timer deadline(io_context);
-  deadline.expires_after(std::chrono::seconds(5));
+  deadline.expires_after(rstream::test::timeout(std::chrono::seconds(5)));
   deadline.async_wait([&](const boost::system::error_code& error_code) {
     if (!error_code && !done) {
       timed_out = true;
@@ -580,6 +662,27 @@ static void check_client_cancel_closes_pending_socket_read()
   assert(result == rstream::ncat::error::make_error_code(rstream::ncat::error::code::operation_aborted));
 }
 
+static void check_exec_server_cancel_keeps_active_child_alive_until_completion()
+{
+  for (std::size_t iteration = 0; iteration < 16; ++iteration) {
+    const auto port                      = unused_tcp_port();
+    rstream::ncat::server::config config = {
+        .m_local  = rstream::io::address(std::string("127.0.0.1:") + std::to_string(port)),
+        .m_remote = rstream::ncat::server::exec{.m_shell = true, .m_cmd = "printf active; sleep 30"},
+    };
+    ncat_server_fixture server(config);
+    server.start();
+    boost::asio::io_context io_context;
+    auto socket = connect_with_retry(io_context, server.port());
+    std::array<char, 6> output{};
+    boost::asio::read(socket, boost::asio::buffer(output));
+    assert(std::string(output.data(), output.size()) == "active");
+    server.stop();
+    boost::system::error_code ignored;
+    socket.close(ignored);
+  }
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -588,6 +691,8 @@ int main(int argc, char** argv)
   check_exec_server_pipes_downstream_to_child();
   check_proxy_server_pipes_downstream_to_upstream();
   check_client_pipes_stdin_to_socket_and_socket_to_stdout();
+  check_non_interactive_client_accepts_graceful_peer_close();
   check_client_cancel_closes_pending_socket_read();
+  check_exec_server_cancel_keeps_active_child_alive_until_completion();
   return 0;
 }

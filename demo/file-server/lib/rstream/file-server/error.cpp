@@ -7,7 +7,13 @@ namespace file_server {
 
 namespace error {
 
-const char *category::name() const noexcept
+const category& rstream_file_server_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
+const char* category::name() const noexcept
 {
   return "rstream::file-server::error::category";
 }

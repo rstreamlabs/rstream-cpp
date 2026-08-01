@@ -28,6 +28,14 @@ class endpoint : public endpoint_base {
 
   endpoint();
 
+  endpoint(const endpoint&) = default;
+
+  endpoint& operator=(const endpoint&) = default;
+
+  endpoint(endpoint&&) noexcept = default;
+
+  endpoint& operator=(endpoint&&) noexcept = default;
+
   virtual ~endpoint() = default;
 
   protocol_type protocol() const override;

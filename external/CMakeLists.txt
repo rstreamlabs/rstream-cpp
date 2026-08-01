@@ -10,6 +10,3 @@ set(FETCHCONTENT_BASE_DIR ${CMAKE_BINARY_DIR}/external)
 # external projects
 
 add_subdirectory(docopt.cpp)
-if(ENABLE_TESTING)
-  add_subdirectory(gtest)
-endif()

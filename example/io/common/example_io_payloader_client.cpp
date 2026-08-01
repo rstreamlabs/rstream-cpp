@@ -14,11 +14,11 @@ static const unsigned short g_port = 1234;
 
 static const std::size_t g_mtu = 1500;
 
-int main(int argc, char** argv)
+int main()
 {
   boost::asio::io_context io_context;
   auto executor_work_guard = std::make_shared<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(io_context.get_executor());
-  std::thread thread(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+  std::thread thread(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
   try {
     // connect to remote
     using socket_type    = boost::asio::ip::tcp::socket;

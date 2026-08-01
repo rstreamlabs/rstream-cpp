@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <boost/asio/bind_executor.hpp>
+#include <boost/asio/associated_allocator.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/url.hpp>
 
@@ -13,6 +13,7 @@
 
 #include "endpoint.hpp"
 #include "endpoint_impl.hpp"
+#include "error.hpp"
 #include "object_base.hpp"
 #include "stream.hpp"
 
@@ -49,8 +50,6 @@ class stream_socket_impl : public stream_socket_base<endpoint>, public object_ba
   rstream::core::logger m_logger;
 
  private:
-  class async_connect_operation;
-
   void open_internal(const native_endpoint_type& endpoint, boost::system::error_code& error_code);
 
   void configure_internal(socket_mode mode, bool connected, const native_endpoint_type& endpoint, const boost::urls::url& url, boost::system::error_code& error_code);
@@ -77,25 +76,6 @@ class stream_socket_impl : public stream_socket_base<endpoint>, public object_ba
 };
 
 template <typename native_socket_type, typename native_endpoint_type>
-class stream_socket_impl<native_socket_type, native_endpoint_type>::async_connect_operation : public std::enable_shared_from_this<async_connect_operation> {
- public:
-  async_connect_operation(ptr stream_socket_ptr, const native_endpoint_type& endpoint, const boost::urls::url& url, async_connect_completion_handler&& handler);
-
-  void run();
-
-  void on_complete(const boost::system::error_code& error_code);
-
- private:
-  ptr m_stream_socket_ptr;
-
-  const native_endpoint_type m_endpoint;
-
-  const boost::urls::url m_url;
-
-  async_connect_completion_handler m_handler;
-};
-
-template <typename native_socket_type, typename native_endpoint_type>
 stream_socket_impl<native_socket_type, native_endpoint_type>::stream_socket_impl(const executor_type& executor, const endpoint_base::protocol_type::value_type& protocol, element_const_ptr parent_ptr)
     : stream_socket_base(executor),
       m_logger({"rstream", "io", "stream_socket", fmt::format("#{}", fmt::ptr(this))}),
@@ -118,8 +98,12 @@ stream_socket_impl<native_socket_type, native_endpoint_type>::stream_socket_impl
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::open(const endpoint& endpoint, boost::system::error_code& error_code)
 {
-  const auto& native_endpoint = std::dynamic_pointer_cast<const endpoint_impl<native_endpoint_type>>(endpoint.native_handle())->get();
-  open_internal(native_endpoint, error_code);
+  const auto native_endpoint = std::dynamic_pointer_cast<const endpoint_impl<native_endpoint_type>>(endpoint.native_handle());
+  if (!native_endpoint) {
+    error_code = error::code::invalid_argument;
+    return;
+  }
+  open_internal(native_endpoint->get(), error_code);
 }
 
 template <typename native_socket_type, typename native_endpoint_type>
@@ -176,76 +160,85 @@ native_endpoint_type stream_socket_impl<native_socket_type, native_endpoint_type
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::async_connect_internal(const endpoint& endpoint, async_connect_completion_handler&& handler)
 {
+  const auto native_endpoint = std::dynamic_pointer_cast<const endpoint_impl<native_endpoint_type>>(endpoint.native_handle());
+  if (!native_endpoint) {
+    rstream::core::invoke_completion_handler(
+        get_executor(), std::move(handler),
+        error::make_error_code(error::code::invalid_argument));
+    return;
+  }
   boost::system::error_code error_code;
-  const native_endpoint_type& native_endpoint = std::dynamic_pointer_cast<const endpoint_impl<native_endpoint_type>>(endpoint.native_handle())->get();
-  configure_internal(socket_mode::client, false, native_endpoint, endpoint.get_url(), error_code);
+  configure_internal(socket_mode::client, false, native_endpoint->get(), endpoint.get_url(), error_code);
   if (error_code) {
     rstream::core::invoke_completion_handler(get_executor(), std::move(handler), error_code);
   }
   else {
-    std::make_shared<async_connect_operation>(std::enable_shared_from_this<stream_socket_impl>::shared_from_this(), std::dynamic_pointer_cast<const endpoint_impl<native_endpoint_type>>(endpoint.native_handle())->get(), endpoint.get_url(), std::move(handler))->run();
+    auto stream_socket_ptr  = std::enable_shared_from_this<stream_socket_impl>::shared_from_this();
+    auto completion_handler = rstream::core::bind_associated_handler(
+        std::move(handler),
+        [stream_socket_ptr, native_endpoint = native_endpoint->get(), url = endpoint.get_url()](auto& handler, const boost::system::error_code& error_code) mutable {
+          auto cause = error_code;
+          if (!cause) {
+            stream_socket_ptr->configure_internal(socket_mode::client, true, native_endpoint, url, cause);
+          }
+          if (cause && !error_code) {
+            boost::system::error_code close_error;
+            stream_socket_ptr->close(close_error);
+          }
+          std::move(handler)(cause);
+        });
+    async_connect_internal(native_endpoint->get(), std::move(completion_handler));
   }
 }
 
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::async_connect_internal(const native_endpoint_type& endpoint, async_connect_completion_handler&& handler)
 {
-  m_socket.async_connect(endpoint, std::move(handler));
+  m_socket.async_connect(
+      endpoint,
+      rstream::core::bind_handler_lifetime(
+          std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
+          std::move(handler)));
 }
 
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::async_write_some_internal(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler)
 {
-  m_socket.async_write_some(buffer, std::move(handler));
+  m_socket.async_write_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(
+          std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
+          std::move(handler)));
 }
 
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::async_write_some_internal(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&& handler)
 {
-  m_socket.async_write_some(buffer, std::move(handler));
+  m_socket.async_write_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(
+          std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
+          std::move(handler)));
 }
 
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::async_read_some_internal(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler)
 {
-  m_socket.async_read_some(buffer, std::move(handler));
+  m_socket.async_read_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(
+          std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
+          std::move(handler)));
 }
 
 template <typename native_socket_type, typename native_endpoint_type>
 void stream_socket_impl<native_socket_type, native_endpoint_type>::async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler)
 {
-  m_socket.async_read_some(buffer, std::move(handler));
-}
-
-template <typename native_socket_type, typename native_endpoint_type>
-stream_socket_impl<native_socket_type, native_endpoint_type>::async_connect_operation::async_connect_operation(ptr stream_socket_ptr, const native_endpoint_type& endpoint, const boost::urls::url& url, async_connect_completion_handler&& handler)
-    : m_stream_socket_ptr(stream_socket_ptr),
-      m_endpoint(endpoint),
-      m_url(url),
-      m_handler(std::move(handler))
-{
-}
-
-template <typename native_socket_type, typename native_endpoint_type>
-void stream_socket_impl<native_socket_type, native_endpoint_type>::async_connect_operation::run()
-{
-  auto executor           = boost::asio::get_associated_executor(m_handler, m_stream_socket_ptr->get_executor());
-  auto completion_handler = std::bind(&async_connect_operation::on_complete, async_connect_operation::shared_from_this(), std::placeholders::_1);
-  m_stream_socket_ptr->async_connect_internal(m_endpoint, boost::asio::bind_executor(executor, completion_handler));
-}
-
-template <typename native_socket_type, typename native_endpoint_type>
-void stream_socket_impl<native_socket_type, native_endpoint_type>::async_connect_operation::on_complete(const boost::system::error_code& error_code)
-{
-  auto cause = error_code;
-  if (!cause) {
-    m_stream_socket_ptr->configure_internal(socket_mode::client, true, m_endpoint, m_url, cause);
-  }
-  if (cause && !error_code) {
-    boost::system::error_code tmp;
-    m_stream_socket_ptr->close(tmp);
-  }
-  rstream::core::invoke_completion_handler(m_stream_socket_ptr->get_executor(), std::move(m_handler), cause);
+  m_socket.async_read_some(
+      buffer,
+      rstream::core::bind_handler_lifetime(
+          std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
+          std::move(handler)));
 }
 
 }  // namespace stream

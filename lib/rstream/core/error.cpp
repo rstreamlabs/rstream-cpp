@@ -7,6 +7,17 @@ namespace core {
 
 namespace error {
 
+category::category() noexcept
+    : boost::system::error_category(0x72737472636f7265ULL)
+{
+}
+
+const category& rstream_core_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::core::error::category";
@@ -32,6 +43,10 @@ std::string to_string(error::code code)
       return "object is not writable";
     case error::code::plugin_not_found:
       return "plugin not found";
+    case error::code::plugin_already_registered:
+      return "plugin already registered";
+    case error::code::plugin_initialization_failed:
+      return "plugin initialization failed";
     default:
       return "unknown error";
   }

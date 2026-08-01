@@ -8,6 +8,10 @@
 
 #include <rstream/io-rstrm/detail/convert.hpp>
 
+#ifdef GetMessage
+#undef GetMessage
+#endif
+
 namespace protobuf = rstream::io_rstrm::protobuf;
 
 static void check_ip_address_roundtrip()
@@ -106,14 +110,20 @@ static void check_tunnel_properties_roundtrip()
   properties.m_rstream_auth                 = true;
   properties.m_challenge_mode               = true;
   properties.m_datagram_guaranteed_delivery = true;
+  properties.m_allow_cross_region_routing   = false;
   protobuf::TunnelProperties proto;
   rstream::io_rstrm::detail::convert(proto, properties);
   assert(proto.has_publish());
   assert(!proto.publish().value());
   assert(proto.labels().at("env") == "prod");
   assert(proto.trusted_ips().size() == 2);
-  assert(proto.has_http_use_tls());
-  assert(!proto.http_use_tls().value());
+  const auto* http_use_tls_field = proto.GetDescriptor()->FindFieldByName("http_use_tls");
+  assert(http_use_tls_field != nullptr);
+  assert(proto.GetReflection()->HasField(proto, http_use_tls_field));
+  const auto& http_use_tls        = proto.GetReflection()->GetMessage(proto, http_use_tls_field);
+  const auto* wrapper_value_field = http_use_tls.GetDescriptor()->FindFieldByName("value");
+  assert(wrapper_value_field != nullptr);
+  assert(!http_use_tls.GetReflection()->GetBool(http_use_tls, wrapper_value_field));
   rstream::io_rstrm::tunnel_properties decoded;
   rstream::io_rstrm::detail::convert(decoded, proto);
   assert(decoded.m_id == properties.m_id);
@@ -131,6 +141,7 @@ static void check_tunnel_properties_roundtrip()
   assert(decoded.m_rstream_auth == properties.m_rstream_auth);
   assert(decoded.m_challenge_mode == properties.m_challenge_mode);
   assert(decoded.m_datagram_guaranteed_delivery == properties.m_datagram_guaranteed_delivery);
+  assert(decoded.m_allow_cross_region_routing == properties.m_allow_cross_region_routing);
 }
 
 int main(int argc, char** argv)

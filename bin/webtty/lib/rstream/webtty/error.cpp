@@ -7,6 +7,12 @@ namespace webtty {
 
 namespace error {
 
+const category& rstream_webtty_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
 const char* category::name() const noexcept
 {
   return "rstream::webtty::error::category";

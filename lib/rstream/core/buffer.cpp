@@ -68,7 +68,7 @@ void buffer::insert_memory(int index, const memory& memory)
   if (!memory) {
     throw boost::system::system_error(error::code::object_null);
   }
-  if (!(index == -1 || (index >= 0 && index <= m_impl->m_memory_blocks.size()))) {
+  if (!(index == -1 || (index >= 0 && static_cast<std::size_t>(index) <= m_impl->m_memory_blocks.size()))) {
     throw boost::system::system_error(error::code::invalid_size);
   }
   memory_blocks::iterator it = m_impl->m_memory_blocks.begin();
@@ -132,7 +132,8 @@ const memory buffer::map(map_mode mode)
 const memory buffer::map_range(map_mode mode, unsigned int index, int length)
 {
   process_args(index, length);
-  memory result = nullptr;
+  const auto range_length = static_cast<std::size_t>(length);
+  memory result           = nullptr;
   if (length == 1) {
     auto it = m_impl->m_memory_blocks.begin();
     std::advance(it, index);
@@ -144,7 +145,7 @@ const memory buffer::map_range(map_mode mode, unsigned int index, int length)
     auto it   = m_impl->m_memory_blocks.begin();
     std::advance(it, index);
     std::size_t offset = 0;
-    for (std::size_t i = 0; i < length; ++i) {
+    for (std::size_t i = 0; i < range_length; ++i) {
       auto mem            = *map_memory_block(it, mode);
       std::size_t to_copy = mem.get_size();
       memcpy(&((std::uint8_t*)result.get_data())[offset], mem.get_const_data(), to_copy);
@@ -169,14 +170,15 @@ std::size_t buffer::get_size(std::size_t& offset, std::size_t& maxsize) const
 std::size_t buffer::get_size_range(unsigned int index, int length, std::size_t* p_offset, std::size_t* p_maxsize) const
 {
   process_args(index, length);
+  const auto range_length = static_cast<std::size_t>(length);
   std::size_t size, offset, extra;
   size = offset = extra = 0;
   auto it               = m_impl->m_memory_blocks.begin();
   std::advance(it, index);
-  for (std::size_t i = 0; i < length; ++i) {
-    std::size_t mem_size, mem_offset, mem_maxsize;
-    mem_size = mem_offset = mem_maxsize = 0;
-    mem_size                            = it->get_size(mem_offset, mem_maxsize);
+  for (std::size_t i = 0; i < range_length; ++i) {
+    std::size_t mem_offset  = 0;
+    std::size_t mem_maxsize = 0;
+    const auto mem_size     = it->get_size(mem_offset, mem_maxsize);
     if (mem_offset > mem_maxsize || mem_size > mem_maxsize - mem_offset) {
       throw boost::system::system_error(error::code::invalid_size);
     }
@@ -226,6 +228,7 @@ void buffer::resize_range(unsigned int index, int length, std::size_t offset, in
 void buffer::resize_range_checked(unsigned int index, int length, std::size_t offset, bool has_size, std::size_t size)
 {
   process_args(index, length);
+  const auto range_length = static_cast<std::size_t>(length);
   std::size_t buf_size, buf_offset, buf_maxsize;
   buf_size = get_size_range(index, length, &buf_offset, &buf_maxsize);
   if (buf_offset > buf_maxsize || offset > buf_maxsize - buf_offset) {
@@ -245,11 +248,11 @@ void buffer::resize_range_checked(unsigned int index, int length, std::size_t of
   }
   auto it = m_impl->m_memory_blocks.begin();
   std::advance(it, index);
-  for (std::size_t i = 0; i < length; ++i) {
+  for (std::size_t i = 0; i < range_length; ++i) {
     std::size_t left, noffs, mem_size;
     noffs    = 0;
     mem_size = it->get_size();
-    if (i + 1 == length) {
+    if (i + 1 == range_length) {
       left = size;
     }
     else if (mem_size <= offset) {
@@ -322,7 +325,7 @@ void buffer::process_args(unsigned int index, int& length) const
     if (max_length - index > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
       throw boost::system::system_error(error::code::invalid_size);
     }
-    length = max_length - index;
+    length = static_cast<int>(max_length - index);
   }
   else if (static_cast<std::size_t>(length) > max_length - index) {
     throw boost::system::system_error(error::code::invalid_size);

@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 
+#include <cctype>
 #include <iostream>
 #include <mutex>
 #include <sstream>
@@ -20,45 +21,19 @@ namespace log {
 
 namespace colors RSTREAM_GNUC_INTERNAL {
 
-// formatting codes
-static const spdlog::string_view_t blink     = "\033[5m";
-static const spdlog::string_view_t bold      = "\033[1m";
-static const spdlog::string_view_t concealed = "\033[8m";
-static const spdlog::string_view_t dark      = "\033[2m";
-static const spdlog::string_view_t reverse   = "\033[7m";
-static const spdlog::string_view_t underline = "\033[4m";
-
 // foreground colors
-static const spdlog::string_view_t black      = "\033[30m";
-static const spdlog::string_view_t blue       = "\033[34m";
 static const spdlog::string_view_t cyan       = "\033[36m";
 static const spdlog::string_view_t dark_gray  = "\033[90m";
 static const spdlog::string_view_t green      = "\033[32m";
 static const spdlog::string_view_t init       = "\033[39m";
 static const spdlog::string_view_t light_gray = "\033[37m";
-static const spdlog::string_view_t magenta    = "\033[35m";
-static const spdlog::string_view_t red        = "\033[31m";
-static const spdlog::string_view_t white      = "\033[97m";
-static const spdlog::string_view_t yellow     = "\033[33m";
-
-/// background colors
-static const spdlog::string_view_t on_black   = "\033[40m";
-static const spdlog::string_view_t on_blue    = "\033[44m";
-static const spdlog::string_view_t on_cyan    = "\033[46m";
-static const spdlog::string_view_t on_green   = "\033[42m";
-static const spdlog::string_view_t on_magenta = "\033[45m";
-static const spdlog::string_view_t on_red     = "\033[41m";
-static const spdlog::string_view_t on_white   = "\033[47m";
-static const spdlog::string_view_t on_yellow  = "\033[43m";
 
 /// bold colors
 static const spdlog::string_view_t bold_on_red = "\033[1m\033[41m";
 static const spdlog::string_view_t red_bold    = "\033[31m\033[1m";
 static const spdlog::string_view_t yellow_bold = "\033[33m\033[1m";
 
-// others
-static const spdlog::string_view_t clear_line = "\033[K";
-static const spdlog::string_view_t reset      = "\033[m";
+static const spdlog::string_view_t reset = "\033[m";
 
 // log levels
 static const std::unordered_map<spdlog::level::level_enum, spdlog::string_view_t> log_levels = {
@@ -132,7 +107,9 @@ void default_formatter::format(const spdlog::details::log_msg& msg, spdlog::memo
   const auto milliseconds   = spdlog::details::fmt_helper::time_fraction<std::chrono::milliseconds>(msg.time);
   const auto level_str_view = spdlog::level::to_string_view(msg.level);
   std::string level_str(level_str_view.begin(), level_str_view.end());
-  std::transform(level_str.begin(), level_str.end(), level_str.begin(), ::toupper);
+  std::transform(level_str.begin(), level_str.end(), level_str.begin(), [](unsigned char character) {
+    return static_cast<char>(std::toupper(character));
+  });
   fmt::format_to(std::back_inserter(dst), "{}{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}{} {}{:>8}{} {}{:<45}{} {}-{} {}{}{}",
                  m_color ? colors::dark_gray : "",
                  tm.tm_year + 1900,
@@ -251,9 +228,27 @@ str_sink enable_ansicolor_stdout_mt(bool color)
   return [sink_ptr](const std::string& msg) { sink_ptr->log(msg); };
 }
 
+str_sink enable_ansicolor_stderr_mt(bool color)
+{
+  auto sink_ptr  = std::make_shared<default_sink_mt>(std::cerr);
+  auto formatter = std::make_unique<default_formatter>(color);
+  static_cast<std::shared_ptr<spdlog::sinks::sink>>(sink_ptr)->set_formatter(std::move(formatter));
+  subscribe((spdlog::sink_ptr)sink_ptr);
+  return [sink_ptr](const std::string& msg) { sink_ptr->log(msg); };
+}
+
 str_sink enable_json_stdout_mt(bool pretty)
 {
   auto sink_ptr  = std::make_shared<default_sink_mt>(std::cout);
+  auto formatter = std::make_unique<json_formatter>(pretty ? 2 : -1);
+  static_cast<std::shared_ptr<spdlog::sinks::sink>>(sink_ptr)->set_formatter(std::move(formatter));
+  subscribe((spdlog::sink_ptr)sink_ptr);
+  return [sink_ptr](const std::string& msg) { sink_ptr->log(msg); };
+}
+
+str_sink enable_json_stderr_mt(bool pretty)
+{
+  auto sink_ptr  = std::make_shared<default_sink_mt>(std::cerr);
   auto formatter = std::make_unique<json_formatter>(pretty ? 2 : -1);
   static_cast<std::shared_ptr<spdlog::sinks::sink>>(sink_ptr)->set_formatter(std::move(formatter));
   subscribe((spdlog::sink_ptr)sink_ptr);
@@ -301,8 +296,18 @@ void default_sink_mt::set_pattern(const std::string& pattern)
 
 std::string format_timestamp(unsigned long milliseconds, std::time_t time_t)
 {
+  std::tm utc{};
+#ifdef _WIN32
+  if (gmtime_s(&utc, &time_t) != 0) {
+    return "";
+  }
+#else
+  if (gmtime_r(&time_t, &utc) == nullptr) {
+    return "";
+  }
+#endif
   std::stringstream stringstream;
-  stringstream << std::put_time(gmtime(&time_t), "%FT%T") << '.' << std::setfill('0') << std::setw(3) << milliseconds << 'Z';
+  stringstream << std::put_time(&utc, "%FT%T") << '.' << std::setfill('0') << std::setw(3) << milliseconds << 'Z';
   return stringstream.str();
 }
 

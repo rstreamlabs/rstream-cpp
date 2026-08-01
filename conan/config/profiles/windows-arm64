@@ -15,9 +15,11 @@ os=Windows
 [options]
 [buildenv]
 CPPFLAGS=-DFMT_CONSTEVAL=
-CXXFLAGS=-DFMT_CONSTEVAL=
-CC=/opt/llvm-mingw/bin/aarch64-w64-mingw32-gcc -march={{ compiler_target_cpu }} -mtune=generic
-CXX=/opt/llvm-mingw/bin/aarch64-w64-mingw32-g++ -march={{ compiler_target_cpu }} -mtune=generic
+CFLAGS=-march={{ compiler_target_cpu }} -mtune=generic
+CXXFLAGS=-march={{ compiler_target_cpu }} -mtune=generic -DFMT_CONSTEVAL= -pthread
+LDFLAGS=-pthread
+CC=/opt/llvm-mingw/bin/aarch64-w64-mingw32-gcc
+CXX=/opt/llvm-mingw/bin/aarch64-w64-mingw32-g++
 CPP=/opt/llvm-mingw/bin/aarch64-w64-mingw32-gcc -E
 AR=/opt/llvm-mingw/bin/aarch64-w64-mingw32-ar
 AS=/opt/llvm-mingw/bin/aarch64-w64-mingw32-as

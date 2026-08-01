@@ -14,7 +14,7 @@ class ncurses : public rstream::io::io_object {
  public:
   ncurses(const executor_type& executor);
 
-  virtual ~ncurses();
+  ~ncurses() noexcept override;
 
   using async_run_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&)>;
 

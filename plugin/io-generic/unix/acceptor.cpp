@@ -19,7 +19,7 @@ namespace unix_ {
 }  // namespace rstream
 
 template <>
-void rstream::plugin::io_generic::unix_::acceptor::configure_internal(const boost::asio::local::stream_protocol::endpoint& endpoint, const boost::urls::url& url, boost::system::error_code& error_code)
+void rstream::plugin::io_generic::unix_::acceptor::configure_internal(const boost::asio::local::stream_protocol::endpoint& endpoint, const boost::urls::url&, boost::system::error_code& error_code)
 {
 #ifndef _WIN32
   bool abstract_socket = false;
@@ -41,5 +41,8 @@ void rstream::plugin::io_generic::unix_::acceptor::configure_internal(const boos
       ::unlink(path.c_str());
     }
   }
+#else
+  (void)endpoint;
+  (void)error_code;
 #endif
 }

@@ -7,6 +7,8 @@
 #include <rstream/io-rstrm/socket.hpp>
 #include <rstream/io/detail/stream/acceptor_impl.hpp>
 
+#include "stream_socket.hpp"
+
 namespace rstream {
 namespace plugin {
 namespace io_rstrm {

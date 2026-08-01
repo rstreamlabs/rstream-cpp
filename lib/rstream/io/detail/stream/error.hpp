@@ -15,6 +15,8 @@ namespace error {
 
 class category : public boost::system::error_category {
  public:
+  category() noexcept;
+
   virtual const char* name() const noexcept override;
   virtual std::string message(int code) const override;
 };
@@ -29,11 +31,7 @@ enum class code {
   uninitialized_object,
 };
 
-extern inline const category& rstream_io_detail_stream_error_category()
-{
-  static class category category;
-  return category;
-}
+const category& rstream_io_detail_stream_error_category() noexcept;
 
 inline boost::system::error_code make_error_code(code code)
 {

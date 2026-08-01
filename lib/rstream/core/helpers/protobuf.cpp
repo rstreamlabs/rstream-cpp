@@ -25,13 +25,13 @@ std::string to_json_string(const google::protobuf::Message& message)
 #endif
   auto status = google::protobuf::util::MessageToJsonString(message, &str, options);
   if (!status.ok()) {
-    std::string message;
+    std::string error_message;
 #if GOOGLE_PROTOBUF_VERSION < 3016000
-    message = status.error_message();
+    error_message = status.error_message();
 #else
-    message = status.message().data();
+    error_message = status.message().data();
 #endif
-    str = std::string("cannot serialize protobuf message: " + message);
+    str = std::string("cannot serialize protobuf message: " + error_message);
   }
   if (str.length() > 0) {
     std::string::iterator it = str.end() - 1;

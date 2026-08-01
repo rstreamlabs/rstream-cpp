@@ -12,6 +12,8 @@ compiler.target={{ compiler_target_cpu }}
 build_type=Release
 [options]
 [tool_requires]
-[runenv]
-CC=/usr/bin/clang -mcpu={{ compiler_target_cpu }}
-CXX=/usr/bin/clang++ -mcpu={{ compiler_target_cpu }}
+[buildenv]
+CFLAGS=-mcpu={{ compiler_target_cpu }}
+CXXFLAGS=-mcpu={{ compiler_target_cpu }}
+CC=/usr/bin/clang
+CXX=/usr/bin/clang++

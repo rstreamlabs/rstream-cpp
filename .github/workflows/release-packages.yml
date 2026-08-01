@@ -130,7 +130,7 @@ jobs:
           path: |
             ~/.conan2/p
             ~/.cache/ccache
-          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-
       - name: Validate release tag
@@ -219,7 +219,11 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if conan remote list | grep -q "^${remote_name}:"; then
+              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
+            else
+              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            fi
             if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
               conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
             fi
@@ -255,7 +259,10 @@ jobs:
           conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
           refs=("rstream/${VERSION}")
           if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
-            refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
+            refs+=(
+              "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}"
+              "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}"
+            )
           fi
           has_packages=$(cat <<'PY'
           import json
@@ -280,13 +287,13 @@ jobs:
             fi
           done
       - name: Trim Conan cache
-        if: ${{ success() }}
+        if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        if: ${{ success() && (matrix.target.arch == 'x86_64' || matrix.target.arch == 'arm64') && steps.conan-cache.outputs.cache-hit != 'true' }}
+        if: ${{ always() && !cancelled() && (matrix.target.arch == 'x86_64' || matrix.target.arch == 'arm64') && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
             ~/.conan2/p
@@ -338,7 +345,7 @@ jobs:
           path: |
             ~/.conan2/p
             ~/.cache/ccache
-          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'CMakeLists.txt', 'cmake/**') }}
+          key: conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
@@ -407,7 +414,11 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if conan remote list | grep -q "^${remote_name}:"; then
+              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
+            else
+              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            fi
             if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
               conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
             fi
@@ -442,7 +453,10 @@ jobs:
           conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
           refs=("rstream/${VERSION}")
           if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
-            refs+=("boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}" "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}")
+            refs+=(
+              "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}"
+              "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}"
+            )
           fi
           has_packages=$(cat <<'PY'
           import json
@@ -542,7 +556,11 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            if conan remote list | grep -q "^${remote_name}:"; then
+              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
+            else
+              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
+            fi
           fi
       - name: Validate package version
         shell: bash

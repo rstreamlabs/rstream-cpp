@@ -1,6 +1,7 @@
 services:
   conan2-builder:
-    image: conan2-builder
+    image: ${CONAN_DOCKER_IMAGE:-conan2-builder-amd64}
+    platform: ${CONAN_DOCKER_PLATFORM:-linux/amd64}
     build:
       context: ./
       dockerfile: Dockerfile

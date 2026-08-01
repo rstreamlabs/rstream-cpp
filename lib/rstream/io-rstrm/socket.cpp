@@ -2,13 +2,19 @@
 
 #include "socket.hpp"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
+#include <boost/asio/associated_allocator.hpp>
+#include <boost/asio/associated_cancellation_slot.hpp>
+#include <boost/asio/bind_allocator.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/bind_executor.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/strand.hpp>
@@ -73,27 +79,63 @@ class RSTREAM_GNUC_INTERNAL socket::impl : public std::enable_shared_from_this<i
 
   using handshake_type = detail::handshake<protocol_type::socket&>;
 
-  void async_connect_internal(type type, const endpoint& endpoint, async_connect_completion_handler&& handler);
+  struct connect_op {
+    using ptr = std::shared_ptr<connect_op>;
+    explicit connect_op(async_connect_completion_handler&& handler);
+    std::atomic_bool m_cancelled;
+    bool m_completed;
+    bool m_started;
+    bool m_reserved;
+    boost::system::error_code m_initiation_error;
+    boost::system::error_code m_terminal_error;
+    async_connect_completion_handler m_handler;
+  };
 
-  void async_write_some_internal(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler);
+  struct transfer_op {
+    using ptr = std::shared_ptr<transfer_op>;
+    explicit transfer_op(async_write_some_completion_handler&& handler);
+    std::atomic_bool m_cancelled;
+    bool m_completed;
+    bool m_started;
+    async_write_some_completion_handler m_handler;
+    boost::asio::cancellation_signal m_cancellation;
+  };
 
-  void async_write_some_internal(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&& handler);
+  void async_connect_internal(type type, const endpoint& endpoint, const connect_op::ptr& op);
 
-  void async_read_some_internal(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler);
+  void async_write_some_internal(const boost::asio::const_buffer& buffer, const transfer_op::ptr& op);
 
-  void async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler);
+  void async_write_some_internal(const const_buffer_sequence_type& buffer, const transfer_op::ptr& op);
+
+  void async_read_some_internal(const boost::asio::mutable_buffer& buffer, const transfer_op::ptr& op);
+
+  void async_read_some_internal(const mutable_buffer_sequence_type& buffer, const transfer_op::ptr& op);
+
+  void install_transfer_cancellation(const transfer_op::ptr& op);
+
+  void cancel_connect(const connect_op::ptr& op);
+
+  void release_connect_reservation(const connect_op::ptr& op);
+
+  void cancel_transfer(const transfer_op::ptr& op);
+
+  void complete_connect(const connect_op::ptr& op, const boost::system::error_code& error_code);
+
+  void complete_transfer(const transfer_op::ptr& op, const boost::system::error_code& error_code, std::size_t transferred);
+
+  void on_transfer(const transfer_op::ptr& op, const boost::system::error_code& error_code, std::size_t transferred);
 
   void do_resolve_host();
 
-  void on_do_resolve_host(const boost::system::error_code& error_code, const resolver_type::results_type& results);
+  void on_do_resolve_host(const connect_op::ptr& op, const boost::system::error_code& error_code, const resolver_type::results_type& results);
 
   void do_connect(const resolver_type::results_type& results);
 
-  void on_connect(const boost::system::error_code& error_code, const resolver_type::results_type::endpoint_type& endpoint);
+  void on_connect(const connect_op::ptr& op, const boost::system::error_code& error_code, const resolver_type::results_type::endpoint_type& endpoint);
 
   void do_handshake();
 
-  void on_handshake(const boost::system::error_code& error_code);
+  void on_handshake(const connect_op::ptr& op, const boost::system::error_code& error_code);
 
   void on_started();
 
@@ -123,7 +165,7 @@ class RSTREAM_GNUC_INTERNAL socket::impl : public std::enable_shared_from_this<i
 
   endpoint m_endpoint;
 
-  async_connect_completion_handler m_handler;
+  connect_op::ptr m_connect_op;
 
   std::mutex m_mutex;
 
@@ -132,9 +174,27 @@ class RSTREAM_GNUC_INTERNAL socket::impl : public std::enable_shared_from_this<i
   boost::optional<endpoint> m_remote_endpoint;
 };
 
+socket::impl::connect_op::connect_op(async_connect_completion_handler&& handler)
+    : m_cancelled(false),
+      m_completed(false),
+      m_started(false),
+      m_reserved(false),
+      m_handler(std::move(handler))
+{
+}
+
+socket::impl::transfer_op::transfer_op(async_write_some_completion_handler&& handler)
+    : m_cancelled(false),
+      m_completed(false),
+      m_started(false),
+      m_handler(std::move(handler))
+{
+}
+
 socket::socket(const executor_type& executor, core::allocator::ptr allocator)
     : io::stream_socket_base<endpoint>(executor),
-      m_allocator(allocator)
+      m_allocator(allocator),
+      m_impl(std::allocate_shared<impl>(core::allocator::wrapper<impl>(allocator), executor, allocator))
 {
 }
 
@@ -149,20 +209,20 @@ socket::socket(const executor_type& executor, const settings_socket& settings, c
 }
 
 socket::socket(socket&& other) noexcept
-    : io::stream_socket_base<endpoint>(other.get_executor())
+    : io::stream_socket_base<endpoint>(other.get_executor()),
+      m_allocator(std::move(other.m_allocator)),
+      m_impl(std::move(other.m_impl))
 {
-  m_allocator  = other.m_allocator;
-  m_impl       = other.m_impl;
-  other.m_impl = nullptr;
 }
 
 socket& socket::operator=(socket&& other) noexcept
 {
   if (this != &other) {
-    io::stream_socket_base<endpoint>::operator=(std::move(other));
-    m_allocator  = other.m_allocator;
-    m_impl       = other.m_impl;
-    other.m_impl = nullptr;
+    auto allocator = std::move(other.m_allocator);
+    auto impl      = std::move(other.m_impl);
+    io::stream_socket_base<endpoint>::operator=(other);
+    m_allocator = std::move(allocator);
+    m_impl      = std::move(impl);
   }
   return *this;
 }
@@ -286,6 +346,14 @@ void socket::async_read_some_internal(const mutable_buffer_sequence_type& buffer
   return ptr()->async_read_some(buffer, std::move(handler));
 }
 
+void socket::adopt_impl(socket&& other) noexcept
+{
+  if (this != &other) {
+    m_impl       = std::move(other.m_impl);
+    other.m_impl = nullptr;
+  }
+}
+
 std::shared_ptr<socket::impl> socket::ptr()
 {
   if (!m_impl) {
@@ -308,14 +376,15 @@ socket::impl::impl(const executor_type& executor, core::allocator::ptr allocator
 
 settings_socket socket::impl::settings(boost::system::error_code& error_code)
 {
-  (void)error_code;
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   return m_settings;
 }
 
 void socket::impl::settings(const settings_socket& settings, boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_is_state_non_null) {
     error_code = error::code::invalid_state;
   }
@@ -327,18 +396,19 @@ void socket::impl::settings(const settings_socket& settings, boost::system::erro
 void socket::impl::open(const endpoint& endpoint, boost::system::error_code& error_code)
 {
   (void)endpoint;
-  (void)error_code;
+  error_code.clear();
 }
 
 void socket::impl::close(boost::system::error_code& error_code)
 {
-  (void)error_code;
+  error_code.clear();
   boost::asio::dispatch(m_strand, std::bind_front(&impl::close_internal, shared_from_this()));
 }
 
 endpoint socket::impl::remote_endpoint(boost::system::error_code& error_code)
 {
   std::lock_guard<std::mutex> lock(m_mutex);
+  error_code.clear();
   if (m_remote_endpoint) {
     return m_remote_endpoint.get();
   }
@@ -348,120 +418,347 @@ endpoint socket::impl::remote_endpoint(boost::system::error_code& error_code)
 
 void socket::impl::async_connect(type type, const endpoint& endpoint, async_connect_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front(&impl::async_connect_internal, shared_from_this(), type, endpoint, std::move(handler)));
+  if (!handler) {
+    return;
+  }
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<connect_op>(allocator, std::move(handler));
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_is_state_non_null) {
+      op->m_initiation_error = error::code::invalid_state;
+    }
+    else if (endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
+      op->m_initiation_error = error::code::invalid_configuration;
+    }
+    else if (!endpoint.m_id_name) {
+      op->m_initiation_error = error::code::invalid_endpoint;
+    }
+    else {
+      m_is_state_non_null = true;
+      op->m_reserved      = true;
+    }
+  }
+  auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
+  if (cancellation_slot.is_connected()) {
+    const std::weak_ptr<impl> weak_self     = shared_from_this();
+    const std::weak_ptr<connect_op> weak_op = op;
+    cancellation_slot.assign([weak_self, weak_op](boost::asio::cancellation_type cancellation_type) {
+      if (cancellation_type == boost::asio::cancellation_type::none) {
+        return;
+      }
+      const auto op = weak_op.lock();
+      if (!op) {
+        return;
+      }
+      op->m_cancelled.store(true, std::memory_order_release);
+      const auto self = weak_self.lock();
+      if (self) {
+        boost::asio::dispatch(self->m_strand, [self, op] { self->cancel_connect(op); });
+      }
+    });
+  }
+  boost::asio::dispatch(
+      m_strand,
+      core::bind_handler_allocator(
+          allocator,
+          [self = shared_from_this(), type, endpoint, op] { self->async_connect_internal(type, endpoint, op); }));
 }
 
 void socket::impl::async_write_some(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const boost::asio::const_buffer&, async_write_some_completion_handler&&)) & impl::async_write_some_internal, shared_from_this(), buffer, std::move(handler)));
+  if (!handler) {
+    return;
+  }
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  install_transfer_cancellation(op);
+  boost::asio::dispatch(
+      m_strand,
+      core::bind_handler_allocator(
+          allocator,
+          [self = shared_from_this(), buffer, op] { self->async_write_some_internal(buffer, op); }));
 }
 
 void socket::impl::async_write_some(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const const_buffer_sequence_type&, async_write_some_completion_handler&&)) & impl::async_write_some_internal, shared_from_this(), buffer, std::move(handler)));
+  if (!handler) {
+    return;
+  }
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  install_transfer_cancellation(op);
+  boost::asio::dispatch(
+      m_strand,
+      core::bind_handler_allocator(
+          allocator,
+          [self = shared_from_this(), buffer, op] { self->async_write_some_internal(buffer, op); }));
 }
 
 void socket::impl::async_read_some(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const boost::asio::mutable_buffer&, async_read_some_completion_handler&&)) & impl::async_read_some_internal, shared_from_this(), buffer, std::move(handler)));
+  if (!handler) {
+    return;
+  }
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  install_transfer_cancellation(op);
+  boost::asio::dispatch(
+      m_strand,
+      core::bind_handler_allocator(
+          allocator,
+          [self = shared_from_this(), buffer, op] { self->async_read_some_internal(buffer, op); }));
 }
 
 void socket::impl::async_read_some(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler)
 {
-  boost::asio::dispatch(m_strand, std::bind_front((void(impl::*)(const mutable_buffer_sequence_type&, async_read_some_completion_handler&&)) & impl::async_read_some_internal, shared_from_this(), buffer, std::move(handler)));
+  if (!handler) {
+    return;
+  }
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  install_transfer_cancellation(op);
+  boost::asio::dispatch(
+      m_strand,
+      core::bind_handler_allocator(
+          allocator,
+          [self = shared_from_this(), buffer, op] { self->async_read_some_internal(buffer, op); }));
 }
 
-void socket::impl::async_connect_internal(type type, const endpoint& endpoint, async_connect_completion_handler&& handler)
+void socket::impl::install_transfer_cancellation(const transfer_op::ptr& op)
+{
+  auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
+  if (!cancellation_slot.is_connected()) {
+    return;
+  }
+  const std::weak_ptr<impl> weak_self      = shared_from_this();
+  const std::weak_ptr<transfer_op> weak_op = op;
+  cancellation_slot.assign([weak_self, weak_op](boost::asio::cancellation_type cancellation_type) {
+    if (cancellation_type == boost::asio::cancellation_type::none) {
+      return;
+    }
+    const auto op = weak_op.lock();
+    if (!op) {
+      return;
+    }
+    op->m_cancelled.store(true, std::memory_order_release);
+    const auto self = weak_self.lock();
+    if (self) {
+      boost::asio::dispatch(self->m_strand, [self, op] { self->cancel_transfer(op); });
+    }
+  });
+}
+
+void socket::impl::async_connect_internal(type type, const endpoint& endpoint, const connect_op::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (!handler) {
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    release_connect_reservation(op);
+    complete_connect(op, boost::asio::error::operation_aborted);
     return;
   }
-  if (m_state != state::null) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state);
+  if (op->m_initiation_error) {
+    complete_connect(op, op->m_initiation_error);
   }
-  else if (endpoint.m_server_address_from_uri_param && !m_settings.m_config.m_no_token && !m_settings.m_config.m_token_from_uri_param) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_configuration);
-  }
-  else if (!endpoint.m_id_name) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_endpoint);
+  else if (!op->m_reserved || m_state != state::null) {
+    complete_connect(op, error::code::invalid_state);
   }
   else {
-    m_type     = type;
-    m_endpoint = endpoint;
-    m_handler.swap(handler);
-    m_state = state::connecting;
-    {
-      std::lock_guard<std::mutex> lock(m_mutex);
-      m_is_state_non_null = true;
-    }
+    m_type       = type;
+    m_endpoint   = endpoint;
+    m_connect_op = op;
+    m_state      = state::connecting;
     do_resolve_host();
   }
 }
 
-void socket::impl::async_write_some_internal(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler)
+void socket::impl::async_write_some_internal(const boost::asio::const_buffer& buffer, const transfer_op::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (!handler) {
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    complete_transfer(op, boost::asio::error::operation_aborted, 0);
     return;
   }
   if (m_state == state::connected) {
-    m_socket.async_write_some(buffer, std::move(handler));
+    op->m_started           = true;
+    auto completion_handler = [self = shared_from_this(), op](const boost::system::error_code& error_code, std::size_t transferred) {
+      self->on_transfer(op, error_code, transferred);
+    };
+    m_socket.async_write_some(
+        buffer,
+        core::bind_handler_allocator(
+            core::allocator::wrapper<char>(m_allocator),
+            boost::asio::bind_cancellation_slot(op->m_cancellation.slot(), boost::asio::bind_executor(m_strand, std::move(completion_handler)))));
   }
   else {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, 0);
+    complete_transfer(op, error::code::invalid_state, 0);
   }
 }
 
-void socket::impl::async_write_some_internal(const const_buffer_sequence_type& buffer, async_write_some_completion_handler&& handler)
+void socket::impl::async_write_some_internal(const const_buffer_sequence_type& buffer, const transfer_op::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (!handler) {
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    complete_transfer(op, boost::asio::error::operation_aborted, 0);
     return;
   }
   if (m_state == state::connected) {
-    m_socket.async_write_some(buffer, std::move(handler));
+    op->m_started           = true;
+    auto completion_handler = [self = shared_from_this(), op](const boost::system::error_code& error_code, std::size_t transferred) {
+      self->on_transfer(op, error_code, transferred);
+    };
+    m_socket.async_write_some(
+        buffer,
+        core::bind_handler_allocator(
+            core::allocator::wrapper<char>(m_allocator),
+            boost::asio::bind_cancellation_slot(op->m_cancellation.slot(), boost::asio::bind_executor(m_strand, std::move(completion_handler)))));
   }
   else {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, 0);
+    complete_transfer(op, error::code::invalid_state, 0);
   }
 }
 
-void socket::impl::async_read_some_internal(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler)
+void socket::impl::async_read_some_internal(const boost::asio::mutable_buffer& buffer, const transfer_op::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (!handler) {
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    complete_transfer(op, boost::asio::error::operation_aborted, 0);
     return;
   }
   if (m_state == state::connected) {
-    m_socket.async_read_some(buffer, std::move(handler));
+    op->m_started           = true;
+    auto completion_handler = [self = shared_from_this(), op](const boost::system::error_code& error_code, std::size_t transferred) {
+      self->on_transfer(op, error_code, transferred);
+    };
+    m_socket.async_read_some(
+        buffer,
+        core::bind_handler_allocator(
+            core::allocator::wrapper<char>(m_allocator),
+            boost::asio::bind_cancellation_slot(op->m_cancellation.slot(), boost::asio::bind_executor(m_strand, std::move(completion_handler)))));
   }
   else {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, 0);
+    complete_transfer(op, error::code::invalid_state, 0);
   }
 }
 
-void socket::impl::async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler)
+void socket::impl::async_read_some_internal(const mutable_buffer_sequence_type& buffer, const transfer_op::ptr& op)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (!handler) {
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    complete_transfer(op, boost::asio::error::operation_aborted, 0);
     return;
   }
   if (m_state == state::connected) {
-    m_socket.async_read_some(buffer, std::move(handler));
+    op->m_started           = true;
+    auto completion_handler = [self = shared_from_this(), op](const boost::system::error_code& error_code, std::size_t transferred) {
+      self->on_transfer(op, error_code, transferred);
+    };
+    m_socket.async_read_some(
+        buffer,
+        core::bind_handler_allocator(
+            core::allocator::wrapper<char>(m_allocator),
+            boost::asio::bind_cancellation_slot(op->m_cancellation.slot(), boost::asio::bind_executor(m_strand, std::move(completion_handler)))));
   }
   else {
-    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, 0);
+    complete_transfer(op, error::code::invalid_state, 0);
+  }
+}
+
+void socket::impl::cancel_connect(const connect_op::ptr& op)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!op || !op->m_cancelled.load(std::memory_order_acquire) || op->m_completed) {
+    return;
+  }
+  if (m_connect_op == op) {
+    on_close(boost::asio::error::operation_aborted);
+  }
+  else {
+    release_connect_reservation(op);
+    complete_connect(op, boost::asio::error::operation_aborted);
+  }
+}
+
+void socket::impl::release_connect_reservation(const connect_op::ptr& op)
+{
+  if (!op || !op->m_reserved || m_state != state::null) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (op->m_reserved && m_is_state_non_null) {
+    m_is_state_non_null = false;
+    op->m_reserved      = false;
+  }
+}
+
+void socket::impl::cancel_transfer(const transfer_op::ptr& op)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!op || !op->m_cancelled.load(std::memory_order_acquire) || op->m_completed) {
+    return;
+  }
+  if (op->m_started) {
+    op->m_cancellation.emit(boost::asio::cancellation_type::all);
+  }
+  else {
+    complete_transfer(op, boost::asio::error::operation_aborted, 0);
+  }
+}
+
+void socket::impl::complete_connect(const connect_op::ptr& op, const boost::system::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!op || op->m_completed) {
+    return;
+  }
+  op->m_completed = true;
+  rstream::core::invoke_completion_handler(m_executor, std::move(op->m_handler), error_code);
+  op->m_handler = nullptr;
+  if (m_connect_op == op) {
+    m_connect_op = nullptr;
+  }
+}
+
+void socket::impl::complete_transfer(const transfer_op::ptr& op, const boost::system::error_code& error_code, std::size_t transferred)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!op || op->m_completed) {
+    return;
+  }
+  op->m_completed = true;
+  rstream::core::invoke_completion_handler(m_executor, std::move(op->m_handler), error_code, transferred);
+  op->m_handler = nullptr;
+}
+
+void socket::impl::on_transfer(const transfer_op::ptr& op, const boost::system::error_code& error_code, std::size_t transferred)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  op->m_started = false;
+  if (op->m_cancelled.load(std::memory_order_acquire)) {
+    complete_transfer(op, boost::asio::error::operation_aborted, transferred);
+  }
+  else {
+    complete_transfer(op, error_code, transferred);
   }
 }
 
@@ -470,20 +767,37 @@ void socket::impl::do_resolve_host()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto completion_handler = std::bind(&impl::on_do_resolve_host, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
+  const auto op           = m_connect_op;
+  op->m_started           = true;
+  auto completion_handler = [self = shared_from_this(), op](
+                                const boost::system::error_code& error_code,
+                                const resolver_type::results_type& results) {
+    self->on_do_resolve_host(op, error_code, results);
+  };
+  auto internal_handler = boost::asio::bind_executor(
+      m_strand,
+      core::bind_handler_allocator(
+          core::allocator::wrapper<char>(m_allocator),
+          boost::asio::bind_cancellation_slot(boost::asio::cancellation_slot(), std::move(completion_handler))));
 #ifdef RSTREAM_WITH_IO_STREAMS
-  m_resolver.async_resolve(m_endpoint.m_server_address.m_url, boost::asio::bind_executor(m_strand, completion_handler));
+  m_resolver.async_resolve(m_endpoint.m_server_address.m_url, std::move(internal_handler));
 #else
-  m_resolver.async_resolve(m_endpoint.m_server_address.host(), m_endpoint.m_server_address.port(), boost::asio::bind_executor(m_strand, completion_handler));
+  m_resolver.async_resolve(m_endpoint.m_server_address.host(), m_endpoint.m_server_address.port(), std::move(internal_handler));
 #endif
 }
 
-void socket::impl::on_do_resolve_host(const boost::system::error_code& error_code, const resolver_type::results_type& results)
+void socket::impl::on_do_resolve_host(const connect_op::ptr& op, const boost::system::error_code& error_code, const resolver_type::results_type& results)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state != state::connecting) {
+  op->m_started = false;
+  if (op->m_terminal_error) {
+    on_error(op->m_terminal_error);
+    return;
+  }
+  if (m_state != state::connecting || m_connect_op != op) {
+    complete_connect(op, boost::asio::error::operation_aborted);
     return;
   }
   auto cause = error_code;
@@ -503,16 +817,33 @@ void socket::impl::do_connect(const resolver_type::results_type& results)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto completion_handler = std::bind(&impl::on_connect, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  boost::asio::async_connect(m_socket, results, boost::asio::bind_executor(m_strand, completion_handler));
+  const auto op           = m_connect_op;
+  op->m_started           = true;
+  auto completion_handler = [self = shared_from_this(), op](
+                                const boost::system::error_code& error_code,
+                                const resolver_type::results_type::endpoint_type& endpoint) {
+    self->on_connect(op, error_code, endpoint);
+  };
+  auto internal_handler = boost::asio::bind_executor(
+      m_strand,
+      core::bind_handler_allocator(
+          core::allocator::wrapper<char>(m_allocator),
+          boost::asio::bind_cancellation_slot(boost::asio::cancellation_slot(), std::move(completion_handler))));
+  boost::asio::async_connect(m_socket, results, std::move(internal_handler));
 }
 
-void socket::impl::on_connect(const boost::system::error_code& error_code, const resolver_type::results_type::endpoint_type& endpoint)
+void socket::impl::on_connect(const connect_op::ptr& op, const boost::system::error_code& error_code, const resolver_type::results_type::endpoint_type&)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state != state::connecting) {
+  op->m_started = false;
+  if (op->m_terminal_error) {
+    on_error(op->m_terminal_error);
+    return;
+  }
+  if (m_state != state::connecting || m_connect_op != op) {
+    complete_connect(op, boost::asio::error::operation_aborted);
     return;
   }
   if (error_code) {
@@ -528,18 +859,33 @@ void socket::impl::do_handshake()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto completion_handler = std::bind(&impl::on_handshake, shared_from_this(), std::placeholders::_1);
-  const auto type         = m_type == type::client ? handshake_type::type::stream_req : handshake_type::type::proxy_req;
-  auto handshake          = std::allocate_shared<handshake_type>(core::allocator::wrapper<impl>(m_allocator), m_socket, m_endpoint.m_server_address, m_settings.m_config, m_allocator);
-  handshake->async_run(type, m_endpoint.m_id_name.get(), m_endpoint.m_secret, boost::asio::bind_executor(m_strand, completion_handler));
+  const auto op           = m_connect_op;
+  op->m_started           = true;
+  auto completion_handler = [self = shared_from_this(), op](const boost::system::error_code& error_code) {
+    self->on_handshake(op, error_code);
+  };
+  auto internal_handler = boost::asio::bind_executor(
+      m_strand,
+      core::bind_handler_allocator(
+          core::allocator::wrapper<char>(m_allocator),
+          boost::asio::bind_cancellation_slot(boost::asio::cancellation_slot(), std::move(completion_handler))));
+  const auto type = m_type == type::client ? handshake_type::type::stream_req : handshake_type::type::proxy_req;
+  auto handshake  = std::allocate_shared<handshake_type>(core::allocator::wrapper<impl>(m_allocator), m_socket, m_endpoint.m_server_address, m_settings.m_config, m_allocator);
+  handshake->async_run(type, m_endpoint.m_id_name.get(), m_endpoint.m_secret, std::move(internal_handler));
 }
 
-void socket::impl::on_handshake(const boost::system::error_code& error_code)
+void socket::impl::on_handshake(const connect_op::ptr& op, const boost::system::error_code& error_code)
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state != state::connecting) {
+  op->m_started = false;
+  if (op->m_terminal_error) {
+    on_error(op->m_terminal_error);
+    return;
+  }
+  if (m_state != state::connecting || m_connect_op != op) {
+    complete_connect(op, boost::asio::error::operation_aborted);
     return;
   }
   if (error_code) {
@@ -561,8 +907,7 @@ void socket::impl::on_started()
     std::lock_guard<std::mutex> lock(m_mutex);
     m_remote_endpoint = m_endpoint;
   }
-  rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), boost::system::error_code());
-  m_handler = nullptr;
+  complete_connect(m_connect_op, boost::system::error_code());
 }
 
 void socket::impl::close_internal()
@@ -591,11 +936,18 @@ void socket::impl::on_close(const boost::system::error_code& error_code)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  m_state = state::null;
-  if (m_handler) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), error_code);
+  auto connect_error = error_code;
+  if (!connect_error && m_connect_op) {
+    connect_error = boost::asio::error::operation_aborted;
   }
-  m_handler  = nullptr;
+  const bool defer_connect_completion = m_connect_op && m_connect_op->m_started;
+  if (defer_connect_completion) {
+    m_connect_op->m_terminal_error = connect_error;
+  }
+  else {
+    m_state = state::null;
+    complete_connect(m_connect_op, connect_error);
+  }
   m_endpoint = endpoint();
   {
     std::lock_guard<std::mutex> lock(m_mutex);

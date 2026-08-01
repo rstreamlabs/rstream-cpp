@@ -7,7 +7,13 @@ namespace stun {
 
 namespace error {
 
-const char *category::name() const noexcept
+const category& rstream_io_stun_error_category() noexcept
+{
+  static const category value;
+  return value;
+}
+
+const char* category::name() const noexcept
 {
   return "rstream::stun::error::category";
 }

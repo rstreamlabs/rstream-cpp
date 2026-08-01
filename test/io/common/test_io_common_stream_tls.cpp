@@ -1,6 +1,7 @@
 // See LICENSE file in the project root for license information.
 
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <chrono>
@@ -11,6 +12,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -341,13 +344,14 @@ class certificate_files {
 
 static void check_tls_config_errors()
 {
-  const std::array<std::string, 6> invalid_queries = {
+  const std::array<std::string, 7> invalid_queries = {
       "ssl&ssl.tlsv12&ssl.tlsv13&ssl.peer_verification=false&ssl.request_peer_cert=false",
       "ssl&ssl.cert=inline&ssl.cert_file=/missing/cert.pem&ssl.peer_verification=false&ssl.request_peer_cert=false",
       "ssl&ssl.cert=engine-cert&ssl.cert_type=engine&ssl.peer_verification=false&ssl.request_peer_cert=false",
       "ssl&ssl.key_type=bogus&ssl.peer_verification=false&ssl.request_peer_cert=false",
       "ssl&ssl.peer_verification=true&ssl.request_peer_cert=false",
       "ssl&ssl.groups=not-a-real-tls-group&ssl.peer_verification=false&ssl.request_peer_cert=false",
+      "ssl&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.alpn_protos=" + std::string(256, 'a'),
   };
 
   for (const auto& query : invalid_queries) {
@@ -547,15 +551,16 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   assert(server_peer.is_secure());
 
   std::array<char, 5> server_buffer{};
-  bool server_read = false;
-  bool client_sent = false;
+  const std::string client_message = "hello";
+  bool server_read                 = false;
+  bool client_sent                 = false;
   boost::asio::async_read(server_peer, boost::asio::buffer(server_buffer), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == server_buffer.size());
     assert(std::string(server_buffer.data(), server_buffer.size()) == "hello");
     server_read = true;
   });
-  boost::asio::async_write(client, boost::asio::buffer(std::string("hello")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(client, boost::asio::buffer(client_message), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 5);
     client_sent = true;
@@ -565,15 +570,16 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   assert(client_sent);
 
   std::array<char, 5> client_buffer{};
-  bool client_read = false;
-  bool server_sent = false;
+  const std::string server_message = "world";
+  bool client_read                 = false;
+  bool server_sent                 = false;
   boost::asio::async_read(client, boost::asio::buffer(client_buffer), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == client_buffer.size());
     assert(std::string(client_buffer.data(), client_buffer.size()) == "world");
     client_read = true;
   });
-  boost::asio::async_write(server_peer, boost::asio::buffer(std::string("world")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(server_peer, boost::asio::buffer(server_message), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 5);
     server_sent = true;
@@ -614,7 +620,7 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   };
   bool client_sequence_read = false;
   bool server_sequence_sent = false;
-  boost::asio::async_write(server_peer, boost::asio::buffer(std::string("world")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(server_peer, boost::asio::buffer(server_message), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 5);
     server_sequence_sent = true;
@@ -628,6 +634,115 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   run_until(io_context, [&] { return client_sequence_read && server_sequence_sent; });
   assert(client_sequence_read);
   assert(server_sequence_sent);
+}
+
+static void check_tls_shutdown_timeout_is_serialized()
+{
+  certificate_files files;
+  boost::asio::io_context io_context;
+  const auto port            = unused_tcp_port();
+  const auto server_endpoint = resolve_one(
+      io_context,
+      "tcp://127.0.0.1:" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()
+          + "&ssl.key_file=" + files.key_file()
+          + "&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.async_shutdown_timeout_ms=0");
+  const auto client_endpoint = resolve_one(io_context, "tcp://127.0.0.1:" + std::to_string(port));
+  rstream::io::stream::acceptor acceptor(io_context.get_executor());
+  boost::system::error_code error_code;
+  acceptor.open(server_endpoint, error_code);
+  assert(!error_code);
+  acceptor.bind(server_endpoint, error_code);
+  assert(!error_code);
+  acceptor.listen(boost::asio::socket_base::max_listen_connections, error_code);
+  assert(!error_code);
+  rstream::io::stream::stream_socket server_peer(io_context.get_executor());
+  rstream::io::stream::endpoint remote_endpoint;
+  rstream::io::stream::stream_socket client(io_context.get_executor());
+  client.open(client_endpoint, error_code);
+  assert(!error_code);
+  auto client_config                        = base_ssl_config();
+  client_config.m_sni                       = "localhost";
+  client_config.m_async_shutdown_timeout_ms = 25;
+  auto client_ssl                           = rstream::io::detail::stream::stream_socket_ssl::wrap(
+      client,
+      client_config,
+      rstream::io::detail::stream::stream_socket_ssl::type::client);
+  bool accepted  = false;
+  bool connected = false;
+  acceptor.async_accept(server_peer, remote_endpoint, [&](const boost::system::error_code& error) {
+    assert(!error);
+    accepted = true;
+  });
+  client.async_connect(client_endpoint, [&](const boost::system::error_code& error) {
+    assert(!error);
+    connected = true;
+  });
+  run_until(io_context, [&] { return accepted && connected; });
+  std::atomic<unsigned int> completion_count = 0;
+  boost::system::error_code shutdown_error;
+  client_ssl->async_shutdown([&](const boost::system::error_code& error) {
+    shutdown_error = error;
+    completion_count.fetch_add(1, std::memory_order_relaxed);
+  });
+  std::vector<std::thread> workers;
+  workers.reserve(4);
+  for (unsigned int i = 0; i < 4; ++i) {
+    workers.emplace_back([&] { io_context.run(); });
+  }
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (completion_count.load(std::memory_order_relaxed) == 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  io_context.stop();
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  assert(completion_count.load(std::memory_order_relaxed) == 1);
+  assert(shutdown_error == rstream::io::detail::stream::error::code::operation_aborted);
+  boost::system::error_code ignored;
+  server_peer.close(ignored);
+  acceptor.close(ignored);
+}
+
+static void check_tls_accept_preserves_peer_executor()
+{
+  certificate_files files;
+  boost::asio::io_context io_context;
+  boost::asio::io_context peer_io_context;
+  const auto port            = unused_tcp_port();
+  const auto server_endpoint = resolve_one(
+      io_context,
+      "tcp://127.0.0.1:" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()
+          + "&ssl.key_file=" + files.key_file()
+          + "&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.async_shutdown_timeout_ms=0");
+  const auto client_endpoint = resolve_one(
+      io_context,
+      "tcp://127.0.0.1:" + std::to_string(port)
+          + "?ssl&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.sni=localhost&ssl.async_shutdown_timeout_ms=0");
+  rstream::io::stream::acceptor acceptor(io_context.get_executor());
+  boost::system::error_code error_code;
+  acceptor.open(server_endpoint, error_code);
+  assert(!error_code);
+  acceptor.bind(server_endpoint, error_code);
+  assert(!error_code);
+  acceptor.listen(boost::asio::socket_base::max_listen_connections, error_code);
+  assert(!error_code);
+  rstream::io::stream::stream_socket server_peer(peer_io_context.get_executor());
+  rstream::io::stream::endpoint remote_endpoint;
+  rstream::io::stream::stream_socket client(io_context.get_executor());
+  bool accepted  = false;
+  bool connected = false;
+  acceptor.async_accept(server_peer, remote_endpoint, [&](const boost::system::error_code& error) {
+    assert(!error);
+    accepted = true;
+  });
+  client.async_connect(client_endpoint, [&](const boost::system::error_code& error) {
+    assert(!error);
+    connected = true;
+  });
+  run_until(io_context, [&] { return accepted && connected; });
+  assert(server_peer.get_executor() == peer_io_context.get_executor());
 }
 
 static boost::system::error_code run_verified_tls_connect(const std::string& sni)
@@ -710,6 +825,8 @@ int main(int argc, char** argv)
   check_tls_config_errors();
   check_direct_tls_context_configuration();
   check_tls_accept_connect_and_transfer();
+  check_tls_shutdown_timeout_is_serialized();
+  check_tls_accept_preserves_peer_executor();
   check_tls_peer_verification_checks_hostname();
 #if OPENSSL_VERSION_NUMBER >= 0x30500000L
   check_tls_hybrid_group_preferences();

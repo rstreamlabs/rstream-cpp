@@ -8,6 +8,7 @@ TEST_NAME="cpp-e2e-tls-passthrough-$$"
 LOG_FILE=$(mktemp "${TMPDIR:-/tmp}/rstream-cpp-tunnel-e2e.XXXXXX")
 TUNNEL_PID=
 
+# shellcheck disable=SC2329
 cleanup() {
   if [ -n "${TUNNEL_PID:-}" ]; then
     kill "$TUNNEL_PID" 2>/dev/null || true

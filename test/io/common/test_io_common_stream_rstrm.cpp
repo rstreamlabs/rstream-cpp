@@ -24,9 +24,7 @@ static rstream::io::stream::endpoint resolve_one(boost::asio::io_context& io_con
   assert(completed);
   assert(!error_code);
   assert(results.size() == 1);
-  auto endpoint = results.front().endpoint();
-  assert(endpoint.protocol() == "rstrm");
-  return endpoint;
+  return results.front().endpoint();
 }
 
 static void assert_stream_invalid_argument(const boost::system::error_code& error_code)
@@ -39,6 +37,7 @@ static void check_rstrm_resolver_uses_generic_stream_plugin()
 {
   boost::asio::io_context io_context;
   auto endpoint = resolve_one(io_context, "rstrm://viewer?server=tcp%3A%2F%2Fengine.example%3A443%3Fssl");
+  assert(endpoint.protocol() == "rstrm");
   assert(endpoint.to_string().find("viewer") != std::string::npos);
 }
 
@@ -69,6 +68,49 @@ static void check_rstrm_acceptor_rejects_invalid_retry_parameter_before_network_
   assert_stream_invalid_argument(error_code);
 }
 
+static void check_socket_rejects_endpoint_from_another_plugin()
+{
+  boost::asio::io_context io_context;
+  auto tcp_endpoint   = resolve_one(io_context, "tcp://127.0.0.1:9");
+  auto rstrm_endpoint = resolve_one(io_context, "rstrm://viewer?server=tcp%3A%2F%2F127.0.0.1%3A9");
+
+  rstream::io::stream::stream_socket socket(io_context.get_executor());
+  boost::system::error_code error_code;
+  socket.open(tcp_endpoint, error_code);
+  assert(!error_code);
+
+  socket.open(rstrm_endpoint, error_code);
+  assert_stream_invalid_argument(error_code);
+
+  bool completed = false;
+  socket.async_connect(rstrm_endpoint, [&](const boost::system::error_code& error) {
+    assert_stream_invalid_argument(error);
+    completed = true;
+  });
+  assert(!completed);
+  io_context.run();
+  assert(completed);
+}
+
+static void check_acceptor_rejects_endpoint_from_another_plugin()
+{
+  boost::asio::io_context io_context;
+  auto tcp_endpoint   = resolve_one(io_context, "tcp://127.0.0.1:0");
+  auto rstrm_endpoint = resolve_one(io_context, "rstrm://publisher?server=tcp%3A%2F%2F127.0.0.1%3A9");
+
+  rstream::io::stream::acceptor acceptor(io_context.get_executor());
+  boost::system::error_code error_code;
+  acceptor.open(tcp_endpoint, error_code);
+  assert(!error_code);
+
+  acceptor.open(rstrm_endpoint, error_code);
+  assert_stream_invalid_argument(error_code);
+
+  error_code = {};
+  acceptor.bind(rstrm_endpoint, error_code);
+  assert_stream_invalid_argument(error_code);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -76,5 +118,7 @@ int main(int argc, char** argv)
   check_rstrm_resolver_uses_generic_stream_plugin();
   check_rstrm_socket_rejects_invalid_token_parameter_before_network_io();
   check_rstrm_acceptor_rejects_invalid_retry_parameter_before_network_io();
+  check_socket_rejects_endpoint_from_another_plugin();
+  check_acceptor_rejects_endpoint_from_another_plugin();
   return 0;
 }

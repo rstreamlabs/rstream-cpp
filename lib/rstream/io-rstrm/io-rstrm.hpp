@@ -98,6 +98,7 @@ struct tunnel_properties {
   boost::optional<bool> m_rstream_auth;
   boost::optional<bool> m_challenge_mode;
   boost::optional<bool> m_datagram_guaranteed_delivery;
+  boost::optional<bool> m_allow_cross_region_routing;
 };
 
 struct config {
@@ -152,7 +153,7 @@ boost::system::result<nlohmann::json> get_rstream_config_file(const boost::optio
 
 boost::system::result<boost::optional<std::string>> get_rstream_token(const config& config, const io::address& server_address);
 
-boost::system::result<client_details> get_client_details(const boost::optional<std::string> token);
+boost::system::result<client_details> get_client_details(boost::optional<std::string> token);
 
 boost::system::result<client_details> get_client_details(const config& config, const io::address& server_address);
 

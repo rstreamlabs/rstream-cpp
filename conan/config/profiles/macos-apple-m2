@@ -14,6 +14,8 @@ build_type=Release
 [tool_requires]
 [conf]
 tools.build.cross_building:can_run=False
-[runenv]
-CC=/usr/bin/clang -mcpu={{ compiler_target_cpu }}
-CXX=/usr/bin/clang++ -mcpu={{ compiler_target_cpu }}
+[buildenv]
+CFLAGS=-mcpu={{ compiler_target_cpu }}
+CXXFLAGS=-mcpu={{ compiler_target_cpu }}
+CC=/usr/bin/clang
+CXX=/usr/bin/clang++

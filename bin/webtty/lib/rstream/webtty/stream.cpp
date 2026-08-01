@@ -2,6 +2,11 @@
 
 #include "stream.hpp"
 
+#include <algorithm>
+#include <array>
+#include <exception>
+#include <limits>
+
 #include <rstream/config.hpp>
 
 #include "error.hpp"
@@ -84,6 +89,32 @@ pipe::stream_type& pipe::stream(type type)
 
 #ifdef _WIN32
 
+namespace {
+
+void close_handle(HANDLE& handle)
+{
+  if (handle != nullptr) {
+    ::CloseHandle(handle);
+    handle = nullptr;
+  }
+}
+
+void cancel_thread_io(const std::shared_ptr<std::thread>& thread)
+{
+  if (thread != nullptr && thread->joinable()) {
+    if (!::CancelSynchronousIo(thread->native_handle()) && ::GetLastError() != ERROR_NOT_FOUND) {
+      // Closing the associated pipe below remains the final cancellation path.
+    }
+  }
+}
+
+std::error_code operation_aborted_error()
+{
+  return std::error_code(ERROR_OPERATION_ABORTED, std::system_category());
+}
+
+}  // namespace
+
 pty_windows::pty_windows(const executor_type& executor)
     : base(backend::tty),
       m_executor(executor)
@@ -97,53 +128,58 @@ pty_windows::~pty_windows()
 
 void pty_windows::allocate(std::error_code& error_code)
 {
-  if (m_console_handle) {
-    error_code = std::error_code(ERROR_INVALID_HANDLE, std::system_category());
-  }
-  else {
-    // 1) Create the pipe for HPCON's STDIN.
-    //    HPCON will read from in_read (the read end).
-    //    The parent will write to in_write (the write end).
-    if (!::CreatePipe(&m_in_read, &m_in_write, nullptr, 0)) {
-      error_code = std::error_code(::GetLastError(), std::system_category());
-    }
-    if (error_code) {
+  HANDLE in_read   = nullptr;
+  HANDLE in_write  = nullptr;
+  HANDLE out_read  = nullptr;
+  HANDLE out_write = nullptr;
+  HPCON console    = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_console_handle != nullptr || m_in_write != nullptr || m_out_read != nullptr || m_running) {
+      error_code = error::code::invalid_state;
       return;
-    }
-    // 2) Create the pipe for HPCON's STDOUT.
-    //    HPCON will write to out_write (the write end).
-    //    The parent will read from out_read (the read end).
-    if (!::CreatePipe(&m_out_read, &m_out_write, nullptr, 0)) {
-      error_code = std::error_code(::GetLastError(), std::system_category());
-    }
-    if (error_code) {
-      return;
-    }
-    // 3) Create the Pseudoconsole passing HPCON's side of the pipes:
-    //    - HPCON input = read end of the input pipe  (m_in_read)
-    //    - HPCON output = write end of the output pipe (m_out_write)
-    COORD consoleSize = {80, 25};
-    HRESULT hr        = ::CreatePseudoConsole(consoleSize, m_in_read, m_out_write, 0, &m_console_handle);
-    if (FAILED(hr)) {
-      error_code = std::error_code(::GetLastError(), std::system_category());
-    }
-    if (error_code) {
-      return;
-    }
-    if (m_in_read) {
-      ::CloseHandle(m_in_read);
-      m_in_read = nullptr;
-    }
-    if (m_out_write) {
-      ::CloseHandle(m_out_write);
-      m_out_write = nullptr;
     }
   }
+  if (!::CreatePipe(&in_read, &in_write, nullptr, 0)) {
+    error_code = std::error_code(::GetLastError(), std::system_category());
+  }
+  if (!error_code && !::CreatePipe(&out_read, &out_write, nullptr, 0)) {
+    error_code = std::error_code(::GetLastError(), std::system_category());
+  }
+  if (!error_code) {
+    COORD console_size = {80, 25};
+    auto result        = ::CreatePseudoConsole(console_size, in_read, out_write, 0, &console);
+    if (FAILED(result)) {
+      error_code = std::error_code(static_cast<int>(result), std::system_category());
+    }
+  }
+  if (!error_code) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_console_handle != nullptr || m_in_write != nullptr || m_out_read != nullptr || m_running) {
+      error_code = error::code::invalid_state;
+    }
+    else {
+      m_console_handle = console;
+      m_in_write       = in_write;
+      m_out_read       = out_read;
+      console          = nullptr;
+      in_write         = nullptr;
+      out_read         = nullptr;
+    }
+  }
+  if (console != nullptr) {
+    ::ClosePseudoConsole(console);
+  }
+  close_handle(in_read);
+  close_handle(in_write);
+  close_handle(out_read);
+  close_handle(out_write);
 }
 
 void pty_windows::set_window_size(const terminal_size& terminal_size, std::error_code& error_code)
 {
-  if (!m_console_handle) {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (m_console_handle == nullptr) {
     error_code = std::error_code(ERROR_INVALID_HANDLE, std::system_category());
   }
   else {
@@ -160,34 +196,42 @@ void pty_windows::set_window_size(const terminal_size& terminal_size, std::error
 void pty_windows::async_read_some(const boost::asio::mutable_buffer& buffer, type type, async_read_some_completion_handler&& handler)
 {
   (void)type;
-  std::lock_guard<std::mutex> lock(m_mutex);
+  async_read_some_completion_handler rejected_handler;
   {
-    if (m_running == false || m_read_op != nullptr) {
-      if (handler) {
-        rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, 0);
-      }
-      return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_running || m_read_op != nullptr || m_read_active) {
+      rejected_handler = std::move(handler);
     }
-    m_read_op            = std::make_shared<read_op>();
-    m_read_op->m_buffer  = buffer;
-    m_read_op->m_handler = std::move(handler);
+    else {
+      m_read_op            = std::make_shared<read_op>();
+      m_read_op->m_buffer  = buffer;
+      m_read_op->m_handler = std::move(handler);
+    }
+  }
+  if (rejected_handler) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(rejected_handler), error::code::invalid_state, 0);
+    return;
   }
   m_cv_read_op.notify_one();
 }
 
 void pty_windows::async_write_some(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler)
 {
-  std::lock_guard<std::mutex> lock(m_mutex);
+  async_write_some_completion_handler rejected_handler;
   {
-    if (m_running == false || m_write_op != nullptr) {
-      if (handler) {
-        rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::invalid_state, 0);
-      }
-      return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_running || m_write_op != nullptr || m_write_active) {
+      rejected_handler = std::move(handler);
     }
-    m_write_op            = std::make_shared<write_op>();
-    m_write_op->m_buffer  = buffer;
-    m_write_op->m_handler = std::move(handler);
+    else {
+      m_write_op            = std::make_shared<write_op>();
+      m_write_op->m_buffer  = buffer;
+      m_write_op->m_handler = std::move(handler);
+    }
+  }
+  if (rejected_handler) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(rejected_handler), error::code::invalid_state, 0);
+    return;
   }
   m_cv_write_op.notify_one();
 }
@@ -200,9 +244,14 @@ void pty_windows::async_write(const boost::asio::const_buffer& buffer, type type
 
 void pty_windows::cancel()
 {
-  if (m_console_handle) {
-    ::ClosePseudoConsole(m_console_handle);
+  HPCON console = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    console          = m_console_handle;
     m_console_handle = nullptr;
+  }
+  if (console != nullptr) {
+    ::ClosePseudoConsole(console);
   }
 }
 
@@ -213,59 +262,74 @@ void pty_windows::close()
 
 void pty_windows::start()
 {
-  if (m_in_write == nullptr || m_out_read == nullptr) {
-    return;
+  std::shared_ptr<std::thread> reading_thread;
+  std::shared_ptr<std::thread> writing_thread;
+  std::exception_ptr exception;
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_in_write == nullptr || m_out_read == nullptr || m_running) {
+      return;
+    }
+    m_running = true;
+    try {
+      reading_thread = std::make_shared<std::thread>([this] { this->reading_thread(); });
+      writing_thread = std::make_shared<std::thread>([this] { this->writing_thread(); });
+    }
+    catch (...) {
+      m_running = false;
+      exception = std::current_exception();
+    }
+    if (!exception) {
+      m_reading_thread = std::move(reading_thread);
+      m_writing_thread = std::move(writing_thread);
+    }
   }
-  std::lock_guard<std::mutex> lock(m_mutex);
-  if (m_running) {
-    return;
+  if (exception) {
+    m_cv_read_op.notify_all();
+    m_cv_write_op.notify_all();
+    if (reading_thread != nullptr && reading_thread->joinable()) {
+      reading_thread->join();
+    }
+    if (writing_thread != nullptr && writing_thread->joinable()) {
+      writing_thread->join();
+    }
+    std::rethrow_exception(exception);
   }
-  m_running        = true;
-  m_reading_thread = std::make_shared<std::thread>(std::bind(&pty_windows::reading_thread, this));
-  m_writing_thread = std::make_shared<std::thread>(std::bind(&pty_windows::writing_thread, this));
 }
 
 void pty_windows::stop()
 {
-  if (m_console_handle) {
-    ::ClosePseudoConsole(m_console_handle);
-    m_console_handle = nullptr;
-  }
-  std::shared_ptr<std::thread> reading_thread = nullptr;
-  std::shared_ptr<std::thread> writing_thread = nullptr;
+  HPCON console   = nullptr;
+  HANDLE in_write = nullptr;
+  HANDLE out_read = nullptr;
+  std::shared_ptr<std::thread> reading_thread;
+  std::shared_ptr<std::thread> writing_thread;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_running        = false;
-    reading_thread   = m_reading_thread;
-    writing_thread   = m_writing_thread;
-    m_reading_thread = nullptr;
-    m_writing_thread = nullptr;
-  }
-  if (m_in_write) {
-    ::CloseHandle(m_in_write);
-  }
-  if (m_out_read) {
-    ::CloseHandle(m_out_read);
+    console          = m_console_handle;
+    in_write         = m_in_write;
+    out_read         = m_out_read;
+    reading_thread   = std::move(m_reading_thread);
+    writing_thread   = std::move(m_writing_thread);
+    m_console_handle = nullptr;
+    m_in_write       = nullptr;
+    m_out_read       = nullptr;
   }
   m_cv_read_op.notify_one();
   m_cv_write_op.notify_one();
-  if (reading_thread) {
+  cancel_thread_io(reading_thread);
+  cancel_thread_io(writing_thread);
+  close_handle(in_write);
+  close_handle(out_read);
+  if (console != nullptr) {
+    ::ClosePseudoConsole(console);
+  }
+  if (reading_thread != nullptr && reading_thread->joinable()) {
     reading_thread->join();
-    reading_thread = nullptr;
   }
-  if (writing_thread) {
+  if (writing_thread != nullptr && writing_thread->joinable()) {
     writing_thread->join();
-    writing_thread = nullptr;
-  }
-  m_in_write = nullptr;
-  m_out_read = nullptr;
-  if (m_in_read) {
-    ::CloseHandle(m_in_read);
-    m_in_read = nullptr;
-  }
-  if (m_out_write) {
-    ::CloseHandle(m_out_write);
-    m_out_write = nullptr;
   }
 }
 
@@ -273,6 +337,7 @@ void pty_windows::reading_thread()
 {
   while (true) {
     std::shared_ptr<read_op> read_op = nullptr;
+    HANDLE out_read                  = nullptr;
     {
       std::unique_lock<std::mutex> lock(m_mutex);
       m_cv_read_op.wait(lock, [this] { return !m_running || m_read_op != nullptr; });
@@ -280,15 +345,25 @@ void pty_windows::reading_thread()
       m_read_op = nullptr;
       if (!m_running) {
         if (read_op && read_op->m_handler) {
-          rstream::core::invoke_completion_handler(m_executor, std::move(read_op->m_handler), std::error_code(ERROR_OPERATION_ABORTED, std::system_category()), 0);
+          rstream::core::invoke_completion_handler(m_executor, std::move(read_op->m_handler), operation_aborted_error(), 0);
         }
         break;
       }
+      m_read_active = true;
+      out_read      = m_out_read;
     }
     DWORD bytes_read = 0;
     std::error_code error_code;
-    if (!::ReadFile(m_out_read, read_op->m_buffer.data(), static_cast<DWORD>(read_op->m_buffer.size()), &bytes_read, nullptr)) {
+    auto size = static_cast<DWORD>(std::min<std::size_t>(read_op->m_buffer.size(), std::numeric_limits<DWORD>::max()));
+    if (!::ReadFile(out_read, read_op->m_buffer.data(), size, &bytes_read, nullptr)) {
       error_code = std::error_code(::GetLastError(), std::system_category());
+    }
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_read_active = false;
+      if (!m_running) {
+        error_code = operation_aborted_error();
+      }
     }
     if (read_op->m_handler) {
       rstream::core::invoke_completion_handler(m_executor, std::move(read_op->m_handler), error_code, error_code ? 0 : bytes_read);
@@ -300,6 +375,7 @@ void pty_windows::writing_thread()
 {
   while (true) {
     std::shared_ptr<write_op> write_op = nullptr;
+    HANDLE in_write                    = nullptr;
     {
       std::unique_lock<std::mutex> lock(m_mutex);
       m_cv_write_op.wait(lock, [this] { return !m_running || m_write_op != nullptr; });
@@ -307,15 +383,25 @@ void pty_windows::writing_thread()
       m_write_op = nullptr;
       if (!m_running) {
         if (write_op && write_op->m_handler) {
-          rstream::core::invoke_completion_handler(m_executor, std::move(write_op->m_handler), std::error_code(ERROR_OPERATION_ABORTED, std::system_category()), 0);
+          rstream::core::invoke_completion_handler(m_executor, std::move(write_op->m_handler), operation_aborted_error(), 0);
         }
         break;
       }
+      m_write_active = true;
+      in_write       = m_in_write;
     }
     DWORD bytes_written = 0;
     std::error_code error_code;
-    if (!::WriteFile(m_in_write, write_op->m_buffer.data(), static_cast<DWORD>(write_op->m_buffer.size()), &bytes_written, nullptr)) {
+    auto size = static_cast<DWORD>(std::min<std::size_t>(write_op->m_buffer.size(), std::numeric_limits<DWORD>::max()));
+    if (!::WriteFile(in_write, write_op->m_buffer.data(), size, &bytes_written, nullptr)) {
       error_code = std::error_code(::GetLastError(), std::system_category());
+    }
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_write_active = false;
+      if (!m_running) {
+        error_code = operation_aborted_error();
+      }
     }
     if (write_op->m_handler) {
       rstream::core::invoke_completion_handler(m_executor, std::move(write_op->m_handler), error_code, error_code ? 0 : bytes_written);
@@ -338,32 +424,50 @@ pty_posix::~pty_posix()
 
 void pty_posix::allocate(std::error_code& error_code)
 {
-  // 1) Open the master side of the PTY.
-  m_master_fd = posix_openpt(O_RDWR | O_NOCTTY);
-  if (m_master_fd == -1) {
-    error_code = std::error_code(errno, std::system_category());
-  }
-  if (error_code) {
+  if (m_master_fd != -1 || m_slave_fd != -1 || m_std_in_out.is_open()) {
+    error_code = error::code::invalid_state;
     return;
   }
-  // 2) Grant access to the slave.
-  if (grantpt(m_master_fd) == -1) {
+  int master_fd = -1;
+  int slave_fd  = -1;
+  int flags     = O_RDWR | O_NOCTTY;
+#ifdef O_CLOEXEC
+  flags |= O_CLOEXEC;
+#endif
+  master_fd = posix_openpt(flags);
+  if (master_fd == -1) {
     error_code = std::error_code(errno, std::system_category());
+  }
+  if (!error_code && grantpt(master_fd) == -1) {
+    error_code = std::error_code(errno, std::system_category());
+  }
+  if (!error_code && unlockpt(master_fd) == -1) {
+    error_code = std::error_code(errno, std::system_category());
+  }
+  std::array<char, 1024> slave_name{};
+  if (!error_code) {
+    auto result = ptsname_r(master_fd, slave_name.data(), slave_name.size());
+    if (result != 0) {
+      error_code = std::error_code(result, std::generic_category());
+    }
+  }
+  if (!error_code) {
+    slave_fd = open(slave_name.data(), flags);
+    if (slave_fd == -1) {
+      error_code = std::error_code(errno, std::system_category());
+    }
   }
   if (error_code) {
-    return;
+    if (master_fd != -1) {
+      ::close(master_fd);
+    }
+    if (slave_fd != -1) {
+      ::close(slave_fd);
+    }
   }
-  // 3) Unlock the slave.
-  if (unlockpt(m_master_fd) == -1) {
-    error_code = std::error_code(errno, std::system_category());
-  }
-  if (error_code) {
-    return;
-  }
-  // 4) Open the slave side of the PTY.
-  char* slave_name = ptsname(m_master_fd);
-  if (slave_name == nullptr || (m_slave_fd = open(slave_name, O_RDWR | O_NOCTTY)) == -1) {
-    error_code = std::error_code(errno, std::system_category());
+  else {
+    m_master_fd = master_fd;
+    m_slave_fd  = slave_fd;
   }
 }
 
@@ -449,6 +553,9 @@ void pty_posix::on_success(std::error_code& error_code)
     boost::system::error_code tmp;
     m_std_in_out.assign(m_master_fd, tmp);
     error_code = tmp;
+    if (!error_code) {
+      m_master_fd = -1;
+    }
   }
 }
 

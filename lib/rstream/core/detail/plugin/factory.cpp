@@ -3,6 +3,7 @@
 #include "factory.hpp"
 
 #include <map>
+#include <mutex>
 #include <regex>
 
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -13,6 +14,8 @@
 #include <rstream/core/error.hpp>
 #include <rstream/core/log.hpp>
 
+#include "registry.hpp"
+
 #define STR(var)                   #var
 #define XSTR(var)                  STR(var)
 #define RSTREAM_PLUGIN_SYMBOL_NAME XSTR(RSTREAM_PLUGIN_SYMBOL)
@@ -21,6 +24,35 @@ namespace rstream {
 namespace core {
 namespace detail {
 namespace plugin {
+
+namespace {
+
+struct library_cache {
+  std::mutex m_mutex;
+  std::map<boost::filesystem::path, shared_library> m_libraries;
+};
+
+std::pair<shared_library, bool> load_library(const boost::filesystem::path& path)
+{
+  static library_cache cache;
+  const auto canonical_path = boost::filesystem::weakly_canonical(path);
+  {
+    std::lock_guard lock(cache.m_mutex);
+    const auto existing = cache.m_libraries.find(canonical_path);
+    if (existing != cache.m_libraries.end()) {
+      return {existing->second, false};
+    }
+  }
+  auto library = std::make_shared<boost::dll::shared_library>(canonical_path, boost::dll::load_mode::rtld_lazy);
+  if (!library->has(RSTREAM_PLUGIN_SYMBOL_NAME)) {
+    return {nullptr, false};
+  }
+  std::lock_guard lock(cache.m_mutex);
+  const auto [iterator, inserted] = cache.m_libraries.emplace(canonical_path, library);
+  return {iterator->second, inserted};
+}
+
+}  // namespace
 
 class RSTREAM_GNUC_INTERNAL factory::impl {
  public:
@@ -173,6 +205,7 @@ std::list<plugin::extended_info> factory::impl::get_plugins() const
 
 plugin::extended_info factory::impl::get_plugin(const plugin::name& name, boost::system::error_code& error_code) const
 {
+  error_code.clear();
   plugin::extended_info res = {};
   auto it                   = m_plugins.find(name);
   if (it == m_plugins.end()) {
@@ -220,14 +253,58 @@ element::ptr factory::impl::create(const element::name& name, boost::system::err
 
 void factory::impl::register_plugin(const plugin::ptr& plugin, const shared_library& object, boost::system::error_code& error_code)
 {
+  error_code.clear();
+  if (!plugin) {
+    error_code = error::code::object_null;
+    return;
+  }
+  const auto& name = plugin->get_info().m_name;
+  if (m_plugins.find(name) != m_plugins.end()) {
+    error_code = error::code::plugin_already_registered;
+    return;
+  }
   auto ptr = object ? plugin::ptr(plugin.get(), object_deleter(plugin, object)) : plugin;
-  ptr->initialize(m_config, object);
-  ptr->init();
-  m_plugins.insert(std::make_pair(plugin->get_info().m_name, std::make_pair(ptr, object)));
+  try {
+    ptr->initialize(m_config, object);
+    ptr->init();
+  }
+  catch (const boost::system::system_error& error) {
+    error_code = error.code();
+    m_logger->warn("failed to initialize plugin '{}': {}", name, error.what());
+    return;
+  }
+  catch (const std::exception& error) {
+    error_code = error::code::plugin_initialization_failed;
+    m_logger->warn("failed to initialize plugin '{}': {}", name, error.what());
+    return;
+  }
+  catch (...) {
+    error_code = error::code::plugin_initialization_failed;
+    m_logger->warn("failed to initialize plugin '{}': unknown exception", name);
+    return;
+  }
+  m_plugins.emplace(name, std::make_pair(ptr, object));
 }
 
 void factory::impl::init()
 {
+  for (const auto provider : get_static_plugins()) {
+    boost::system::error_code error_code;
+    try {
+      register_plugin(provider(), nullptr, error_code);
+    }
+    catch (const std::exception& error) {
+      m_logger->warn("failed to create static plugin: {}", error.what());
+      continue;
+    }
+    catch (...) {
+      m_logger->warn("failed to create static plugin: unknown exception");
+      continue;
+    }
+    if (error_code) {
+      m_logger->warn("failed to register static plugin [error_code: {}]", error_code.message());
+    }
+  }
   auto pattern      = m_config.find("pattern");
   auto search_paths = m_config.find("search_paths");
   if (pattern == m_config.end()
@@ -251,30 +328,32 @@ void factory::impl::init()
       }
     }
   }
-#ifdef DEBUG_BUILD
-  struct RSTREAM_GNUC_INTERNAL shared_library_deleter {
-    void operator()(boost::dll::shared_library* ptr)
-    {
-      boost::filesystem::path location = ptr->location();
-      std::default_delete<boost::dll::shared_library>()(ptr);
-      rstream::core::default_logger()->trace("shared library '{}' unloaded", location.string());
-    }
-  };
-#endif
   for (const auto& path : plugins) {
+    try {
+      auto [library, loaded] = load_library(path);
+      if (!library) {
+        m_logger->warn("ignored library '{}': plugin entry point not found", path.string());
+        continue;
+      }
 #ifdef DEBUG_BUILD
-    auto library = std::shared_ptr<boost::dll::shared_library>(new boost::dll::shared_library(path, boost::dll::load_mode::rtld_lazy), shared_library_deleter());
+      if (loaded) {
+        rstream::core::default_logger()->trace("shared library '{}' loaded", path.string());
+      }
 #else
-    auto library = std::make_shared<boost::dll::shared_library>(path, boost::dll::load_mode::rtld_lazy);
+      (void)loaded;
 #endif
-#ifdef DEBUG_BUILD
-    rstream::core::default_logger()->trace("shared library '{}' loaded", library->location().string());
-#endif
-    auto plugin = library->get_alias<plugin::ptr()>(RSTREAM_PLUGIN_SYMBOL_NAME)();
-    boost::system::error_code error_code;
-    register_plugin(plugin, library, error_code);
-    if (error_code) {
-      rstream::core::default_logger()->warn("failed to register plugin [error_code: {}]", error_code.message());
+      auto plugin = library->get_alias<plugin::ptr()>(RSTREAM_PLUGIN_SYMBOL_NAME)();
+      boost::system::error_code error_code;
+      register_plugin(plugin, library, error_code);
+      if (error_code) {
+        m_logger->warn("failed to register plugin '{}' [error_code: {}]", path.string(), error_code.message());
+      }
+    }
+    catch (const std::exception& error) {
+      m_logger->warn("failed to load plugin '{}': {}", path.string(), error.what());
+    }
+    catch (...) {
+      m_logger->warn("failed to load plugin '{}': unknown exception", path.string());
     }
   }
 }
@@ -286,6 +365,7 @@ void factory::impl::deinit()
 
 std::pair<factory::impl::plugins::const_iterator, elements::const_iterator> factory::impl::find_element(const element::name& name, boost::system::error_code& error_code) const
 {
+  error_code.clear();
   for (auto it_1 = m_plugins.begin(); it_1 != m_plugins.end(); ++it_1) {
     const auto& elements = it_1->second.first->get_elements();
     auto it_2            = elements.find(name);

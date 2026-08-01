@@ -389,7 +389,7 @@ int main(int argc, char** argv)
 
   boost::system::result<urls::url_view> ru = urls::parse_uri_reference(uri_str);
   if (ru) {
-    urls::url_view u = *ru;
+    const urls::url_view& u = *ru;
     if (u.has_scheme() && u.has_fragment())
       std::cout << "Input is a valid URL\n";
     else if (u.has_scheme())

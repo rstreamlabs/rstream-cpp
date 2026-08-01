@@ -37,5 +37,7 @@ boost::system::result<endpoint> make_endpoint(const boost::optional<std::string>
 
 boost::system::result<endpoint> make_endpoint(const boost::urls::url& url);
 
+boost::system::result<io::address> make_redirected_server_address(const io::address& base, const std::string& server_address);
+
 }  // namespace io_rstrm
 }  // namespace rstream

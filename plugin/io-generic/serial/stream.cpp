@@ -9,7 +9,7 @@ namespace serial {
 
 rstream::core::plugin::element::info stream::get_stream_info()
 {
-  return (rstream::core::plugin::element::info){.m_name = "serial", .m_description = "serial transport layer"};
+  return rstream::core::plugin::element::info{.m_name = "serial", .m_description = "serial transport layer"};
 }
 
 }  // namespace serial

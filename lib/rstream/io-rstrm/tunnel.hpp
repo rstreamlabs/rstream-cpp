@@ -27,6 +27,14 @@ class tunnel {
 
   tunnel();
 
+  tunnel(const tunnel&) = default;
+
+  tunnel& operator=(const tunnel&) = default;
+
+  tunnel(tunnel&&) noexcept = default;
+
+  tunnel& operator=(tunnel&&) noexcept = default;
+
   virtual ~tunnel() = default;
 
   operator bool() const noexcept;
@@ -41,8 +49,7 @@ class tunnel {
 
   // accept incoming connections
   template <typename accept_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(accept_handler), void(const boost::system::error_code&))
-  async_accept(socket& peer, endpoint& endpoint, BOOST_ASIO_MOVE_ARG(accept_handler) handler);
+  auto async_accept(socket& peer, endpoint& endpoint, BOOST_ASIO_MOVE_ARG(accept_handler) handler);
 
   // close the tunnel
   void close();
@@ -60,14 +67,13 @@ class tunnel {
 };
 
 template <typename accept_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(accept_handler), void(const boost::system::error_code&))
-tunnel::async_accept(socket& peer, endpoint& endpoint, BOOST_ASIO_MOVE_ARG(accept_handler) handler)
+auto tunnel::async_accept(socket& peer, endpoint& endpoint, BOOST_ASIO_MOVE_ARG(accept_handler) handler)
 {
   return boost::asio::async_initiate<accept_handler, void(const boost::system::error_code&)>(
-      [this, &peer, &endpoint](auto&& handler) {
-        async_accept_internal(peer, endpoint, std::forward<decltype(handler)>(handler));
+      [this](auto&& handler, socket* peer, struct endpoint* peer_endpoint) {
+        async_accept_internal(*peer, *peer_endpoint, std::forward<decltype(handler)>(handler));
       },
-      handler);
+      handler, &peer, &endpoint);
 }
 
 }  // namespace io_rstrm

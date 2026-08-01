@@ -2,12 +2,42 @@
 
 #include "nperf.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
 
 #include <rstream/core/log.hpp>
 
+#include "detail/statistics.hpp"
+
 namespace rstream {
 namespace nperf {
+
+sample detail::compute_sample(const std::vector<std::uint64_t>& values, sample::type type)
+{
+  sample result = {};
+  result.m_type = type;
+  result.m_size = values.size();
+  if (values.empty()) {
+    return result;
+  }
+  const auto minmax                      = std::minmax_element(values.begin(), values.end());
+  result.m_min_us                        = *minmax.first;
+  result.m_max_us                        = *minmax.second;
+  long double mean                       = 0;
+  long double sum_of_squared_differences = 0;
+  std::size_t count                      = 0;
+  for (const auto value : values) {
+    ++count;
+    const auto delta = static_cast<long double>(value) - mean;
+    mean += delta / static_cast<long double>(count);
+    const auto adjusted_delta = static_cast<long double>(value) - mean;
+    sum_of_squared_differences += delta * adjusted_delta;
+  }
+  result.m_mean_us  = static_cast<double>(mean);
+  result.m_stdev_us = static_cast<double>(std::sqrt(sum_of_squared_differences / static_cast<long double>(count)));
+  return result;
+}
 
 void parse_protocol(protocol& dst, const std::string& src)
 {

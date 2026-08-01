@@ -44,17 +44,14 @@ class client : public io::io_object {
 
   // open connection with rstream engine
   template <typename connect_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(connect_handler), void(const boost::system::error_code&))
-  async_connect(const io::address& address, BOOST_ASIO_MOVE_ARG(connect_handler) handler);
+  auto async_connect(const io::address& address, BOOST_ASIO_MOVE_ARG(connect_handler) handler);
 
   template <typename connect_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(connect_handler), void(const boost::system::error_code&))
-  async_connect(BOOST_ASIO_MOVE_ARG(connect_handler) handler);
+  auto async_connect(BOOST_ASIO_MOVE_ARG(connect_handler) handler);
 
   // create a tunnel
   template <typename create_tunnel_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(create_tunnel_handler), void(const boost::system::error_code&, tunnel))
-  async_create_tunnel(const tunnel_properties& properties, BOOST_ASIO_MOVE_ARG(create_tunnel_handler) handler);
+  auto async_create_tunnel(const tunnel_properties& properties, BOOST_ASIO_MOVE_ARG(create_tunnel_handler) handler);
 
   // close connection with rstream engine
   void close();
@@ -74,34 +71,31 @@ class client : public io::io_object {
 };
 
 template <typename connect_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(connect_handler), void(const boost::system::error_code&))
-client::async_connect(const io::address& address, BOOST_ASIO_MOVE_ARG(connect_handler) handler)
+auto client::async_connect(const io::address& address, BOOST_ASIO_MOVE_ARG(connect_handler) handler)
 {
   return boost::asio::async_initiate<connect_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler, const io::address& address) {
-        async_connect_internal(address, std::forward<decltype(handler)>(handler));
+        this->async_connect_internal(address, std::forward<decltype(handler)>(handler));
       },
       handler, address);
 }
 
 template <typename connect_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(connect_handler), void(const boost::system::error_code&))
-client::async_connect(BOOST_ASIO_MOVE_ARG(connect_handler) handler)
+auto client::async_connect(BOOST_ASIO_MOVE_ARG(connect_handler) handler)
 {
   return boost::asio::async_initiate<connect_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler) {
-        async_connect_internal(std::forward<decltype(handler)>(handler));
+        this->async_connect_internal(std::forward<decltype(handler)>(handler));
       },
       handler);
 }
 
 template <typename create_tunnel_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(create_tunnel_handler), void(const boost::system::error_code&, tunnel))
-client::async_create_tunnel(const tunnel_properties& properties, BOOST_ASIO_MOVE_ARG(create_tunnel_handler) handler)
+auto client::async_create_tunnel(const tunnel_properties& properties, BOOST_ASIO_MOVE_ARG(create_tunnel_handler) handler)
 {
   return boost::asio::async_initiate<create_tunnel_handler, void(const boost::system::error_code&, tunnel)>(
       [this](auto&& handler, const tunnel_properties& properties) {
-        async_create_tunnel_internal(properties, std::forward<decltype(handler)>(handler));
+        this->async_create_tunnel_internal(properties, std::forward<decltype(handler)>(handler));
       },
       handler, properties);
 }

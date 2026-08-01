@@ -135,9 +135,14 @@ server::server(const executor_type& executor, const config& config, const settin
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-server::~server()
+server::~server() noexcept
 {
-  cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void server::async_run(async_run_completion_handler&& handler)
@@ -158,15 +163,16 @@ server::impl::impl(const executor_type& executor, const config& config, const se
       m_resolver(executor),
       m_socket(executor),
       m_state(state::null),
-      m_logger({"stun", "client", fmt::format("#{}", fmt::ptr(this))}),
+      m_logger({"stun", "client", fmt::format("#{}", fmt::ptr(this))})
+#ifdef RSTREAM_WITH_GEOIP
+      ,
+      m_geoip(config.m_geoip.m_enable ? std::make_shared<rstream::io::geoip>(rstream::io::geoip::config{.m_database_location = config.m_geoip.m_database_location}) : nullptr)
+#endif
+      ,
       m_metrics({
           .m_requests_total            = {"stun_server_requests_total", "Counter of STUN requests."},
           .m_requests_duration_seconds = {"stun_server_request_duration_seconds", "Duration of STUN requests."},
       })
-#ifdef RSTREAM_WITH_GEOIP
-      ,
-      m_geoip(config.m_geoip.m_enable ? std::make_shared<rstream::io::geoip>((rstream::io::geoip::config){.m_database_location = config.m_geoip.m_database_location}) : nullptr)
-#endif
 
 {
   m_buffer_read = rstream::core::make_buffer_allocated(m_settings.m_mtu);

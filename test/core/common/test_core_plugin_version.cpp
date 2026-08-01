@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <list>
@@ -8,6 +9,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/system/system_error.hpp>
@@ -28,16 +31,39 @@ class sample_element : public core_plugin::element {
  public:
   static core_plugin::element::info get_element_info()
   {
-    return (core_plugin::element::info){
+    return core_plugin::element::info{
         .m_name        = "sample.element",
         .m_description = "sample element",
     };
   }
 };
 
+class failing_plugin : public detail_plugin::plugin_simple {
+ public:
+  failing_plugin()
+      : detail_plugin::plugin_simple(
+            core_plugin::plugin::location(),
+            core_plugin::make_plugin_descriptor(
+                core_plugin::plugin::info{
+                    .m_name         = "failing.plugin",
+                    .m_description  = "failing plugin",
+                    .m_version      = "1.0.0",
+                    .m_license      = "Apache-2.0",
+                    .m_release_date = boost::gregorian::from_simple_string("2026-May-10"),
+                }))
+  {
+  }
+
+ private:
+  void init() override
+  {
+    throw std::runtime_error("initialization failure");
+  }
+};
+
 static core_plugin::plugin::info sample_plugin_info()
 {
-  return (core_plugin::plugin::info){
+  return core_plugin::plugin::info{
       .m_name         = "sample.plugin",
       .m_description  = "sample plugin",
       .m_version      = "1.2.3",
@@ -176,6 +202,7 @@ static void check_plugin_factory_registration_and_lookup()
   assert(uninitialized_failed);
 
   boost::system::error_code error_code;
+  error_code = rstream::core::error::code::plugin_not_found;
   factory.register_plugin(plugin, error_code);
   assert(!error_code);
 
@@ -203,6 +230,17 @@ static void check_plugin_factory_registration_and_lookup()
   assert(created);
   assert(core_plugin::dynamic_element_cast<sample_element>(created));
 
+  factory.register_plugin(nullptr, error_code);
+  assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::object_null));
+
+  factory.register_plugin(plugin, error_code);
+  assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::plugin_already_registered));
+  assert(factory.get_plugins().size() == 1);
+
+  factory.register_plugin(std::make_shared<failing_plugin>(), error_code);
+  assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::plugin_initialization_failed));
+  assert(factory.get_plugins().size() == 1);
+
   auto missing = factory.create("missing.element", error_code);
   assert(!missing);
   assert(error_code == rstream::core::error::make_error_code(rstream::core::error::code::plugin_not_found));
@@ -216,6 +254,52 @@ static void check_plugin_factory_registration_and_lookup()
   }
   assert(throwing_lookup_failed);
 }
+
+#ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
+static void check_plugin_factory_loads_dynamic_libraries_concurrently()
+{
+  constexpr std::size_t thread_count = 8;
+  std::atomic<std::size_t> ready{0};
+  std::atomic<bool> start{false};
+  std::vector<std::thread> threads;
+  threads.reserve(thread_count);
+  for (std::size_t index = 0; index < thread_count; ++index) {
+    threads.emplace_back([&ready, &start]() {
+      ready.fetch_add(1, std::memory_order_release);
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      core_plugin::factory factory(core_plugin::factory::default_config());
+      boost::system::error_code error_code;
+      auto element = factory.create("io.stream.tcp", error_code);
+      assert(!error_code);
+      assert(element);
+    });
+  }
+  while (ready.load(std::memory_order_acquire) != thread_count) {
+    std::this_thread::yield();
+  }
+  start.store(true, std::memory_order_release);
+  for (auto& thread : threads) {
+    thread.join();
+  }
+}
+
+static void check_plugin_factory_reuses_dynamic_libraries()
+{
+  for (std::size_t iteration = 0; iteration < 8; ++iteration) {
+    core_plugin::element::ptr element;
+    {
+      core_plugin::factory factory(core_plugin::factory::default_config());
+      boost::system::error_code error_code;
+      element = factory.create("io.stream.tcp", error_code);
+      assert(!error_code);
+      assert(element);
+    }
+    element.reset();
+  }
+}
+#endif
 
 static void check_plugin_serialization()
 {
@@ -259,6 +343,10 @@ int main(int argc, char** argv)
   check_object_id_shape_and_uniqueness();
   check_version_serialization();
   check_plugin_factory_registration_and_lookup();
+#ifdef RSTREAM_TEST_DYNAMIC_PLUGINS
+  check_plugin_factory_loads_dynamic_libraries_concurrently();
+  check_plugin_factory_reuses_dynamic_libraries();
+#endif
   check_plugin_serialization();
   check_metrics_error_messages();
   return 0;

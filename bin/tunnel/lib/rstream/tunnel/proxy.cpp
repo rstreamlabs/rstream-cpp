@@ -2,19 +2,20 @@
 
 #include "proxy.hpp"
 
+#include <chrono>
 #include <map>
 #include <sstream>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/dispatch.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
 #include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/signals2.hpp>
@@ -237,9 +238,14 @@ proxy::proxy(const executor_type& executor, const config& config, const settings
   m_impl = std::make_shared<impl>(executor, config, settings);
 }
 
-proxy::~proxy()
+proxy::~proxy() noexcept
 {
-  cancel();
+  try {
+    cancel();
+  }
+  catch (...) {
+    return;
+  }
 }
 
 void proxy::async_run(const callbacks& callbacks, async_run_completion_handler&& handler)
@@ -308,7 +314,7 @@ void proxy::impl::async_run_internal(const callbacks& callbacks, async_run_compl
 #endif
   if (!handler) {
 #ifdef DEBUG_BUILD
-    m_logger->warn("method '{}' called without completion handler", __PRETTY_FUNCTION__);
+    m_logger->warn("method '{}' called without completion handler", RSTREAM_STRFUNC);
 #endif
     return;
   }
@@ -321,7 +327,7 @@ void proxy::impl::async_run_internal(const callbacks& callbacks, async_run_compl
     m_acceptor.settings(m_config.m_settings_acceptor, error_code);
   }
   if (!error_code) {
-    auto control_callbacks = (downstream_acceptor_type::control_callbacks){
+    auto control_callbacks = downstream_acceptor_type::control_callbacks{
         .m_on_status_cb            = [ptr = shared_from_this()](const io_rstrm::status_extd& status) { boost::asio::dispatch(ptr->m_strand, std::bind(&proxy::impl::on_acceptor_status, ptr, status)); },
         .m_on_tunnel_properties_cb = [ptr = shared_from_this()](const io_rstrm::tunnel_properties& properties) { boost::asio::dispatch(ptr->m_strand, std::bind(&proxy::impl::on_tunnel_properties, ptr, properties)); },
     };
@@ -560,11 +566,11 @@ proxy::impl::session_id_type proxy::impl::generate_session_id()
 
 proxy::impl::session::session(downstream_socket_type&& downstream_socket, const settings_proxy& settings, const session_id_type& session_id, const io::address& upstream_address)
     : m_executor(downstream_socket.get_executor()),
-      m_strand(downstream_socket.get_executor()),
+      m_strand(m_executor),
       m_settings(settings),
       m_downstream_socket(std::move(downstream_socket)),
-      m_upstream_socket(downstream_socket.get_executor()),
-      m_upstream_resolver(downstream_socket.get_executor()),
+      m_upstream_socket(m_executor),
+      m_upstream_resolver(m_executor),
       m_session_id(session_id),
       m_upstream_address(upstream_address),
       m_logger({"rstream", "tunnel", "session", fmt::format("#{}", session_id)}),
@@ -629,7 +635,7 @@ void proxy::impl::session::arm_state_timer(unsigned int timeout_ms, const boost:
     {
     }
     bool m_complete;
-    boost::asio::deadline_timer m_timer;
+    boost::asio::steady_timer m_timer;
     boost::signals2::scoped_connection m_signal_state;
   };
   auto ptr         = shared_from_this();
@@ -649,7 +655,7 @@ void proxy::impl::session::arm_state_timer(unsigned int timeout_ms, const boost:
     }
     ptr->cancel_internal(cause);
   };
-  task_ptr->m_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+  task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
 }
@@ -762,14 +768,17 @@ void proxy::impl::session::do_read(type type)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto& buffer = type == type::downstream ? *m_buffer_read_downstream : *m_buffer_read_upstream;
-  buffer.reset_size();
-  auto completion_handler = std::bind(&session::on_read, shared_from_this(), std::placeholders::_1, std::placeholders::_2, type);
+  auto buffer = type == type::downstream ? m_buffer_read_downstream : m_buffer_read_upstream;
+  buffer->reset_size();
+  auto completion_handler = [ptr = shared_from_this(), buffer, type](const boost::system::error_code& error_code, std::size_t size) {
+    (void)buffer;
+    ptr->on_read(error_code, size, type);
+  };
   if (type == type::downstream) {
-    m_downstream_socket.async_read_some(core::helpers::mutable_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+    m_downstream_socket.async_read_some(core::helpers::mutable_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, completion_handler));
   }
   else {
-    m_upstream_socket.async_read_some(core::helpers::mutable_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+    m_upstream_socket.async_read_some(core::helpers::mutable_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, completion_handler));
   }
 }
 
@@ -796,13 +805,16 @@ void proxy::impl::session::do_write(type type)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  auto& buffer            = type == type::downstream ? *m_buffer_read_upstream : *m_buffer_read_downstream;
-  auto completion_handler = std::bind(&session::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2, type);
+  auto buffer             = type == type::downstream ? m_buffer_read_upstream : m_buffer_read_downstream;
+  auto completion_handler = [ptr = shared_from_this(), buffer, type](const boost::system::error_code& error_code, std::size_t size) {
+    (void)buffer;
+    ptr->on_write(error_code, size, type);
+  };
   if (type == type::downstream) {
-    boost::asio::async_write(m_downstream_socket, core::helpers::const_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+    boost::asio::async_write(m_downstream_socket, core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, completion_handler));
   }
   else {
-    boost::asio::async_write(m_upstream_socket, core::helpers::const_memory_sequence(buffer), boost::asio::bind_executor(m_strand, completion_handler));
+    boost::asio::async_write(m_upstream_socket, core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, completion_handler));
   }
 }
 

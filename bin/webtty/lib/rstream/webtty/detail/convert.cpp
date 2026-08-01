@@ -24,7 +24,7 @@ static void convert(std::string& dst, const std::string& src);
 
 void convert(protocol::options& dst, const rstream::webtty::protobuf::Options& src)
 {
-  dst = (protocol::options){
+  dst = protocol::options{
       .m_interactive    = src.interactive(),
       .m_allocate_tty   = src.allocate_tty(),
       .m_send_heartbeat = src.send_heartbeat(),
@@ -40,7 +40,7 @@ void convert(rstream::webtty::protobuf::Options& dst, const protocol::options& s
 
 void convert(protocol::environment& dst, const rstream::webtty::protobuf::Environment& src)
 {
-  dst = (protocol::environment){
+  dst = protocol::environment{
       .m_key   = src.key(),
       .m_value = src.value(),
   };
@@ -107,7 +107,7 @@ void convert(rstream::webtty::protobuf::Config& dst, const protocol::config& src
 
 void convert(terminal_size& dst, const rstream::webtty::protobuf::TerminalSize& src)
 {
-  dst = (terminal_size){
+  dst = terminal_size{
       .m_row    = static_cast<unsigned short>(src.row()),
       .m_col    = static_cast<unsigned short>(src.col()),
       .m_xpixel = static_cast<unsigned short>(src.xpixel()),

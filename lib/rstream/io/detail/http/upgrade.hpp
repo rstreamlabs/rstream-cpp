@@ -2,21 +2,22 @@
 
 #pragma once
 
+#include <functional>
+#include <memory>
 #include <sstream>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #include <boost/asio/async_result.hpp>
-#include <boost/asio/dispatch.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
-#include <boost/beast/websocket/detail/decorator.hpp>
-#include <boost/beast/websocket/stream_base.hpp>
-#include <boost/optional.hpp>
 
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/log.hpp>
+#include <rstream/io/error.hpp>
 
 namespace rstream {
 namespace io {
@@ -34,6 +35,14 @@ class upgrade {
  public:
   using next_layer_type = typename std::remove_reference<stream>::type;
 
+  using request_type = boost::beast::http::request<boost::beast::http::empty_body>;
+
+  using response_type = boost::beast::http::response<boost::beast::http::empty_body>;
+
+  using request_decorator = std::function<void(request_type&)>;
+
+  using response_decorator = std::function<void(response_type&)>;
+
   template <typename arg_type>
   upgrade(arg_type&& arg, core::allocator::ptr allocator = nullptr);
 
@@ -44,15 +53,14 @@ class upgrade {
 
   const next_layer_type& next_layer() const;
 
-  void set_decorator(boost::beast::websocket::stream_base::decorator decorator);
+  template <typename Decorator>
+  void set_decorator(Decorator&& decorator);
 
   template <typename async_handshake_completion_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(async_handshake_completion_handler), void(const boost::system::error_code&))
-  async_handshake(const std::string& host, const std::string& target, BOOST_ASIO_MOVE_ARG(async_handshake_completion_handler) handler);
+  auto async_handshake(const std::string& host, const std::string& target, BOOST_ASIO_MOVE_ARG(async_handshake_completion_handler) handler);
 
   template <typename async_accept_completion_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(async_accept_completion_handler), void(const boost::system::error_code&))
-  async_accept(BOOST_ASIO_MOVE_ARG(async_accept_completion_handler) handler);
+  auto async_accept(BOOST_ASIO_MOVE_ARG(async_accept_completion_handler) handler);
 
  private:
   template <typename T>
@@ -65,7 +73,9 @@ class upgrade {
 
   core::allocator::ptr m_allocator;
 
-  boost::optional<boost::beast::websocket::stream_base::decorator> m_decorator;
+  request_decorator m_request_decorator;
+
+  response_decorator m_response_decorator;
 };
 
 template <class stream>
@@ -74,26 +84,24 @@ class upgrade<stream>::async_handshake_operation : public std::enable_shared_fro
  public:
   using handler_type = typename std::remove_reference<T>::type;
 
-  async_handshake_operation(stream& next_layer, core::allocator::ptr allocator, const std::string& host, const std::string& target, T&& handler);
+  async_handshake_operation(stream& next_layer, core::allocator::ptr allocator, const std::string& host, const std::string& target, const request_decorator& decorator);
 
-  void run();
+  void run(handler_type handler);
 
-  void do_write_request();
+  void do_write_request(handler_type handler);
 
-  void on_write_request(const boost::system::error_code& error_code, std::size_t length);
+  void on_write_request(handler_type handler, const boost::system::error_code& error_code, std::size_t length);
 
-  void do_read_response();
+  void do_read_response(handler_type handler);
 
-  void on_read_response(const boost::system::error_code& error_code, std::size_t length);
+  void on_read_response(handler_type handler, const boost::system::error_code& error_code, std::size_t length);
 
-  void on_error(const boost::system::error_code& error_code);
+  void on_error(handler_type handler, const boost::system::error_code& error_code);
 
-  void on_complete();
+  void on_complete(handler_type handler);
 
  private:
   stream& m_next_layer;
-
-  core::allocator::ptr m_allocator;
 
   rstream::core::logger m_logger;
 
@@ -101,7 +109,7 @@ class upgrade<stream>::async_handshake_operation : public std::enable_shared_fro
 
   const std::string m_target;
 
-  handler_type m_handler;
+  request_decorator m_decorator;
 
   boost::beast::basic_flat_buffer<core::allocator::wrapper<char>> m_buffer;
 
@@ -116,30 +124,28 @@ class upgrade<stream>::async_accept_operation : public std::enable_shared_from_t
  public:
   using handler_type = typename std::remove_reference<T>::type;
 
-  async_accept_operation(stream& next_layer, core::allocator::ptr allocator, T&& handler);
+  async_accept_operation(stream& next_layer, core::allocator::ptr allocator, const response_decorator& decorator);
 
-  void run();
+  void run(handler_type handler);
 
-  void do_read_request();
+  void do_read_request(handler_type handler);
 
-  void on_read_request(const boost::system::error_code& error_code, std::size_t length);
+  void on_read_request(handler_type handler, const boost::system::error_code& error_code, std::size_t length);
 
-  void do_write_response();
+  void do_write_response(handler_type handler);
 
-  void on_write_response(const boost::system::error_code& error_code, std::size_t length);
+  void on_write_response(handler_type handler, const boost::system::error_code& error_code, std::size_t length);
 
-  void on_error(const boost::system::error_code& error_code);
+  void on_error(handler_type handler, const boost::system::error_code& error_code);
 
-  void on_complete();
+  void on_complete(handler_type handler);
 
  private:
   stream& m_next_layer;
 
-  core::allocator::ptr m_allocator;
-
   rstream::core::logger m_logger;
 
-  handler_type m_handler;
+  response_decorator m_decorator;
 
   boost::beast::basic_flat_buffer<core::allocator::wrapper<char>> m_buffer;
 
@@ -177,59 +183,84 @@ const typename upgrade<stream>::next_layer_type& upgrade<stream>::next_layer() c
 }
 
 template <class stream>
-void upgrade<stream>::set_decorator(boost::beast::websocket::stream_base::decorator decorator)
+template <typename Decorator>
+void upgrade<stream>::set_decorator(Decorator&& decorator)
 {
-  m_decorator = decorator;
+  using decorator_type              = std::decay_t<Decorator>;
+  constexpr auto decorates_request  = std::is_invocable_v<decorator_type&, request_type&>;
+  constexpr auto decorates_response = std::is_invocable_v<decorator_type&, response_type&>;
+  static_assert(decorates_request || decorates_response, "HTTP upgrade decorators must accept a request or response");
+  auto state           = std::make_shared<decorator_type>(std::forward<Decorator>(decorator));
+  m_request_decorator  = {};
+  m_response_decorator = {};
+  if constexpr (decorates_request) {
+    m_request_decorator = [state](request_type& request) { std::invoke(*state, request); };
+  }
+  if constexpr (decorates_response) {
+    m_response_decorator = [state](response_type& response) { std::invoke(*state, response); };
+  }
 }
 
 template <class stream>
 template <typename handshake_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(handshake_handler), void(const boost::system::error_code&))
-upgrade<stream>::async_handshake(const std::string& host, const std::string& target, BOOST_ASIO_MOVE_ARG(handshake_handler) handler)
+auto upgrade<stream>::async_handshake(const std::string& host, const std::string& target, BOOST_ASIO_MOVE_ARG(handshake_handler) handler)
 {
   return boost::asio::async_initiate<handshake_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler, const std::string& host, const std::string& target) {
-        std::allocate_shared<async_handshake_operation<decltype(handler)>>(core::allocator::wrapper<async_handshake_operation<decltype(handler)>>(m_allocator), m_next_layer, m_allocator, host, target, std::forward<decltype(handler)>(handler))->run();
+        using operation_type     = async_handshake_operation<std::decay_t<decltype(handler)>>;
+        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        std::allocate_shared<operation_type>(
+            operation_allocator,
+            m_next_layer,
+            m_allocator,
+            host,
+            target,
+            m_request_decorator)
+            ->run(std::forward<decltype(handler)>(handler));
       },
       handler, host, target);
 }
 
 template <class stream>
 template <typename accept_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(accept_handler), void(const boost::system::error_code&))
-upgrade<stream>::async_accept(BOOST_ASIO_MOVE_ARG(accept_handler) handler)
+auto upgrade<stream>::async_accept(BOOST_ASIO_MOVE_ARG(accept_handler) handler)
 {
   return boost::asio::async_initiate<accept_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler) {
-        std::allocate_shared<async_accept_operation<decltype(handler)>>(core::allocator::wrapper<async_accept_operation<decltype(handler)>>(m_allocator), m_next_layer, m_allocator, std::forward<decltype(handler)>(handler))->run();
+        using operation_type     = async_accept_operation<std::decay_t<decltype(handler)>>;
+        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        std::allocate_shared<operation_type>(
+            operation_allocator,
+            m_next_layer,
+            m_allocator,
+            m_response_decorator)
+            ->run(std::forward<decltype(handler)>(handler));
       },
       handler);
 }
 
 template <class stream>
 template <typename T>
-upgrade<stream>::async_handshake_operation<T>::async_handshake_operation(stream& next_layer, core::allocator::ptr allocator, const std::string& host, const std::string& target, T&& handler)
+upgrade<stream>::async_handshake_operation<T>::async_handshake_operation(stream& next_layer, core::allocator::ptr allocator, const std::string& host, const std::string& target, const request_decorator& decorator)
     : m_next_layer(next_layer),
-      m_allocator(allocator),
       m_logger({"rstream", "io", "http", "upgrade", "handshake", fmt::format("#{}", fmt::ptr(this))}),
       m_host(host),
       m_target(target),
-      m_handler(std::forward<decltype(handler)>(handler)),
+      m_decorator(decorator),
       m_buffer(allocator)
-
 {
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::run()
+void upgrade<stream>::async_handshake_operation<T>::run(handler_type handler)
 {
-  do_write_request();
+  do_write_request(std::move(handler));
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::do_write_request()
+void upgrade<stream>::async_handshake_operation<T>::do_write_request(handler_type handler)
 {
   m_request = {};
   // prepare request
@@ -240,6 +271,19 @@ void upgrade<stream>::async_handshake_operation<T>::do_write_request()
   m_request.insert(boost::beast::http::field::upgrade, "rstrm");
   m_request.insert(boost::beast::http::field::connection, "upgrade");
   m_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+  if (m_decorator) {
+    try {
+      m_decorator(m_request);
+    }
+    catch (const boost::system::system_error& error) {
+      on_error(std::move(handler), error.code());
+      return;
+    }
+    catch (...) {
+      on_error(std::move(handler), error::code::unknown_undefined_error);
+      return;
+    }
+  }
 #ifdef DEBUG_BUILD
   {
     std::stringstream str;
@@ -249,39 +293,49 @@ void upgrade<stream>::async_handshake_operation<T>::do_write_request()
   }
 #endif
   // send the request
-  auto completion_handler = std::bind(&async_handshake_operation::on_write_request, async_handshake_operation::shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  boost::beast::http::async_write(m_next_layer, m_request, completion_handler);
+  auto ptr                = async_handshake_operation::shared_from_this();
+  auto completion_handler = rstream::core::bind_associated_handler(
+      std::move(handler),
+      [ptr](auto& handler, const boost::system::error_code& error_code, std::size_t length) mutable {
+        ptr->on_write_request(std::move(handler), error_code, length);
+      });
+  boost::beast::http::async_write(m_next_layer, m_request, std::move(completion_handler));
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::on_write_request(const boost::system::error_code& error_code, std::size_t length)
+void upgrade<stream>::async_handshake_operation<T>::on_write_request(handler_type handler, const boost::system::error_code& error_code, std::size_t length)
 {
   (void)length;
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
-    do_read_response();
+    do_read_response(std::move(handler));
   }
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::do_read_response()
+void upgrade<stream>::async_handshake_operation<T>::do_read_response(handler_type handler)
 {
   m_response              = {};
-  auto completion_handler = std::bind(&async_handshake_operation::on_read_response, async_handshake_operation::shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  boost::beast::http::async_read(m_next_layer, m_buffer, m_response, completion_handler);
+  auto ptr                = async_handshake_operation::shared_from_this();
+  auto completion_handler = rstream::core::bind_associated_handler(
+      std::move(handler),
+      [ptr](auto& handler, const boost::system::error_code& error_code, std::size_t length) mutable {
+        ptr->on_read_response(std::move(handler), error_code, length);
+      });
+  boost::beast::http::async_read(m_next_layer, m_buffer, m_response, std::move(completion_handler));
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::on_read_response(const boost::system::error_code& error_code, std::size_t length)
+void upgrade<stream>::async_handshake_operation<T>::on_read_response(handler_type handler, const boost::system::error_code& error_code, std::size_t length)
 {
   (void)length;
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
 #ifdef DEBUG_BUILD
@@ -293,63 +347,66 @@ void upgrade<stream>::async_handshake_operation<T>::on_read_response(const boost
     }
 #endif
     if (is_upgrade_response(m_response)) {
-      on_complete();
+      on_complete(std::move(handler));
     }
     else {
-      on_error(boost::beast::http::error::bad_status);
+      on_error(std::move(handler), boost::beast::http::error::bad_status);
     }
   }
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::on_error(const boost::system::error_code& error_code)
+void upgrade<stream>::async_handshake_operation<T>::on_error(handler_type handler, const boost::system::error_code& error_code)
 {
-  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(m_handler), error_code);
+  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(handler), error_code);
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_handshake_operation<T>::on_complete()
+void upgrade<stream>::async_handshake_operation<T>::on_complete(handler_type handler)
 {
-  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(m_handler), boost::system::error_code());
+  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(handler), boost::system::error_code());
 }
 
 template <class stream>
 template <typename T>
-upgrade<stream>::async_accept_operation<T>::async_accept_operation(stream& next_layer, core::allocator::ptr allocator, T&& handler)
+upgrade<stream>::async_accept_operation<T>::async_accept_operation(stream& next_layer, core::allocator::ptr allocator, const response_decorator& decorator)
     : m_next_layer(next_layer),
-      m_allocator(allocator),
       m_logger({"rstream", "io", "http", "upgrade", "accept", fmt::format("#{}", fmt::ptr(this))}),
-      m_handler(std::forward<decltype(handler)>(handler)),
+      m_decorator(decorator),
       m_buffer(allocator)
-
 {
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::run()
+void upgrade<stream>::async_accept_operation<T>::run(handler_type handler)
 {
-  do_read_request();
+  do_read_request(std::move(handler));
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::do_read_request()
+void upgrade<stream>::async_accept_operation<T>::do_read_request(handler_type handler)
 {
   m_request               = {};
-  auto completion_handler = std::bind(&async_accept_operation::on_read_request, async_accept_operation::shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  boost::beast::http::async_read(m_next_layer, m_buffer, m_request, completion_handler);
+  auto ptr                = async_accept_operation::shared_from_this();
+  auto completion_handler = rstream::core::bind_associated_handler(
+      std::move(handler),
+      [ptr](auto& handler, const boost::system::error_code& error_code, std::size_t length) mutable {
+        ptr->on_read_request(std::move(handler), error_code, length);
+      });
+  boost::beast::http::async_read(m_next_layer, m_buffer, m_request, std::move(completion_handler));
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::on_read_request(const boost::system::error_code& error_code, std::size_t length)
+void upgrade<stream>::async_accept_operation<T>::on_read_request(handler_type handler, const boost::system::error_code& error_code, std::size_t length)
 {
   (void)length;
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
 #ifdef DEBUG_BUILD
@@ -360,13 +417,13 @@ void upgrade<stream>::async_accept_operation<T>::on_read_request(const boost::sy
       m_logger->trace("received HTTP request :\n{}", str.str());
     }
 #endif
-    do_write_response();
+    do_write_response(std::move(handler));
   }
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::do_write_response()
+void upgrade<stream>::async_accept_operation<T>::do_write_response(handler_type handler)
 {
   m_response = {};
   // prepare response
@@ -379,6 +436,19 @@ void upgrade<stream>::async_accept_operation<T>::do_write_response()
   else {
     m_response.result(boost::beast::http::status::bad_gateway);
   }
+  if (m_decorator) {
+    try {
+      m_decorator(m_response);
+    }
+    catch (const boost::system::system_error& error) {
+      on_error(std::move(handler), error.code());
+      return;
+    }
+    catch (...) {
+      on_error(std::move(handler), error::code::unknown_undefined_error);
+      return;
+    }
+  }
 #ifdef DEBUG_BUILD
   {
     std::stringstream str;
@@ -388,40 +458,45 @@ void upgrade<stream>::async_accept_operation<T>::do_write_response()
   }
 #endif
   // send the response
-  auto completion_handler = std::bind(&async_accept_operation::on_write_response, async_accept_operation::shared_from_this(), std::placeholders::_1, std::placeholders::_2);
-  boost::beast::http::async_write(m_next_layer, m_response, completion_handler);
+  auto ptr                = async_accept_operation::shared_from_this();
+  auto completion_handler = rstream::core::bind_associated_handler(
+      std::move(handler),
+      [ptr](auto& handler, const boost::system::error_code& error_code, std::size_t length) mutable {
+        ptr->on_write_response(std::move(handler), error_code, length);
+      });
+  boost::beast::http::async_write(m_next_layer, m_response, std::move(completion_handler));
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::on_write_response(const boost::system::error_code& error_code, std::size_t length)
+void upgrade<stream>::async_accept_operation<T>::on_write_response(handler_type handler, const boost::system::error_code& error_code, std::size_t length)
 {
   (void)length;
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
     if (m_response.result() == boost::beast::http::status::switching_protocols) {
-      on_complete();
+      on_complete(std::move(handler));
     }
     else {
-      on_error(boost::beast::http::error::bad_status);
+      on_error(std::move(handler), boost::beast::http::error::bad_status);
     }
   }
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::on_error(const boost::system::error_code& error_code)
+void upgrade<stream>::async_accept_operation<T>::on_error(handler_type handler, const boost::system::error_code& error_code)
 {
-  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(m_handler), error_code);
+  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(handler), error_code);
 }
 
 template <class stream>
 template <typename T>
-void upgrade<stream>::async_accept_operation<T>::on_complete()
+void upgrade<stream>::async_accept_operation<T>::on_complete(handler_type handler)
 {
-  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(m_handler), boost::system::error_code());
+  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(handler), boost::system::error_code());
 }
 
 template <class allocator>

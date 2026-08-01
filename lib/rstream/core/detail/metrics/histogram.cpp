@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <shared_mutex>
@@ -21,19 +22,19 @@ bool is_strict_sorted(ForwardIterator first, ForwardIterator last);
 template <>
 class RSTREAM_GNUC_INTERNAL wrapper<histogram>::impl : public wrapper<histogram>::handle {
  public:
-  using bucket  = double;
+  using bucket  = std::uint64_t;
   using buckets = std::vector<bucket>;
   impl(const wrapper_common::description& description, const detail::metrics::labels& labels, const histogram::upper_boundaries& upper_boundaries)
       : wrapper<histogram>::handle(description, labels, upper_boundaries),
         m_upper_boundaries(upper_boundaries),
-        m_bukets(upper_boundaries.size() + 1, 0.0)
+        m_buckets(upper_boundaries.size() + 1, 0)
   {
     init();
   }
   impl(wrapper_common::ptr parent, const detail::metrics::labels& labels, const histogram::upper_boundaries& upper_boundaries)
       : wrapper<histogram>::handle(parent, labels),
         m_upper_boundaries(upper_boundaries),
-        m_bukets(upper_boundaries.size() + 1, 0.0)
+        m_buckets(upper_boundaries.size() + 1, 0)
   {
     init();
   }
@@ -44,7 +45,7 @@ class RSTREAM_GNUC_INTERNAL wrapper<histogram>::impl : public wrapper<histogram>
   void init();
   const histogram::upper_boundaries m_upper_boundaries;
   std::shared_mutex m_mutex;
-  buckets m_bukets;
+  buckets m_buckets;
   double m_sum{0.0};
   timestamp m_timestamp;
   examplar m_examplar;
@@ -87,7 +88,7 @@ void wrapper<histogram>::impl::observe(double value, const examplar& examplar)
   std::unique_lock lock(m_mutex);
   auto index = static_cast<std::size_t>(std::distance(m_upper_boundaries.begin(), std::lower_bound(m_upper_boundaries.begin(), m_upper_boundaries.end(), value)));
   m_sum += value;
-  m_bukets.at(index)++;
+  m_buckets.at(index)++;
   m_timestamp = timestamp::clock::now();
   m_examplar  = examplar;
 }
@@ -100,18 +101,18 @@ sample wrapper<histogram>::impl::get_sample()
       .m_sample_sum   = m_sum,
       .m_buckets      = {},
   };
-  value.m_buckets.reserve(m_bukets.size());
+  value.m_buckets.reserve(m_buckets.size());
   std::uint64_t cumulative_count = 0;
-  for (auto it = m_bukets.cbegin(); it != m_bukets.cend(); ++it) {
+  for (auto it = m_buckets.cbegin(); it != m_buckets.cend(); ++it) {
     cumulative_count += *it;
-    auto index = std::distance(m_bukets.cbegin(), it);
-    value.m_buckets.push_back(std::move((sample::bucket){
+    const auto index = static_cast<std::size_t>(std::distance(m_buckets.cbegin(), it));
+    value.m_buckets.push_back(sample::bucket{
         .m_cumulative_count = cumulative_count,
         .m_upper_bound      = (index == m_upper_boundaries.size() ? std::numeric_limits<double>::infinity() : m_upper_boundaries.at(index)),
-    }));
+    });
   }
   value.m_sample_count = cumulative_count;
-  return (sample){
+  return sample{
       .m_value     = std::move(value),
       .m_labels    = wrapper_common::get_labels(),
       .m_timestamp = m_timestamp,

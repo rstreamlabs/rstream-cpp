@@ -19,7 +19,7 @@ void rstream::plugin::io_rstrm::acceptor::open_internal(const rstream::io_rstrm:
 }
 
 template <>
-void rstream::plugin::io_rstrm::acceptor::configure_internal(const rstream::io_rstrm::endpoint& endpoint, const boost::urls::url& url, boost::system::error_code& error_code)
+void rstream::plugin::io_rstrm::acceptor::configure_internal(const rstream::io_rstrm::endpoint&, const boost::urls::url& url, boost::system::error_code& error_code)
 {
   rstream::io_rstrm::settings_acceptor settings;
   rstream::io_rstrm::parse_settings_acceptor(url, settings, error_code);

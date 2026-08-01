@@ -15,6 +15,7 @@ docker compose -f "${docker_compose_file}" run --rm \
   -c 'set -euo pipefail
       conan profile detect -f
       conan config install /conan-config
+      conan remote update conancenter --url https://center2.conan.io
       if [ -n "${CONAN_REMOTE_URL:-}" ]; then
         remote_name="${CONAN_REMOTE_NAME:-rstream}"
         conan remote list | grep -q "^${remote_name}:" && conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}" || conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"

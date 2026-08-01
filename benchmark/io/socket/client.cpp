@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -10,10 +11,10 @@
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/connect.hpp>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/basic_stream.hpp>
@@ -177,7 +178,7 @@ class client {
       : m_stop_timer(executor),
         m_stats(timeout_ms)
   {
-    m_stop_timer.expires_from_now(boost::posix_time::milliseconds(timeout_ms));
+    m_stop_timer.expires_after(std::chrono::milliseconds(timeout_ms));
     m_stop_timer.async_wait(std::bind(&client::on_timer, this, std::placeholders::_1));
     for (std::size_t i = 0; i < session_count; ++i) {
       auto session = std::make_shared<class session>(executor, block_size, m_stats);
@@ -193,10 +194,13 @@ class client {
  private:
   void on_timer(const boost::system::error_code& error_code)
   {
+    if (error_code) {
+      return;
+    }
     std::for_each(m_sessions.begin(), m_sessions.end(), std::mem_fn(&session::stop));
     m_sessions.clear();
   }
-  boost::asio::deadline_timer m_stop_timer;
+  boost::asio::steady_timer m_stop_timer;
   std::list<session::ptr> m_sessions;
   stats m_stats;
 };
@@ -226,7 +230,7 @@ int main(int argc, char** argv)
   class client client(io_context.get_executor(), endpoint_iterator, config.m_block_size, config.m_session_count, config.m_timeout_ms);
   std::list<std::thread> threads;
   for (std::size_t i = 0; i < config.m_thread_count; ++i) {
-    threads.push_back(std::thread(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context)));
+    threads.push_back(std::thread(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context)));
   }
   io_context.run();
   for (auto it = threads.begin(); it != threads.end();) {

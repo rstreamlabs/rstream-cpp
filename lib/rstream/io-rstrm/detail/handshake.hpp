@@ -6,12 +6,12 @@
 #include <string>
 
 #include <boost/asio/async_result.hpp>
-#include <boost/asio/dispatch.hpp>
 #include <boost/optional.hpp>
 
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/detail/protobuf.hpp>
 #include <rstream/core/helpers/protobuf.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/io-rstrm/error.hpp>
@@ -47,8 +47,7 @@ class handshake {
   const next_layer_type& next_layer() const;
 
   template <typename async_run_completion_handler>
-  BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(async_run_completion_handler), void(const boost::system::error_code&))
-  async_run(type type, const std::string& id_name, const boost::optional<std::string>& token, BOOST_ASIO_MOVE_ARG(async_run_completion_handler) handler);
+  auto async_run(type type, const std::string& id_name, const boost::optional<std::string>& token, BOOST_ASIO_MOVE_ARG(async_run_completion_handler) handler);
 
  private:
   template <typename T>
@@ -69,23 +68,23 @@ class handshake<stream>::async_run_operation : public std::enable_shared_from_th
  public:
   using handler_type = typename std::remove_reference<T>::type;
 
-  async_run_operation(stream& next_layer, const io::address& server_address, const config& config, core::allocator::ptr allocator, type type, const std::string& id_name, const boost::optional<std::string>& token, T&& handler);
+  async_run_operation(stream& next_layer, const io::address& server_address, const config& config, core::allocator::ptr allocator, type type, const std::string& id_name, const boost::optional<std::string>& token);
 
-  void run();
+  void run(handler_type handler);
 
-  void do_write_request();
+  void do_write_request(handler_type handler);
 
-  void on_write_request(const boost::system::error_code& error_code);
+  void on_write_request(handler_type handler, const boost::system::error_code& error_code);
 
-  void do_read_response();
+  void do_read_response(handler_type handler);
 
-  void on_read_response(const boost::system::error_code& error_code);
+  void on_read_response(handler_type handler, const boost::system::error_code& error_code);
 
-  void on_read_incoming_protobuf_message(const protobuf::Message& message);
+  void on_read_incoming_protobuf_message(handler_type handler, const protobuf::Message& message);
 
-  void on_error(const boost::system::error_code& error_code);
+  void on_error(handler_type handler, const boost::system::error_code& error_code);
 
-  void on_complete();
+  void on_complete(handler_type handler);
 
  private:
   void payloader_control_cb(core::buffer& buffer, std::size_t size);
@@ -109,8 +108,6 @@ class handshake<stream>::async_run_operation : public std::enable_shared_from_th
   const std::string m_id_name;
 
   const boost::optional<std::string> m_token;
-
-  handler_type m_handler;
 
   core::buffer m_buffer;
 };
@@ -149,19 +146,29 @@ const typename handshake<stream>::next_layer_type& handshake<stream>::next_layer
 
 template <class stream>
 template <typename run_handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(BOOST_ASIO_MOVE_ARG(run_handler), void(const boost::system::error_code&))
-handshake<stream>::async_run(type type, const std::string& id_name, const boost::optional<std::string>& token, BOOST_ASIO_MOVE_ARG(run_handler) handler)
+auto handshake<stream>::async_run(type type, const std::string& id_name, const boost::optional<std::string>& token, BOOST_ASIO_MOVE_ARG(run_handler) handler)
 {
   return boost::asio::async_initiate<run_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler, enum type type, const std::string& id_name, const boost::optional<std::string>& token) {
-        std::allocate_shared<async_run_operation<decltype(handler)>>(core::allocator::wrapper<async_run_operation<decltype(handler)>>(m_allocator), m_next_layer, m_server_address, m_config, m_allocator, type, id_name, token, std::forward<decltype(handler)>(handler))->run();
+        using operation_type     = async_run_operation<std::decay_t<decltype(handler)>>;
+        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        std::allocate_shared<operation_type>(
+            operation_allocator,
+            m_next_layer,
+            m_server_address,
+            m_config,
+            m_allocator,
+            type,
+            id_name,
+            token)
+            ->run(std::forward<decltype(handler)>(handler));
       },
       handler, type, id_name, token);
 }
 
 template <class stream>
 template <typename T>
-handshake<stream>::async_run_operation<T>::async_run_operation(stream& next_layer, const io::address& server_address, const config& config, core::allocator::ptr allocator, type type, const std::string& id_name, const boost::optional<std::string>& token, T&& handler)
+handshake<stream>::async_run_operation<T>::async_run_operation(stream& next_layer, const io::address& server_address, const config& config, core::allocator::ptr allocator, type type, const std::string& id_name, const boost::optional<std::string>& token)
     : m_next_layer(next_layer),
       m_server_address(server_address),
       m_config(config),
@@ -171,9 +178,7 @@ handshake<stream>::async_run_operation<T>::async_run_operation(stream& next_laye
       m_type(type),
       m_id_name(id_name),
       m_token(token),
-      m_handler(std::forward<decltype(handler)>(handler)),
       m_buffer(m_allocator)
-
 {
   if (!m_config.m_zero_rtt) {
     m_payloader.set_control_callback(std::bind(&async_run_operation::payloader_control_cb, this, std::placeholders::_1, std::placeholders::_2));
@@ -182,14 +187,14 @@ handshake<stream>::async_run_operation<T>::async_run_operation(stream& next_laye
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::run()
+void handshake<stream>::async_run_operation<T>::run(handler_type handler)
 {
-  do_write_request();
+  do_write_request(std::move(handler));
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::do_write_request()
+void handshake<stream>::async_run_operation<T>::do_write_request(handler_type handler)
 {
   protobuf::Message message;
   boost::system::error_code error_code;
@@ -247,70 +252,79 @@ void handshake<stream>::async_run_operation<T>::do_write_request()
     }
   }
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
 #ifdef DEBUG_BUILD
     m_logger->trace("sending message to peer\n{}", core::helpers::to_json_string(message));
 #endif
-    // allocate memory
-    std::size_t buffer_size = message.ByteSizeLong();
-    auto buffer             = core::make_buffer_allocated(buffer_size, m_allocator);
-    // serialize message
-    message.SerializeToArray(buffer.map().get_data(), buffer_size);
-    // send message
-    auto completion_handler = std::bind(&async_run_operation::on_write_request, async_run_operation::shared_from_this(), std::placeholders::_1);
-    m_payloader.async_send(buffer, completion_handler);
+    core::buffer buffer;
+    if (!core::detail::serialize_protobuf_message(message, buffer, m_allocator)) {
+      on_error(std::move(handler), error::code::protocol_error);
+      return;
+    }
+    auto ptr                = async_run_operation::shared_from_this();
+    auto completion_handler = rstream::core::bind_associated_handler(
+        std::move(handler),
+        [ptr](auto& handler, const boost::system::error_code& error_code) mutable {
+          ptr->on_write_request(std::move(handler), error_code);
+        });
+    m_payloader.async_send(buffer, std::move(completion_handler));
   }
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::on_write_request(const boost::system::error_code& error_code)
+void handshake<stream>::async_run_operation<T>::on_write_request(handler_type handler, const boost::system::error_code& error_code)
 {
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else if (m_config.m_zero_rtt) {
-    on_complete();
+    on_complete(std::move(handler));
   }
   else {
-    do_read_response();
+    do_read_response(std::move(handler));
   }
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::do_read_response()
+void handshake<stream>::async_run_operation<T>::do_read_response(handler_type handler)
 {
-  auto completion_handler = std::bind(&async_run_operation::on_read_response, async_run_operation::shared_from_this(), std::placeholders::_1);
-  m_payloader.async_recv(m_buffer, completion_handler);
+  auto ptr                = async_run_operation::shared_from_this();
+  auto completion_handler = rstream::core::bind_associated_handler(
+      std::move(handler),
+      [ptr](auto& handler, const boost::system::error_code& error_code) mutable {
+        ptr->on_read_response(std::move(handler), error_code);
+      });
+  m_payloader.async_recv(m_buffer, std::move(completion_handler));
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::on_read_response(const boost::system::error_code& error_code)
+void handshake<stream>::async_run_operation<T>::on_read_response(handler_type handler, const boost::system::error_code& error_code)
 {
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
     protobuf::Message message;
-    if (message.ParseFromArray(m_buffer.map().get_const_data(), m_buffer.get_size())) {
-      on_read_incoming_protobuf_message(message);
+    if (core::detail::parse_protobuf_message(message, m_buffer.map().get_const_data(), m_buffer.get_size())) {
+      on_read_incoming_protobuf_message(std::move(handler), message);
     }
     else {
 #ifdef DEBUG_BUILD
       m_logger->warn("failed to parse incoming message");
 #endif
-      on_error(error::code::protocol_error);
+      on_error(std::move(handler), error::code::protocol_error);
     }
   }
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::on_read_incoming_protobuf_message(const protobuf::Message& message)
+void handshake<stream>::async_run_operation<T>::on_read_incoming_protobuf_message(handler_type handler, const protobuf::Message& message)
 {
   boost::system::error_code error_code;
 #ifdef DEBUG_BUILD
@@ -355,25 +369,25 @@ void handshake<stream>::async_run_operation<T>::on_read_incoming_protobuf_messag
     error_code = error::code::protocol_error;
   }
   if (error_code) {
-    on_error(error_code);
+    on_error(std::move(handler), error_code);
   }
   else {
-    on_complete();
+    on_complete(std::move(handler));
   }
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::on_error(const boost::system::error_code& error_code)
+void handshake<stream>::async_run_operation<T>::on_error(handler_type handler, const boost::system::error_code& error_code)
 {
-  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(m_handler), error_code);
+  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(handler), error_code);
 }
 
 template <class stream>
 template <typename T>
-void handshake<stream>::async_run_operation<T>::on_complete()
+void handshake<stream>::async_run_operation<T>::on_complete(handler_type handler)
 {
-  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(m_handler), boost::system::error_code());
+  rstream::core::invoke_completion_handler(m_next_layer.get_executor(), std::move(handler), boost::system::error_code());
 }
 
 template <class stream>

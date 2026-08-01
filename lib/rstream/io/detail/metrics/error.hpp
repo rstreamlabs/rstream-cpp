@@ -15,6 +15,8 @@ namespace error {
 
 class category : public boost::system::error_category {
  public:
+  category() noexcept;
+
   virtual const char* name() const noexcept override;
   virtual std::string message(int code) const override;
 };
@@ -28,11 +30,7 @@ enum class code {
   no_data_available
 };
 
-extern inline const category& rstream_io_detail_metrics_error_category()
-{
-  static class category category;
-  return category;
-}
+const category& rstream_io_detail_metrics_error_category() noexcept;
 
 inline boost::system::error_code make_error_code(code code)
 {

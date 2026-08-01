@@ -29,6 +29,7 @@
 #include <spdlog/sinks/sink.h>
 
 #include <rstream/core/log.hpp>
+#include <rstream/test/time.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/server.hpp>
 #include <rstream/webtty/webtty.hpp>
@@ -201,7 +202,8 @@ static protobuf::Message eos_message(protobuf::Data::Type type)
 static rstream::webtty::byte_vector sha256_message(const google::protobuf::Message& message)
 {
   std::string bytes;
-  assert(message.SerializeToString(&bytes));
+  const auto serialized = message.SerializeToString(&bytes);
+  assert(serialized);
   unsigned char digest[SHA256_DIGEST_LENGTH] = {};
   SHA256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest);
   return rstream::webtty::byte_vector(digest, digest + SHA256_DIGEST_LENGTH);
@@ -289,14 +291,18 @@ static rstream::webtty::settings_server websocket_server_settings(const rstream:
       .m_common = {
           .m_mtu         = 1024 * 1024,
           .m_timeouts_ms = {
-              .m_open      = 5000,
-              .m_close     = 5000,
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
               .m_heartbeat = 0,
           },
       },
-      .m_timeouts_start_ms       = 5000,
+      .m_timeouts_start_ms       = rstream::test::timeout_ms(5000),
       .m_std_out_buffer_size     = 64 * 1024,
       .m_std_err_buffer_size     = 64 * 1024,
+      .m_execution_mode          = rstream::webtty::execution_mode::spawn,
+      .m_default_username        = {},
+      .m_allow_client_user       = false,
+      .m_auth_token              = boost::none,
       .m_payload_crypto_resolver = payload_crypto_resolver,
       .m_endpoint_identity       = endpoint_identity,
       .m_require_client_proof    = payload_crypto_resolver != nullptr,
@@ -437,7 +443,7 @@ static void websocket_handshake(tcp::socket& socket)
 static tcp::socket connect_with_retry(boost::asio::io_context& io_context, unsigned short port)
 {
   tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), port);
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(5));
   boost::system::error_code error_code;
   do {
     tcp::socket socket(io_context);
@@ -461,7 +467,7 @@ static tcp::socket connect_with_retry(boost::asio::io_context& io_context, unsig
 static void write_message(tcp::socket& socket, const protobuf::Message& message)
 {
   std::vector<char> payload(message.ByteSizeLong());
-  message.SerializeToArray(payload.data(), static_cast<int>(payload.size()));
+  assert(message.SerializeToArray(payload.data(), static_cast<int>(payload.size())));
 
   std::vector<unsigned char> frame;
   frame.push_back(0x82);
@@ -665,8 +671,8 @@ static void check_websocket_server_e2e_accepts_client_credential_verifier()
   assert(!error_code);
   const auto credential = std::string("{\"type\":\"test.workspace.credential\",\"v\":1}");
   auto verifier         = [client_identity, credential](const rstream::webtty::byte_vector& client_key_id,
-                                                const rstream::webtty::byte_vector& client_public_key,
-                                                const rstream::webtty::byte_vector& client_credential) -> boost::optional<rstream::webtty::byte_vector> {
+                                                        const rstream::webtty::byte_vector& client_public_key,
+                                                        const rstream::webtty::byte_vector& client_credential) -> boost::optional<rstream::webtty::byte_vector> {
     assert(client_key_id == client_identity.m_signing.m_key_id);
     assert(client_public_key == client_identity.m_signing.m_public_key);
     assert(string_from_bytes(client_credential) == credential);
@@ -804,7 +810,8 @@ static void check_websocket_server_e2e_rejects_missing_client_proof()
   assert(hello);
   assert(hello->payload_case() == protobuf::Message::PayloadCase::kServerHello);
   write_message(websocket, open_message({"/bin/cat"}, client_crypto));
-  assert(read_error_or_close(websocket));
+  const auto rejected = read_error_or_close(websocket);
+  assert(rejected);
 }
 
 static void check_websocket_server_e2e_rejects_expired_client_proof()
@@ -832,7 +839,8 @@ static void check_websocket_server_e2e_rejects_expired_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello->server_hello(), client_identity, "websocket", -60, -30);
   write_message(websocket, open);
-  assert(read_error_or_close(websocket));
+  const auto rejected = read_error_or_close(websocket);
+  assert(rejected);
 }
 
 static void check_websocket_server_e2e_rejects_unauthorized_client_proof()
@@ -863,7 +871,8 @@ static void check_websocket_server_e2e_rejects_unauthorized_client_proof()
   auto open = open_message({"/bin/cat"}, client_crypto);
   add_client_proof(*open.mutable_open(), hello->server_hello(), denied_client_identity, "websocket");
   write_message(websocket, open);
-  assert(read_error_or_close(websocket));
+  const auto rejected = read_error_or_close(websocket);
+  assert(rejected);
 }
 
 int main(int argc, char** argv)

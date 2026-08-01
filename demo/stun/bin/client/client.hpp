@@ -3,9 +3,9 @@
 #include <functional>
 #include <memory>
 
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/udp.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/optional.hpp>
 
 #include <rstream/config.hpp>
@@ -50,7 +50,7 @@ class client : public std::enable_shared_from_this<client> {
   boost::asio::io_context::executor_type m_executor;
   boost::asio::ip::udp::resolver m_resolver;
   boost::asio::ip::udp::socket m_socket;
-  boost::asio::deadline_timer m_timer;
+  boost::asio::steady_timer m_timer;
   rstream::stun::client<boost::asio::ip::udp::socket&> m_client;
   async_run_completion_handler m_handler;
   boost::system::error_code m_error_code;

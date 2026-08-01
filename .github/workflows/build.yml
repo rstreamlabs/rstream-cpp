@@ -2,6 +2,8 @@ name: Build
 on:
   push:
     branches:
+      - codex/**
+      - develop
       - main
       - feature-**
       - fix-**

@@ -46,46 +46,48 @@ static void check_address_normalization()
 
 static void check_url_boolean_parsing()
 {
-  auto url = parse_url("tcp://edge.example?ssl&retry=false&strict=TRUE");
-  bool ssl = false;
+  const auto url    = parse_url("tcp://edge.example?ssl&retry=false&strict=TRUE");
+  const auto params = rstream::io::detail::stream::url_params(url);
+  bool ssl          = false;
   boost::system::error_code error_code;
-  rstream::io::detail::stream::parse_url_param_value(ssl, *url.params().find("ssl"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(ssl, *params.find("ssl"), error_code);
   assert(!error_code);
   assert(ssl);
 
   bool retry = true;
-  rstream::io::detail::stream::parse_url_param_value(retry, *url.params().find("retry"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(retry, *params.find("retry"), error_code);
   assert(!error_code);
   assert(!retry);
 
   bool strict = false;
-  rstream::io::detail::stream::parse_url_param_value(strict, *url.params().find("strict"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(strict, *params.find("strict"), error_code);
   assert_stream_error(error_code, rstream::io::detail::stream::error::code::invalid_argument);
 }
 
 static void check_url_string_and_integer_parsing()
 {
-  auto url = parse_url("tcp://edge.example?name=api&missing&size=42&bad_size=nope");
+  const auto url    = parse_url("tcp://edge.example?name=api&missing&size=42&bad_size=nope");
+  const auto params = rstream::io::detail::stream::url_params(url);
   boost::system::error_code error_code;
   boost::optional<std::string> name;
-  rstream::io::detail::stream::parse_url_param_value(name, *url.params().find("name"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(name, *params.find("name"), error_code);
   assert(!error_code);
   assert(name);
   assert(name.value() == "api");
 
   boost::optional<std::string> missing;
-  rstream::io::detail::stream::parse_url_param_value(missing, *url.params().find("missing"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(missing, *params.find("missing"), error_code);
   assert_stream_error(error_code, rstream::io::detail::stream::error::code::invalid_argument);
 
   error_code = {};
   boost::optional<unsigned long> size;
-  rstream::io::detail::stream::parse_url_param_value(size, *url.params().find("size"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(size, *params.find("size"), error_code);
   assert(!error_code);
   assert(size);
   assert(size.value() == 42);
 
   boost::optional<unsigned long> bad_size;
-  rstream::io::detail::stream::parse_url_param_value(bad_size, *url.params().find("bad_size"), error_code);
+  rstream::io::detail::stream::parse_url_param_value(bad_size, *params.find("bad_size"), error_code);
   assert_stream_error(error_code, rstream::io::detail::stream::error::code::invalid_argument);
 }
 
