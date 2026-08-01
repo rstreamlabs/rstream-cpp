@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.14.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.13.0...1.14.0) (2026-08-01)
+
+
+### Features
+
+* **edge:** release routed endpoints and published TCP options ([3b3dafb](https://github.com/rstreamlabs/rstream-cpp/commit/3b3dafbdd78fbf06c192ffe2808049754cbd5cde))
+* **edge:** support routed stream endpoints ([bdf7377](https://github.com/rstreamlabs/rstream-cpp/commit/bdf7377027ef59d3f773bb45ea42dbda706b2597))
+* harden C++ SDK runtime and build matrix ([97c8831](https://github.com/rstreamlabs/rstream-cpp/commit/97c8831efbdd6cf58a72070e7495fd4d4a9d80f7))
+* **tunnel:** support published TCP options ([cdd5475](https://github.com/rstreamlabs/rstream-cpp/commit/cdd5475e4663eeeec4c4d32a426126d0f6234039))
+
+
+### Bug Fixes
+
+* **edge:** allow cross-region routing for every protocol ([052b41b](https://github.com/rstreamlabs/rstream-cpp/commit/052b41bc5198efd3d17c06ef57aaf062ab199030))
+* finalize C++ SDK hardening ([1c9508c](https://github.com/rstreamlabs/rstream-cpp/commit/1c9508c5309ce2b56b4ff36ec5bedf7fc9b5d688))
+* harden asynchronous SDK runtime ([e868ec9](https://github.com/rstreamlabs/rstream-cpp/commit/e868ec9badcedace1d3dc7ddccfc23f75ce1f07d))
+* harden dynamic plugin discovery ([9730083](https://github.com/rstreamlabs/rstream-cpp/commit/973008370ad68c57c819671c067427eda97b9057))
+* harden metric summary concurrency ([f737b2c](https://github.com/rstreamlabs/rstream-cpp/commit/f737b2cc442bcdd962311879362751c08494a639))
+* pass MSVC whole archive as linker flag ([288fba0](https://github.com/rstreamlabs/rstream-cpp/commit/288fba04b932bf6a97a61697b854ba8eb5905c72))
+* preserve metrics precision intent on MSVC ([adc804b](https://github.com/rstreamlabs/rstream-cpp/commit/adc804b3f60859dc7170234d04bda3683d4f3f06))
+* support shared MSVC packages ([0da48c4](https://github.com/rstreamlabs/rstream-cpp/commit/0da48c4b078245cc8075a5d632bdca4ed1c14bda))
+* support strict MSVC builds ([abd450e](https://github.com/rstreamlabs/rstream-cpp/commit/abd450ed8499abb261c8068da6bf57daea548d71))
+* support strict Windows package builds ([0d689e5](https://github.com/rstreamlabs/rstream-cpp/commit/0d689e592696fb80f7b3d750a62f07126022feb6))
+* use portable function names on MSVC ([366468f](https://github.com/rstreamlabs/rstream-cpp/commit/366468f88a4a489d1737fae722b983e23aee0a56))
+* use supported Windows system APIs ([7ca3035](https://github.com/rstreamlabs/rstream-cpp/commit/7ca3035901ecefc12d703c47036a1420226fcd77))
+
 ## [1.13.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.12.1...1.13.0) (2026-07-18)
 
 
