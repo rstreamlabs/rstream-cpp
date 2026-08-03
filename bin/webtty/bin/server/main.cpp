@@ -42,7 +42,7 @@ options:
   --server-enrollment=ARG     registered WebTTY server enrollment file; implies --rstream
   --transport=ARG             WebTTY transport to use [default: websocket]
   --execution-mode=ARG        execution mode (spawn, login); defaults to login for registered servers and spawn otherwise [default: spawn]
-  --login-user=ARG            default OS user for login execution mode
+  --login-user=ARG            existing local OS username used for every login session
   --allow-client-user         allow clients to request an OS user in login execution mode
   --auth-token-file=ARG       read local WebTTY bearer token from file
   --allow-unauthenticated     allow unauthenticated local WebTTY access
@@ -56,6 +56,7 @@ options:
 
 valid transports: plain, websocket
 valid execution modes: spawn, login
+note: --login-user names an existing account on this server (use id -un on Linux/macOS or $env:USERNAME in PowerShell)
 note: login execution mode does not use passwords; POSIX user switching requires suitable local privileges
 )";
 
@@ -429,11 +430,19 @@ int run(int argc, char** argv)
   if (execution_mode != rstream::webtty::execution_mode::login && (!rstream::webtty::cli::trim_copy(login_user).empty() || allow_client_user)) {
     throw std::runtime_error("--login-user and --allow-client-user require --execution-mode=login");
   }
-  if (enrollment && execution_mode == rstream::webtty::execution_mode::login && rstream::webtty::cli::trim_copy(login_user).empty() && !allow_client_user) {
-    throw std::runtime_error("registered WebTTY servers default to login execution mode; set --login-user, --allow-client-user, or --execution-mode=spawn");
+  if (execution_mode == rstream::webtty::execution_mode::login && rstream::webtty::cli::trim_copy(login_user).empty() && !allow_client_user) {
+    throw std::runtime_error("login execution mode requires --login-user <local-username> for an existing account on this machine, or --allow-client-user");
   }
   rstream::webtty::protocol::username default_username;
   rstream::webtty::protocol::parse_username(default_username, rstream::webtty::cli::trim_copy(login_user));
+  if (execution_mode == rstream::webtty::execution_mode::login && default_username) {
+    std::error_code login_user_error;
+    rstream::webtty::protocol::user_info login_user_info;
+    rstream::webtty::protocol::get_user_info(login_user_info, default_username, login_user_error);
+    if (login_user_error) {
+      throw std::runtime_error("login user '" + rstream::webtty::cli::trim_copy(login_user) + "' is not a usable local OS account: " + login_user_error.message());
+    }
+  }
   std::optional<rstream::webtty::endpoint_identity> registered_identity;
   if (enrollment) {
     registered_identity = inline_identity ? *inline_identity : rstream::webtty::cli::load_identity_file(identity_file);
