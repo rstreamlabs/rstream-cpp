@@ -277,8 +277,20 @@ static void check_linux_login_environment_rejects_public_runtime()
   };
   protocol::env_vars env_vars;
   protocol::add_execution_environment(env_vars, rstream::webtty::execution_mode::login, user_info);
-  assert(find_env(env_vars, "XDG_RUNTIME_DIR") == nullptr);
-  assert(find_env(env_vars, "DBUS_SESSION_BUS_ADDRESS") == nullptr);
+  const auto* selected_runtime = find_env(env_vars, "XDG_RUNTIME_DIR");
+  assert(selected_runtime == nullptr || selected_runtime->m_value != runtime_dir);
+  if (selected_runtime != nullptr) {
+    const auto systemd_runtime = std::string("/run/user/") + std::to_string(user_info.m_uid);
+    assert(selected_runtime->m_value == systemd_runtime);
+    struct stat value{};
+    assert(::stat(systemd_runtime.c_str(), &value) == 0);
+    assert(S_ISDIR(value.st_mode));
+    assert(value.st_uid == user_info.m_uid);
+    assert((value.st_mode & 0077) == 0);
+  }
+  const auto* selected_bus = find_env(env_vars, "DBUS_SESSION_BUS_ADDRESS");
+  assert(selected_bus == nullptr ||
+         (selected_runtime != nullptr && selected_bus->m_value == "unix:path=" + selected_runtime->m_value + "/bus"));
   assert(::rmdir(runtime_dir) == 0);
 }
 #endif
