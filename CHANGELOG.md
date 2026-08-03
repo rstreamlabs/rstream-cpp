@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.14.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.0...1.14.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **webtty:** align administrative login environment ([f6dac4d](https://github.com/rstreamlabs/rstream-cpp/commit/f6dac4d6705bcb244221052ed5340c2578754eba))
+* **webtty:** fail fast on invalid login accounts ([c65dc8d](https://github.com/rstreamlabs/rstream-cpp/commit/c65dc8df4cfa6393c1fd4369a879752e648e0dae))
+
 ## [1.14.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.13.0...1.14.0) (2026-08-01)
 
 
