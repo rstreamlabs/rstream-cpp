@@ -280,6 +280,8 @@ void add_environment_variable(std::list<environment>& dst, const std::string& ke
 
 void add_environment_variable(std::list<environment>& dst, const std::string& key, bool force = false);
 
+void add_execution_environment(env_vars& dst, execution_mode mode, const user_info& user_info);
+
 void parse_type(type& dst, const std::string& src);
 
 void parse_identifier(identifier& dst, const std::string& src);
@@ -289,6 +291,8 @@ void parse_username(username& dst, const std::string& src);
 #ifdef _WIN32
 
 void get_user_info(user_info& user_info, std::error_code& error_code);
+
+void get_user_info(user_info& user_info, const username& username, std::error_code& error_code);
 
 #else
 

@@ -846,28 +846,23 @@ static void check_login_execution_mode_requires_user()
   assert(message.error().msg() == "login execution mode requires a default user or explicitly allowed client user");
 }
 
-static rstream::webtty::protocol::username current_username()
+static void check_login_execution_mode_runs_as_configured_user()
 {
   std::error_code error_code;
   rstream::webtty::protocol::user_info user_info;
   rstream::webtty::protocol::get_user_info(user_info, boost::none, error_code);
   assert(!error_code);
-  return rstream::webtty::protocol::identifier(user_info.m_name);
-}
-
-static void check_login_execution_mode_runs_as_configured_user()
-{
-  plain_webtty_server server(rstream::webtty::execution_mode::login, nullptr, current_username());
+  plain_webtty_server server(rstream::webtty::execution_mode::login, nullptr, rstream::webtty::protocol::identifier(user_info.m_name));
   server.start();
   boost::asio::io_context io_context;
   auto socket = connect_with_retry(io_context, server.port());
-  write_message(socket, open_message({"/bin/sh", "-c", "printf login-ok"}));
+  write_message(socket, open_message({"/bin/sh", "-c", "printf '%s' \"$USER|$LOGNAME|$HOME|$SHELL\""}));
   auto ack = read_message(socket);
   assert(ack.payload_case() == protobuf::Message::PayloadCase::kAck);
   auto out = read_message(socket);
   assert(out.payload_case() == protobuf::Message::PayloadCase::kData);
   assert(out.data().type() == protobuf::Data::TYPE_STDOUT);
-  assert(out.data().data() == "login-ok");
+  assert(out.data().data() == user_info.m_name + "|" + user_info.m_name + "|" + user_info.m_home + "|" + user_info.m_shell);
 }
 
 static void check_plain_server_cancel_keeps_active_child_resources_alive()
