@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 
 #include <rstream/test/time.hpp>
+#include <rstream/webtty/error.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/server.hpp>
 #include <rstream/webtty/webtty.hpp>
@@ -384,6 +385,18 @@ class plain_webtty_server {
         m_exception = std::current_exception();
       }
     });
+  }
+
+  std::error_code run_until_start_failure()
+  {
+    m_server->async_run([this](const std::error_code& error_code) {
+      m_result = error_code;
+      m_done   = true;
+    });
+    m_io_context.run();
+    assert(m_done);
+    assert(m_result);
+    return m_result;
   }
 
   void stop()
@@ -837,13 +850,16 @@ static void check_plain_server_e2e_rejects_plaintext_data()
 static void check_login_execution_mode_requires_user()
 {
   plain_webtty_server server(rstream::webtty::execution_mode::login);
-  server.start();
-  boost::asio::io_context io_context;
-  auto socket = connect_with_retry(io_context, server.port());
-  write_message(socket, open_message({"/bin/sh", "-c", "true"}));
-  auto message = read_message(socket);
-  assert(message.payload_case() == protobuf::Message::PayloadCase::kError);
-  assert(message.error().msg() == "login execution mode requires a default user or explicitly allowed client user");
+  const auto error_code = server.run_until_start_failure();
+  assert(error_code == rstream::webtty::error::make_error_code(rstream::webtty::error::code::login_user_required));
+}
+
+static void check_login_execution_mode_rejects_unknown_user_before_listen()
+{
+  plain_webtty_server server(rstream::webtty::execution_mode::login, nullptr, rstream::webtty::protocol::identifier("rstream-webtty-user-that-must-not-exist"));
+  const auto error_code = server.run_until_start_failure();
+  assert(error_code);
+  assert(error_code != rstream::webtty::error::make_error_code(rstream::webtty::error::code::login_user_required));
 }
 
 static void check_login_execution_mode_runs_as_configured_user()
@@ -915,6 +931,7 @@ int main(int argc, char** argv)
   run_check("unauthorized client proof rejection", check_plain_server_e2e_rejects_unauthorized_client_proof);
   run_check("plaintext rejection", check_plain_server_e2e_rejects_plaintext_data);
   run_check("login mode user requirement", check_login_execution_mode_requires_user);
+  run_check("login mode rejects unknown user before listen", check_login_execution_mode_rejects_unknown_user_before_listen);
   run_check("login mode configured user", check_login_execution_mode_runs_as_configured_user);
   run_check("cancellation with active child", check_plain_server_cancel_keeps_active_child_resources_alive);
   return 0;

@@ -839,6 +839,25 @@ void server::impl::async_run_internal(async_run_completion_handler&& handler)
     }
     return;
   }
+  if (m_settings.m_execution_mode == execution_mode::login) {
+    if (!m_settings.m_default_username && !m_settings.m_allow_client_user) {
+      if (handler) {
+        rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::code::login_user_required);
+      }
+      return;
+    }
+    if (m_settings.m_default_username) {
+      std::error_code error_code;
+      protocol::user_info user_info;
+      protocol::get_user_info(user_info, m_settings.m_default_username, error_code);
+      if (error_code) {
+        if (handler) {
+          rstream::core::invoke_completion_handler(m_executor, std::move(handler), error_code);
+        }
+        return;
+      }
+    }
+  }
   m_handler.swap(handler);
   set_state(state::starting);
   arm_state_timer(m_settings.m_timeouts_start_ms);
