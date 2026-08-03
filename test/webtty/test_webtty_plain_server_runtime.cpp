@@ -528,6 +528,54 @@ static void check_plain_server_runs_child_and_streams_stdout_stderr(unsigned sho
   assert(saw_stderr_eos);
 }
 
+static void check_plain_server_applies_tty_environment_and_workdir(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto socket  = connect_with_retry(io_context, port);
+  auto open    = open_message({
+      "/bin/sh",
+      "-c",
+      "test -t 0 && test -t 1 && test \"$RSTREAM_CPP_WEBTTY_ENV\" = ok && test . -ef /tmp && printf runtime-ok",
+  });
+  auto* config = open.mutable_open()->mutable_config();
+  config->mutable_options()->set_allocate_tty(true);
+  config->mutable_workdir()->set_value("/tmp");
+  auto* environment = config->add_env_vars();
+  environment->set_key("RSTREAM_CPP_WEBTTY_ENV");
+  environment->set_value("ok");
+  write_message(socket, open);
+
+  bool saw_ack     = false;
+  bool saw_runtime = false;
+  bool saw_close   = false;
+  while (!saw_close) {
+    auto message = read_message(socket);
+    switch (message.payload_case()) {
+      case protobuf::Message::PayloadCase::kAck:
+        saw_ack = true;
+        break;
+      case protobuf::Message::PayloadCase::kData:
+        if (message.data().type() == protobuf::Data::TYPE_STDOUT && message.data().data().find("runtime-ok") != std::string::npos) {
+          saw_runtime = true;
+        }
+        break;
+      case protobuf::Message::PayloadCase::kClose:
+        assert(message.close().return_code() == 0);
+        saw_close = true;
+        break;
+      case protobuf::Message::PayloadCase::kHeartbeat:
+        break;
+      default:
+        std::cerr << "unexpected webtty message type: " << message.payload_case() << std::endl;
+        assert(false);
+        break;
+    }
+  }
+
+  assert(saw_ack);
+  assert(saw_runtime);
+}
+
 static void check_plain_server_forwards_stdin_to_child_process(unsigned short port)
 {
   boost::asio::io_context io_context;
@@ -922,6 +970,7 @@ int main(int argc, char** argv)
   run_check("invalid command", [&server] { check_invalid_command_returns_protocol_error_message(server.port()); });
   run_check("managed attach rejection", [&server] { check_managed_attach_is_rejected(server.port()); });
   run_check("stdout and stderr streaming", [&server] { check_plain_server_runs_child_and_streams_stdout_stderr(server.port()); });
+  run_check("tty environment and workdir", [&server] { check_plain_server_applies_tty_environment_and_workdir(server.port()); });
   run_check("stdin forwarding", [&server] { check_plain_server_forwards_stdin_to_child_process(server.port()); });
   run_check("E2E stdin forwarding", check_plain_server_e2e_forwards_stdin_to_child_process);
   run_check("client credential verification", check_plain_server_e2e_accepts_client_credential_verifier);
