@@ -1627,19 +1627,6 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
   }
   std::error_code error_code;
   protocol::user_info user_info;
-#ifdef _WIN32
-  if (m_settings.m_execution_mode == execution_mode::login) {
-    m_logger->warn("login execution mode is not available on Windows in the C++ WebTTY server");
-    error_code = error::code::unsupported_execution_mode;
-  }
-  if (!error_code && protocol_config.m_username) {
-    m_logger->warn("changing user is not supported on Windows");
-    error_code = error::code::server_error;
-  }
-  if (!error_code) {
-    get_user_info(user_info, error_code);
-  }
-#else
   auto effective_username = protocol_config.m_username;
   if (m_settings.m_execution_mode == execution_mode::login) {
     if (effective_username && !m_settings.m_allow_client_user) {
@@ -1657,32 +1644,11 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
   if (!error_code) {
     get_user_info(user_info, effective_username, error_code);
   }
-#endif
   if (!error_code) {
     auto workdir = protocol_config.m_workdir ? protocol_config.m_workdir.get() : user_info.m_home;
     boost::process::environment environment;
     auto env_vars_copy = protocol_config.m_env_vars;
-    protocol::add_environment_variable(env_vars_copy, "PATH");
-#ifdef _WIN32
-    protocol::add_environment_variable(env_vars_copy, "ALLUSERSPROFILE");
-    protocol::add_environment_variable(env_vars_copy, "COMPUTERNAME");
-    protocol::add_environment_variable(env_vars_copy, "COMSPEC");
-    protocol::add_environment_variable(env_vars_copy, "CYGWIN");
-    protocol::add_environment_variable(env_vars_copy, "OS");
-    protocol::add_environment_variable(env_vars_copy, "PATHEXT");
-    protocol::add_environment_variable(env_vars_copy, "PROGRAMFILES");
-    protocol::add_environment_variable(env_vars_copy, "SYSTEMDRIVE");
-    protocol::add_environment_variable(env_vars_copy, "SYSTEMROOT");
-    protocol::add_environment_variable(env_vars_copy, "TEMP");
-    protocol::add_environment_variable(env_vars_copy, "TMP");
-    protocol::add_environment_variable(env_vars_copy, "USERNAME");
-    protocol::add_environment_variable(env_vars_copy, "USERPROFILE");
-    protocol::add_environment_variable(env_vars_copy, "WINDIR");
-#else
-    protocol::add_environment_variable(env_vars_copy, "USER", user_info.m_name);
-    protocol::add_environment_variable(env_vars_copy, "SHELL", user_info.m_shell);
-    protocol::add_environment_variable(env_vars_copy, "HOME", user_info.m_home);
-#endif
+    protocol::add_execution_environment(env_vars_copy, m_settings.m_execution_mode, user_info);
     parse_environment(environment, env_vars_copy);
     auto completion_handler = [ptr = shared_from_this()](int code, const std::error_code& error_code) {
       boost::asio::post(ptr->m_strand, std::bind_front(&session::on_child_exit, ptr, error_code, code));

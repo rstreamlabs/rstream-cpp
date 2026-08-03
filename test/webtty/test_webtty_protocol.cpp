@@ -1,7 +1,9 @@
 // See LICENSE file in the project root for license information.
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -22,6 +24,12 @@
 #include <unistd.h>
 #endif
 
+#ifdef __linux__
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#endif
+
 namespace protocol = rstream::webtty::protocol;
 namespace protobuf = rstream::webtty::protobuf;
 
@@ -39,6 +47,27 @@ static const protocol::environment& env_at(const protocol::env_vars& env_vars, s
   auto it = env_vars.begin();
   std::advance(it, index);
   return *it;
+}
+
+static const protocol::environment* find_env(const protocol::env_vars& env_vars, const std::string& key)
+{
+  for (const auto& item : env_vars) {
+#ifdef _WIN32
+    if (_stricmp(item.m_key.c_str(), key.c_str()) == 0) {
+#else
+    if (item.m_key == key) {
+#endif
+      return &item;
+    }
+  }
+  return nullptr;
+}
+
+static void assert_env(const protocol::env_vars& env_vars, const std::string& key, const std::string& value)
+{
+  const auto* item = find_env(env_vars, key);
+  assert(item != nullptr);
+  assert(item->m_value == value);
 }
 
 static void check_environment_parsing_and_updates()
@@ -77,6 +106,182 @@ static void check_environment_parsing_and_updates()
   protocol::add_environment_variable(env_vars, "B", "2");
   assert(protocol::find_environment_variable(env_vars, "B") != env_vars.end());
 }
+
+static void check_execution_environment_is_administratively_complete_and_secret_free()
+{
+  env_guard path("PATH");
+  env_guard lang("LANG");
+  env_guard timezone("TZ");
+  env_guard ssh_agent("SSH_AUTH_SOCK");
+  env_guard aws_secret("AWS_SECRET_ACCESS_KEY");
+  env_guard rstream_token("RSTREAM_AUTHENTICATION_TOKEN");
+  path.set("/rstream/test/bin");
+  lang.set("en_US.UTF-8");
+  timezone.set("UTC");
+  ssh_agent.set("/secret/agent.sock");
+  aws_secret.set("secret");
+  rstream_token.set("secret");
+
+  protocol::user_info user_info = {
+      .m_name  = "operator",
+      .m_shell = "/rstream/test/shell",
+      .m_home  = "/rstream/test/home",
+#ifndef _WIN32
+      .m_uid    = static_cast<std::uint32_t>(::getuid()),
+      .m_gid    = static_cast<std::uint32_t>(::getgid()),
+      .m_groups = {},
+#endif
+  };
+  protocol::env_vars env_vars;
+  protocol::add_execution_environment(env_vars, rstream::webtty::execution_mode::spawn, user_info);
+
+  assert_env(env_vars, "PATH", "/rstream/test/bin");
+  assert_env(env_vars, "LANG", "en_US.UTF-8");
+  assert_env(env_vars, "TZ", "UTC");
+  assert(find_env(env_vars, "SSH_AUTH_SOCK") == nullptr);
+  assert(find_env(env_vars, "AWS_SECRET_ACCESS_KEY") == nullptr);
+  assert(find_env(env_vars, "RSTREAM_AUTHENTICATION_TOKEN") == nullptr);
+}
+
+static void check_execution_environment_identity_policy()
+{
+#ifdef _WIN32
+  env_guard appdata("APPDATA");
+  env_guard localappdata("LOCALAPPDATA");
+  env_guard powershell_modules("PSMODULEPATH");
+  env_guard ssh_agent("SSH_AUTH_SOCK");
+  appdata.set("C:\\Users\\operator\\AppData\\Roaming");
+  localappdata.set("C:\\Users\\operator\\AppData\\Local");
+  powershell_modules.set("C:\\Modules");
+  ssh_agent.set("\\\\.\\pipe\\secret-agent");
+#elif defined(__APPLE__)
+  env_guard temporary_directory("TMPDIR");
+  env_guard core_foundation_encoding("__CF_USER_TEXT_ENCODING");
+  temporary_directory.set("/rstream/test/tmp");
+  core_foundation_encoding.set("0x1F5:0:0");
+#endif
+  protocol::user_info user_info = {
+      .m_name  = "resolved-user",
+      .m_shell = "/resolved/shell",
+      .m_home  = "/resolved/home",
+#ifndef _WIN32
+      .m_uid    = static_cast<std::uint32_t>(::getuid()),
+      .m_gid    = static_cast<std::uint32_t>(::getgid()),
+      .m_groups = {},
+#endif
+  };
+#ifdef _WIN32
+  protocol::env_vars spawn_env = {
+      {.m_key = "userprofile", .m_value = "C:\\client\\home"},
+  };
+  protocol::add_execution_environment(spawn_env, rstream::webtty::execution_mode::spawn, user_info);
+  assert_env(spawn_env, "USERPROFILE", "C:\\client\\home");
+
+  protocol::env_vars login_env = {
+      {.m_key = "userprofile", .m_value = "C:\\client\\home"},
+      {.m_key = "USERNAME", .m_value = "client-user"},
+  };
+  protocol::add_execution_environment(login_env, rstream::webtty::execution_mode::login, user_info);
+  assert_env(login_env, "USERNAME", "resolved-user");
+  assert_env(login_env, "USERPROFILE", "/resolved/home");
+  assert_env(login_env, "HOME", "/resolved/home");
+  assert_env(login_env, "COMSPEC", "/resolved/shell");
+  assert_env(login_env, "APPDATA", "C:\\Users\\operator\\AppData\\Roaming");
+  assert_env(login_env, "LOCALAPPDATA", "C:\\Users\\operator\\AppData\\Local");
+  assert_env(login_env, "PSMODULEPATH", "C:\\Modules");
+  assert(find_env(login_env, "SSH_AUTH_SOCK") == nullptr);
+#else
+  protocol::env_vars spawn_env = {
+      {.m_key = "HOME", .m_value = "/client/home"},
+  };
+  protocol::add_execution_environment(spawn_env, rstream::webtty::execution_mode::spawn, user_info);
+  assert_env(spawn_env, "HOME", "/client/home");
+  assert_env(spawn_env, "LOGNAME", "resolved-user");
+
+  protocol::env_vars login_env = {
+      {.m_key = "USER", .m_value = "client-user"},
+      {.m_key = "LOGNAME", .m_value = "client-user"},
+      {.m_key = "HOME", .m_value = "/client/home"},
+      {.m_key = "SHELL", .m_value = "/client/shell"},
+  };
+  protocol::add_execution_environment(login_env, rstream::webtty::execution_mode::login, user_info);
+  assert_env(login_env, "USER", "resolved-user");
+  assert_env(login_env, "LOGNAME", "resolved-user");
+  assert_env(login_env, "HOME", "/resolved/home");
+  assert_env(login_env, "SHELL", "/resolved/shell");
+#ifdef __APPLE__
+  assert_env(login_env, "TMPDIR", "/rstream/test/tmp");
+  assert_env(login_env, "__CF_USER_TEXT_ENCODING", "0x1F5:0:0");
+#endif
+#endif
+}
+
+#ifdef __linux__
+static void check_linux_login_environment_validates_user_runtime_and_bus()
+{
+  char runtime_template[] = "/tmp/rstream-cpp-webtty-runtime-XXXXXX";
+  const auto* runtime_dir = ::mkdtemp(runtime_template);
+  assert(runtime_dir != nullptr);
+  assert(::chmod(runtime_dir, 0700) == 0);
+  const auto bus_path = std::string(runtime_dir) + "/bus";
+  const auto bus       = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  assert(bus >= 0);
+  sockaddr_un address{};
+  address.sun_family = AF_UNIX;
+  assert(bus_path.size() < sizeof(address.sun_path));
+  std::copy(bus_path.begin(), bus_path.end(), address.sun_path);
+  address.sun_path[bus_path.size()] = '\0';
+  assert(::bind(bus, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
+  env_guard runtime_guard("XDG_RUNTIME_DIR");
+  env_guard dbus_guard("DBUS_SESSION_BUS_ADDRESS");
+  runtime_guard.set(runtime_dir);
+  dbus_guard.set("unix:path=/untrusted/bus");
+
+  protocol::user_info user_info = {
+      .m_name   = "resolved-user",
+      .m_shell  = "/resolved/shell",
+      .m_home   = "/resolved/home",
+      .m_uid    = static_cast<std::uint32_t>(::getuid()),
+      .m_gid    = static_cast<std::uint32_t>(::getgid()),
+      .m_groups = {},
+  };
+  protocol::env_vars env_vars = {
+      {.m_key = "XDG_RUNTIME_DIR", .m_value = "/client/runtime"},
+      {.m_key = "DBUS_SESSION_BUS_ADDRESS", .m_value = "unix:path=/client/bus"},
+  };
+  protocol::add_execution_environment(env_vars, rstream::webtty::execution_mode::login, user_info);
+  assert_env(env_vars, "XDG_RUNTIME_DIR", runtime_dir);
+  assert_env(env_vars, "DBUS_SESSION_BUS_ADDRESS", "unix:path=" + bus_path);
+
+  assert(::close(bus) == 0);
+  assert(::unlink(bus_path.c_str()) == 0);
+  assert(::rmdir(runtime_dir) == 0);
+}
+
+static void check_linux_login_environment_rejects_public_runtime()
+{
+  char runtime_template[] = "/tmp/rstream-cpp-webtty-public-runtime-XXXXXX";
+  const auto* runtime_dir = ::mkdtemp(runtime_template);
+  assert(runtime_dir != nullptr);
+  assert(::chmod(runtime_dir, 0755) == 0);
+  env_guard runtime_guard("XDG_RUNTIME_DIR");
+  runtime_guard.set(runtime_dir);
+
+  protocol::user_info user_info = {
+      .m_name   = "resolved-user",
+      .m_shell  = "/resolved/shell",
+      .m_home   = "/resolved/home",
+      .m_uid    = static_cast<std::uint32_t>(::getuid()),
+      .m_gid    = static_cast<std::uint32_t>(::getgid()),
+      .m_groups = {},
+  };
+  protocol::env_vars env_vars;
+  protocol::add_execution_environment(env_vars, rstream::webtty::execution_mode::login, user_info);
+  assert(find_env(env_vars, "XDG_RUNTIME_DIR") == nullptr);
+  assert(find_env(env_vars, "DBUS_SESSION_BUS_ADDRESS") == nullptr);
+  assert(::rmdir(runtime_dir) == 0);
+}
+#endif
 
 static void check_protocol_type_parsing()
 {
@@ -213,6 +418,30 @@ static void check_user_info_is_reentrant()
     thread.join();
   }
   assert(valid.load(std::memory_order_relaxed));
+}
+#else
+static void check_windows_login_user_is_restricted_to_server_account()
+{
+  protocol::user_info expected;
+  std::error_code error_code;
+  protocol::get_user_info(expected, error_code);
+  assert(!error_code);
+
+  auto same_name = expected.m_name;
+  std::transform(same_name.begin(), same_name.end(), same_name.begin(), [](unsigned char value) { return static_cast<char>(std::toupper(value)); });
+  protocol::username same_user = protocol::identifier(std::string("DOMAIN\\") + same_name);
+  protocol::user_info actual;
+  protocol::get_user_info(actual, same_user, error_code);
+  assert(!error_code);
+  assert(actual.m_name == expected.m_name);
+
+  protocol::username different_user = protocol::identifier(std::string("rstream-cpp-different-user"));
+  protocol::get_user_info(actual, different_user, error_code);
+  assert(error_code == std::make_error_code(std::errc::operation_not_permitted));
+
+  protocol::username numeric_user = protocol::identifier(std::uint32_t{42});
+  protocol::get_user_info(actual, numeric_user, error_code);
+  assert(error_code == std::make_error_code(std::errc::not_supported));
 }
 #endif
 
@@ -436,12 +665,20 @@ int main(int argc, char** argv)
   (void)argc;
   (void)argv;
   check_environment_parsing_and_updates();
+  check_execution_environment_is_administratively_complete_and_secret_free();
+  check_execution_environment_identity_policy();
+#ifdef __linux__
+  check_linux_login_environment_validates_user_runtime_and_bus();
+  check_linux_login_environment_rejects_public_runtime();
+#endif
   check_protocol_type_parsing();
   check_execution_mode_parsing();
   check_identifier_and_username_parsing();
 #ifndef _WIN32
   check_user_info_error_paths_do_not_report_success();
   check_user_info_is_reentrant();
+#else
+  check_windows_login_user_is_restricted_to_server_account();
 #endif
   check_webtty_uri_is_publishable_and_labelled();
   check_managed_webtty_uri_is_publishable_and_labelled();

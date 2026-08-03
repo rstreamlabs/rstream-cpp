@@ -23,6 +23,9 @@
 #include <grp.h>
 #include <pwd.h>
 #include <sys/types.h>
+#ifdef __linux__
+#include <sys/stat.h>
+#endif
 #include <sys/utsname.h>
 #include <unistd.h>
 #endif
@@ -542,7 +545,11 @@ env_vars::iterator find_environment_variable(env_vars& dst, const std::string& k
 {
   env_vars::iterator it;
   for (it = dst.begin(); it != dst.end(); ++it) {
+#ifdef _WIN32
+    if (_stricmp(it->m_key.c_str(), key.c_str()) == 0) {
+#else
     if (it->m_key == key) {
+#endif
       break;
     }
   }
@@ -577,6 +584,80 @@ void add_environment_variable(env_vars& dst, const std::string& key, bool force)
   if (value) {
     add_environment_variable(dst, key, value.value(), force);
   }
+}
+
+void add_execution_environment(env_vars& dst, execution_mode mode, const user_info& user_info)
+{
+  static const std::vector<std::string> common_keys = {
+      "PATH",           "LANG",           "LANGUAGE",       "LC_ADDRESS",  "LC_ALL",      "LC_COLLATE",
+      "LC_CTYPE",       "LC_IDENTIFICATION",                 "LC_MEASUREMENT",              "LC_MESSAGES",
+      "LC_MONETARY",    "LC_NAME",        "LC_NUMERIC",     "LC_PAPER",    "LC_TELEPHONE", "LC_TIME",
+      "TZ",
+  };
+  for (const auto& key : common_keys) {
+    add_environment_variable(dst, key);
+  }
+  const auto force_identity = mode == execution_mode::login;
+#ifdef _WIN32
+  static const std::vector<std::string> windows_keys = {
+      "ALLUSERSPROFILE",          "APPDATA",          "COMMONPROGRAMFILES",      "COMMONPROGRAMFILES(X86)",
+      "COMMONPROGRAMW6432",       "COMPUTERNAME",     "COMSPEC",                 "CYGWIN",
+      "HOMEDRIVE",                "HOMEPATH",         "LOCALAPPDATA",            "LOGONSERVER",
+      "NUMBER_OF_PROCESSORS",     "OS",               "PATHEXT",                 "PROCESSOR_ARCHITECTURE",
+      "PROCESSOR_IDENTIFIER",     "PROCESSOR_LEVEL",  "PROCESSOR_REVISION",      "PROGRAMDATA",
+      "PROGRAMFILES",             "PROGRAMFILES(X86)", "PROGRAMW6432",            "PSMODULEPATH",
+      "PUBLIC",                   "SYSTEMDRIVE",      "SYSTEMROOT",              "TEMP",
+      "TMP",                      "USERDOMAIN",       "USERDOMAIN_ROAMINGPROFILE", "USERNAME",
+      "USERPROFILE",              "WINDIR",
+  };
+  for (const auto& key : windows_keys) {
+    add_environment_variable(dst, key, force_identity);
+  }
+  add_environment_variable(dst, "USERNAME", user_info.m_name, force_identity);
+  add_environment_variable(dst, "USERPROFILE", user_info.m_home, force_identity);
+  add_environment_variable(dst, "COMSPEC", user_info.m_shell, force_identity);
+  add_environment_variable(dst, "HOME", user_info.m_home, force_identity);
+#else
+  add_environment_variable(dst, "USER", user_info.m_name, force_identity);
+  add_environment_variable(dst, "LOGNAME", user_info.m_name, force_identity);
+  add_environment_variable(dst, "SHELL", user_info.m_shell, force_identity);
+  add_environment_variable(dst, "HOME", user_info.m_home, force_identity);
+  if (mode != execution_mode::login) {
+    return;
+  }
+#ifdef __linux__
+  auto owned_private_directory = [&user_info](const std::string& path) {
+    struct stat value{};
+    return !path.empty() && ::stat(path.c_str(), &value) == 0 && S_ISDIR(value.st_mode) && value.st_uid == user_info.m_uid && (value.st_mode & 0077) == 0;
+  };
+  std::string runtime_dir;
+  if (user_info.m_uid == static_cast<std::uint32_t>(::getuid())) {
+    const auto inherited = rstream::core::get_environment_variable("XDG_RUNTIME_DIR");
+    if (inherited && owned_private_directory(inherited.value())) {
+      runtime_dir = inherited.value();
+    }
+  }
+  if (runtime_dir.empty()) {
+    const auto candidate = std::string("/run/user/") + std::to_string(user_info.m_uid);
+    if (owned_private_directory(candidate)) {
+      runtime_dir = candidate;
+    }
+  }
+  if (!runtime_dir.empty()) {
+    add_environment_variable(dst, "XDG_RUNTIME_DIR", runtime_dir, true);
+    const auto bus_path = runtime_dir + "/bus";
+    struct stat bus{};
+    if (::stat(bus_path.c_str(), &bus) == 0 && S_ISSOCK(bus.st_mode) && bus.st_uid == user_info.m_uid) {
+      add_environment_variable(dst, "DBUS_SESSION_BUS_ADDRESS", "unix:path=" + bus_path, true);
+    }
+  }
+#elif defined(__APPLE__)
+  if (user_info.m_uid == static_cast<std::uint32_t>(::getuid())) {
+    add_environment_variable(dst, "TMPDIR", true);
+    add_environment_variable(dst, "__CF_USER_TEXT_ENCODING", true);
+  }
+#endif
+#endif
 }
 
 void parse_type(type& dst, const std::string& src)
@@ -657,6 +738,27 @@ void get_user_info(user_info& user_info, std::error_code& error_code)
       .m_shell = comspec.value(),
       .m_home  = userprofile.value(),
   };
+}
+
+void get_user_info(user_info& user_info, const username& username, std::error_code& error_code)
+{
+  error_code.clear();
+  get_user_info(user_info, error_code);
+  if (error_code || !username) {
+    return;
+  }
+  if (username->type() != typeid(std::string)) {
+    error_code = std::make_error_code(std::errc::not_supported);
+    return;
+  }
+  auto requested = boost::get<std::string>(*username);
+  const auto separator = requested.find_last_of("\\/");
+  if (separator != std::string::npos) {
+    requested = requested.substr(separator + 1);
+  }
+  if (_stricmp(requested.c_str(), user_info.m_name.c_str()) != 0) {
+    error_code = std::make_error_code(std::errc::operation_not_permitted);
+  }
 }
 
 #else
