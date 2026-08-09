@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.14.2](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.1...1.14.2) (2026-08-09)
+
+
+### Bug Fixes
+
+* **conan:** avoid broken Boost Cobalt packages ([e9ede85](https://github.com/rstreamlabs/rstream-cpp/commit/e9ede854aa375c3167a74b2bcaea699e443f0ed5))
+* **conan:** isolate production Boost options ([406b52f](https://github.com/rstreamlabs/rstream-cpp/commit/406b52ffa6ae2715d0320a0d298772c658f505b0))
+
 ## [1.14.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.0...1.14.1) (2026-08-03)
 
 
