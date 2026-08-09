@@ -180,30 +180,9 @@ class ConanPackage(ConanFile):
         if self.option_unset(self.options.with_ncurses):
             self.options.with_ncurses = self.settings.os != "Windows"
 
-        unused_boost_components = (
-            "cobalt",
-            "contract",
-            "coroutine",
-            "fiber",
-            "graph",
-            "graph_parallel",
-            "iostreams",
-            "json",
-            "locale",
-            "log",
-            "math",
-            "mpi",
-            "nowide",
-            "program_options",
-            "serialization",
-            "stacktrace",
-            "test",
-            "timer",
-            "type_erasure",
-            "wave",
-        )
-        for component in unused_boost_components:
-            setattr(self.options["boost"], f"without_{component}", True)
+        # Only constrain components that rstream actually requires. Optional Boost
+        # component pruning belongs to the root build profile so this recipe remains
+        # composable when an application also has a direct Boost requirement.
         self.options["boost"].without_url = False
         protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
         if protobuf_ref and protobuf_ref != "none":
@@ -237,7 +216,13 @@ class ConanPackage(ConanFile):
                 force=True,
             )
         else:
-            self.requires("boost/[>=1.81.0]", transitive_headers=True, transitive_libs=True)
+            # Boost 1.91.0's Conan Center recipe expects boost_cobalt_io_ssl but
+            # does not configure the OpenSSL dependency needed to build it.
+            self.requires(
+                "boost/[>=1.81.0 <1.91.0]",
+                transitive_headers=True,
+                transitive_libs=True,
+            )
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
         self.requires("yaml-cpp/[>=0.8.0]", transitive_headers=True, transitive_libs=True)

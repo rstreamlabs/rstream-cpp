@@ -16,7 +16,11 @@ class TestPackageConan(ConanFile):
     test_type = "explicit"
 
     def requirements(self):
+        # Keep Boost as a direct consumer requirement: rstream must not impose its
+        # distribution-build component pruning on the root dependency graph.
         self.requires(self.tested_reference_str)
+        boost_ref = self.conf.get("user.rstream:test_boost_ref", default=None)
+        self.requires(boost_ref or "boost/[>=1.83 <2]")
 
     def layout(self):
         conan.tools.cmake.cmake_layout(self, build_folder=os.getenv("TEST_BUILD_FOLDER", "build"))

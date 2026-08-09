@@ -33,6 +33,28 @@ default_warnings_as_errors="on"
 default_patched_conan_channel="conan/stable"
 default_patched_boost_version="1.85.0"
 default_patched_ncurses_version="6.5"
+production_boost_without_components=(
+  "cobalt"
+  "contract"
+  "coroutine"
+  "fiber"
+  "graph"
+  "graph_parallel"
+  "iostreams"
+  "json"
+  "locale"
+  "log"
+  "math"
+  "mpi"
+  "nowide"
+  "program_options"
+  "serialization"
+  "stacktrace"
+  "test"
+  "timer"
+  "type_erasure"
+  "wave"
+)
 docker_conan_config_synced="off"
 patched_conan_recipes_exported="off"
 package_name_cache=""
@@ -171,6 +193,12 @@ function patched_conan_conf {
   echo "${opts[@]}"
 }
 
+function patched_test_conan_conf {
+  if [ "${use_patched_conan_deps}" = "on" ]; then
+    echo "--conf user.rstream:test_boost_ref=boost/${patched_boost_version}@${patched_conan_channel}"
+  fi
+}
+
 function resolve_channel {
   if [ -n "${CHANNEL:-}" ]; then
     echo "${CHANNEL}"
@@ -288,6 +316,15 @@ function package_options {
   echo "--options $(package_name)/*:shared=$(shared) $(static_plugins_option) --options $(package_name)/*:enable_strict_warnings=$(conan_bool "${enable_strict_warnings}") --options $(package_name)/*:warnings_as_errors=$(conan_bool "${warnings_as_errors}")"
 }
 
+function production_dependency_options {
+  local component
+  local opts=()
+  for component in "${production_boost_without_components[@]}"; do
+    opts+=("--options" "boost/*:without_${component}=True")
+  done
+  echo "${opts[*]}"
+}
+
 function linux_package_options {
   echo "$(package_options) --options $(package_name)/*:static_libstdcxx=$(call_os static_libstdcxx)"
 }
@@ -325,7 +362,7 @@ function windows_conan_extra_settings {
 }
 
 function conan_options {
-  echo "$(call_os conan_extra_options) $(call_os conan_extra_settings) $(call_os package_options) --profile:build=default --settings:host build_type=${build_type}"
+  echo "$(production_dependency_options) $(call_os conan_extra_options) $(call_os conan_extra_settings) $(call_os package_options) --profile:build=default --settings:host build_type=${build_type}"
 }
 
 function linux_conan_options {
@@ -353,7 +390,7 @@ function windows_package_outdir {
 }
 
 function cmd_build {
-  echo "conan create $(call_os conan_options) --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) ${SRC_PATH}"
+  echo "conan create $(call_os conan_options) --build=$(package_name) --build=missing -o rstream/*:build_channel=$(resolve_channel) -o rstream/*:build_os=${OS} -o rstream/*:build_arch=${ARCH} $(patched_conan_conf) $(patched_test_conan_conf) ${SRC_PATH}"
 }
 
 function linux_cmd_build {
