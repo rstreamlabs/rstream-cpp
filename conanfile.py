@@ -216,10 +216,10 @@ class ConanPackage(ConanFile):
                 force=True,
             )
         else:
-            # Boost 1.91.0's Conan Center recipe expects boost_cobalt_io_ssl but
-            # does not configure the OpenSSL dependency needed to build it.
+            # Conan Center's Boost 1.90/1.91 Cobalt metadata does not consistently
+            # match the boost_cobalt_io_ssl library produced by those releases.
             self.requires(
-                "boost/[>=1.81.0 <1.91.0]",
+                "boost/[>=1.81.0 <1.90.0]",
                 transitive_headers=True,
                 transitive_libs=True,
             )
