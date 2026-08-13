@@ -75,17 +75,20 @@ class fd_guard {
 
 class stdin_data {
  public:
-  explicit stdin_data(const std::string& data)
+  explicit stdin_data(const std::string& data, bool keep_open = false)
   {
     int fds[2] = {-1, -1};
     require_posix(pipe(fds) == 0, "pipe failed");
     m_read.reset(fds[0]);
-    fd_guard write_fd(fds[1]);
+    m_write.reset(fds[1]);
     std::size_t offset = 0;
     while (offset < data.size()) {
-      auto n = write(write_fd.get(), data.data() + offset, data.size() - offset);
+      auto n = write(m_write.get(), data.data() + offset, data.size() - offset);
       require_posix(n > 0, "write failed");
       offset += static_cast<std::size_t>(n);
+    }
+    if (!keep_open) {
+      m_write.reset();
     }
     m_saved.reset(dup(STDIN_FILENO));
     require_posix(m_saved.get() != -1, "dup failed");
@@ -111,6 +114,7 @@ class stdin_data {
  private:
   fd_guard m_saved;
   fd_guard m_read;
+  fd_guard m_write;
 };
 
 class terminal_stdin {
@@ -415,6 +419,77 @@ class fake_websocket_server {
 
         protobuf::Message close;
         close.mutable_close()->set_return_code(21);
+        write_message(ws, close);
+        boost::system::error_code error_code;
+        ws.close(websocket::close_code::normal, error_code);
+      }
+      catch (...) {
+        m_exception = std::current_exception();
+      }
+    });
+  }
+
+  void join()
+  {
+    if (m_thread.joinable()) {
+      m_thread.join();
+    }
+    if (m_exception) {
+      std::rethrow_exception(m_exception);
+    }
+  }
+
+ private:
+  boost::asio::io_context m_io_context;
+  tcp::acceptor m_acceptor;
+  std::thread m_thread;
+  std::exception_ptr m_exception;
+};
+
+class fake_early_exit_websocket_server {
+ public:
+  fake_early_exit_websocket_server()
+      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port()))
+  {
+  }
+
+  ~fake_early_exit_websocket_server()
+  {
+    join();
+  }
+
+  unsigned short port() const
+  {
+    return m_acceptor.local_endpoint().port();
+  }
+
+  void start()
+  {
+    m_thread = std::thread([this] {
+      try {
+        tcp::socket socket(m_io_context);
+        m_acceptor.accept(socket);
+        boost::beast::flat_buffer http_buffer;
+        http::request<http::string_body> request;
+        http::read(socket, http_buffer, request);
+        websocket::stream<tcp::socket> ws(std::move(socket));
+        ws.accept(request);
+
+        auto open = read_message(ws);
+        assert(open.payload_case() == protobuf::Message::PayloadCase::kOpen);
+        assert(open.open().config().options().interactive());
+        protobuf::Message ack;
+        ack.mutable_ack();
+        write_message(ws, ack);
+
+        auto input = read_message(ws);
+        assert(input.payload_case() == protobuf::Message::PayloadCase::kData);
+        assert(input.data().type() == protobuf::Data::TYPE_STDIN);
+        assert(input.data().data() == "accepted-input");
+        assert(!input.data().has_eos());
+
+        protobuf::Message close;
+        close.mutable_close()->set_return_code(0);
         write_message(ws, close);
         boost::system::error_code error_code;
         ws.close(websocket::close_code::normal, error_code);
@@ -777,6 +852,69 @@ static void check_websocket_client_e2e_sends_encrypted_stdin()
   assert(return_code == 23);
 }
 
+static void check_websocket_client_accepts_remote_exit_during_stdin_shutdown(bool keep_stdin_open)
+{
+  fake_early_exit_websocket_server server;
+  server.start();
+
+  stdin_data input("accepted-input", keep_stdin_open);
+  boost::asio::io_context io_context;
+  rstream::webtty::client::config config = {
+      .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
+      .m_websocket_target = std::string("/session"),
+      .m_protocol_config  = {
+          .m_protocol_type = rstream::webtty::protocol::type::websocket,
+          .m_options       = {
+              .m_interactive    = true,
+              .m_allocate_tty   = false,
+              .m_send_heartbeat = false,
+          },
+          .m_env_vars = {},
+          .m_cmd_args = {"/bin/sh", "-c", "unused"},
+          .m_workdir  = {},
+          .m_username = {},
+      },
+  };
+  rstream::webtty::settings_client settings = {
+      .m_common = {
+          .m_mtu         = 1024 * 1024,
+          .m_timeouts_ms = {
+              .m_open      = rstream::test::timeout_ms(5000),
+              .m_close     = rstream::test::timeout_ms(5000),
+              .m_heartbeat = 0,
+          },
+      },
+      .m_std_in_buffer_size = 64 * 1024,
+  };
+
+  std::error_code result;
+  int return_code = -1;
+  bool done       = false;
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  input.restore();
+  bool timed_out = false;
+  boost::asio::steady_timer deadline(io_context);
+  deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
+  deadline.async_wait([&](const std::error_code& error_code) {
+    if (!error_code && !done) {
+      timed_out = true;
+      client.cancel();
+    }
+  });
+  client.async_run([&](const std::error_code& error_code, int code) {
+    result      = error_code;
+    return_code = code;
+    done        = true;
+    deadline.cancel();
+  });
+  io_context.run();
+  server.join();
+  assert(done);
+  assert(!timed_out);
+  assert(!result);
+  assert(return_code == 0);
+}
+
 static void check_websocket_client_sends_terminal_size_when_tty_allocated()
 {
   fake_terminal_websocket_server server;
@@ -848,6 +986,8 @@ int main(int argc, char** argv)
   (void)argv;
   check_websocket_client_sends_open_stdin_eos_and_heartbeat();
   check_websocket_client_e2e_sends_encrypted_stdin();
+  check_websocket_client_accepts_remote_exit_during_stdin_shutdown(true);
+  check_websocket_client_accepts_remote_exit_during_stdin_shutdown(false);
   check_websocket_client_sends_terminal_size_when_tty_allocated();
   return 0;
 }

@@ -131,17 +131,20 @@ class fd_capture {
 
 class stdin_data {
  public:
-  explicit stdin_data(const std::string& data)
+  explicit stdin_data(const std::string& data, bool keep_open = false)
   {
     int fds[2] = {-1, -1};
     require_posix(pipe(fds) == 0, "pipe failed");
     m_read.reset(fds[0]);
-    fd_guard write_fd(fds[1]);
+    m_write.reset(fds[1]);
     std::size_t offset = 0;
     while (offset < data.size()) {
-      auto n = write(write_fd.get(), data.data() + offset, data.size() - offset);
+      auto n = write(m_write.get(), data.data() + offset, data.size() - offset);
       require_posix(n > 0, "write failed");
       offset += static_cast<std::size_t>(n);
+    }
+    if (!keep_open) {
+      m_write.reset();
     }
     m_saved.reset(dup(STDIN_FILENO));
     require_posix(m_saved.get() != -1, "dup failed");
@@ -167,6 +170,7 @@ class stdin_data {
  private:
   fd_guard m_saved;
   fd_guard m_read;
+  fd_guard m_write;
 };
 
 static unsigned short unused_tcp_port()
@@ -448,6 +452,69 @@ class fake_plain_server {
         write_message(socket, data_message(protobuf::Data::TYPE_STDERR, "client-stderr"));
         protobuf::Message close;
         close.mutable_close()->set_return_code(13);
+        write_message(socket, close);
+      }
+      catch (...) {
+        m_exception = std::current_exception();
+      }
+    });
+  }
+
+  void join()
+  {
+    if (m_thread.joinable()) {
+      m_thread.join();
+    }
+    if (m_exception) {
+      std::rethrow_exception(m_exception);
+    }
+  }
+
+ private:
+  boost::asio::io_context m_io_context;
+  tcp::acceptor m_acceptor;
+  std::thread m_thread;
+  std::exception_ptr m_exception;
+};
+
+class fake_early_exit_plain_server {
+ public:
+  fake_early_exit_plain_server()
+      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port()))
+  {
+  }
+
+  ~fake_early_exit_plain_server()
+  {
+    join();
+  }
+
+  unsigned short port() const
+  {
+    return m_acceptor.local_endpoint().port();
+  }
+
+  void start()
+  {
+    m_thread = std::thread([this] {
+      try {
+        tcp::socket socket(m_io_context);
+        m_acceptor.accept(socket);
+        auto open = read_message(socket);
+        assert(open.payload_case() == protobuf::Message::PayloadCase::kOpen);
+        assert(open.open().config().options().interactive());
+        protobuf::Message ack;
+        ack.mutable_ack();
+        write_message(socket, ack);
+
+        auto input = read_message(socket);
+        assert(input.payload_case() == protobuf::Message::PayloadCase::kData);
+        assert(input.data().type() == protobuf::Data::TYPE_STDIN);
+        assert(input.data().data() == "accepted-input");
+        assert(!input.data().has_eos());
+
+        protobuf::Message close;
+        close.mutable_close()->set_return_code(0);
         write_message(socket, close);
       }
       catch (...) {
@@ -900,6 +967,46 @@ static void check_plain_client_e2e_sends_stdin_and_processes_server_messages()
   assert(stderr_capture.read_all().find("e2e-client-stderr") != std::string::npos);
 }
 
+static void check_plain_client_accepts_remote_exit_during_stdin_shutdown(bool keep_stdin_open)
+{
+  fake_early_exit_plain_server server;
+  server.start();
+
+  stdin_data input("accepted-input", keep_stdin_open);
+  boost::asio::io_context io_context;
+  auto config                                      = plain_client_config(server.port());
+  config.m_protocol_config.m_options.m_interactive = true;
+  auto settings                                    = plain_client_settings();
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  input.restore();
+
+  std::error_code result;
+  int return_code = -1;
+  bool done       = false;
+  bool timed_out  = false;
+  boost::asio::steady_timer deadline(io_context);
+  deadline.expires_after(rstream::test::timeout(std::chrono::seconds(10)));
+  deadline.async_wait([&](const std::error_code& error_code) {
+    if (!error_code && !done) {
+      timed_out = true;
+      client.cancel();
+    }
+  });
+  client.async_run([&](const std::error_code& error_code, int code) {
+    result      = error_code;
+    return_code = code;
+    done        = true;
+    deadline.cancel();
+  });
+  io_context.run();
+  server.join();
+
+  assert(done);
+  assert(!timed_out);
+  assert(!result);
+  assert(return_code == 0);
+}
+
 static void check_plain_client_reports_server_error_during_open()
 {
   fake_error_server server;
@@ -1003,6 +1110,8 @@ int main(int argc, char** argv)
   (void)argv;
   check_plain_client_processes_server_messages();
   check_plain_client_e2e_sends_stdin_and_processes_server_messages();
+  check_plain_client_accepts_remote_exit_during_stdin_shutdown(true);
+  check_plain_client_accepts_remote_exit_during_stdin_shutdown(false);
   check_plain_client_reports_server_error_during_open();
   check_plain_client_rejects_invalid_payload_after_open();
   check_plain_client_rejects_stdin_from_server();

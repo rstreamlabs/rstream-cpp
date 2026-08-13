@@ -106,11 +106,11 @@ static bool read_error_or_eof(tcp::socket& socket)
   }
 }
 
-static protobuf::Message open_message(const std::vector<std::string>& cmd_args)
+static protobuf::Message open_message(const std::vector<std::string>& cmd_args, bool interactive = false)
 {
   protobuf::Message message;
   auto* config = message.mutable_open()->mutable_config();
-  config->mutable_options()->set_interactive(false);
+  config->mutable_options()->set_interactive(interactive);
   config->mutable_options()->set_allocate_tty(false);
   config->mutable_options()->set_send_heartbeat(false);
   for (const auto& arg : cmd_args) {
@@ -627,6 +627,35 @@ static void check_plain_server_forwards_stdin_to_child_process(unsigned short po
   assert(saw_stderr_eos);
 }
 
+static void check_plain_server_reports_child_exit_without_stdin_eos(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, port);
+  write_message(socket, open_message({"/bin/sh", "-c", "IFS= read -r line"}, true));
+
+  auto ack = read_message(socket);
+  assert(ack.payload_case() == protobuf::Message::PayloadCase::kAck);
+  write_message(socket, data_message(protobuf::Data::TYPE_STDIN, "accepted-input\n"));
+
+  bool saw_close = false;
+  while (!saw_close) {
+    auto message = read_message(socket);
+    switch (message.payload_case()) {
+      case protobuf::Message::PayloadCase::kData:
+      case protobuf::Message::PayloadCase::kHeartbeat:
+        break;
+      case protobuf::Message::PayloadCase::kClose:
+        assert(message.close().return_code() == 0);
+        saw_close = true;
+        break;
+      default:
+        std::cerr << "unexpected webtty message type: " << message.payload_case() << std::endl;
+        assert(false);
+        break;
+    }
+  }
+}
+
 static void check_plain_server_e2e_forwards_stdin_to_child_process()
 {
   std::error_code error_code;
@@ -972,6 +1001,7 @@ int main(int argc, char** argv)
   run_check("stdout and stderr streaming", [&server] { check_plain_server_runs_child_and_streams_stdout_stderr(server.port()); });
   run_check("tty environment and workdir", [&server] { check_plain_server_applies_tty_environment_and_workdir(server.port()); });
   run_check("stdin forwarding", [&server] { check_plain_server_forwards_stdin_to_child_process(server.port()); });
+  run_check("child exit before stdin EOS", [&server] { check_plain_server_reports_child_exit_without_stdin_eos(server.port()); });
   run_check("E2E stdin forwarding", check_plain_server_e2e_forwards_stdin_to_child_process);
   run_check("client credential verification", check_plain_server_e2e_accepts_client_credential_verifier);
   run_check("missing session key rejection", check_plain_server_e2e_rejects_missing_session_key_grant);

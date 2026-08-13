@@ -44,11 +44,11 @@ static unsigned short unused_tcp_port()
   return acceptor.local_endpoint().port();
 }
 
-static protobuf::Message open_message(const std::vector<std::string>& cmd_args)
+static protobuf::Message open_message(const std::vector<std::string>& cmd_args, bool interactive = false)
 {
   protobuf::Message message;
   auto* config = message.mutable_open()->mutable_config();
-  config->mutable_options()->set_interactive(false);
+  config->mutable_options()->set_interactive(interactive);
   config->mutable_options()->set_allocate_tty(false);
   config->mutable_options()->set_send_heartbeat(false);
   for (const auto& arg : cmd_args) {
@@ -187,6 +187,15 @@ static protobuf::Message encrypted_data_message(protobuf::Data::Type type, const
   auto* payload = message.mutable_data();
   payload->set_type(type);
   to_proto(*payload->mutable_encrypted_data(), encrypted);
+  return message;
+}
+
+static protobuf::Message data_message(protobuf::Data::Type type, const std::string& data)
+{
+  protobuf::Message message;
+  auto* payload = message.mutable_data();
+  payload->set_type(type);
+  payload->set_data(data);
   return message;
 }
 
@@ -591,6 +600,38 @@ static void check_websocket_server_runs_child_and_closes_normally(unsigned short
   assert(saw_stdout);
 }
 
+static void check_websocket_server_reports_child_exit_without_stdin_eos(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto websocket = connect_with_retry(io_context, port);
+  write_message(websocket, open_message({"/bin/sh", "-c", "IFS= read -r line"}, true));
+
+  auto ack = read_message(websocket);
+  assert(ack);
+  assert(ack->payload_case() == protobuf::Message::PayloadCase::kAck);
+  write_message(websocket, data_message(protobuf::Data::TYPE_STDIN, "accepted-input\n"));
+
+  bool saw_close = false;
+  while (!saw_close) {
+    auto maybe_message = read_message(websocket);
+    assert(maybe_message);
+    const auto& message = maybe_message.value();
+    switch (message.payload_case()) {
+      case protobuf::Message::PayloadCase::kData:
+      case protobuf::Message::PayloadCase::kHeartbeat:
+        break;
+      case protobuf::Message::PayloadCase::kClose:
+        assert(message.close().return_code() == 0);
+        saw_close = true;
+        break;
+      default:
+        std::cerr << "unexpected websocket webtty message type: " << message.payload_case() << std::endl;
+        assert(false);
+        break;
+    }
+  }
+}
+
 static void check_websocket_server_e2e_forwards_stdin_and_closes_normally()
 {
   std::error_code error_code;
@@ -882,6 +923,7 @@ int main(int argc, char** argv)
   websocket_webtty_server server;
   server.start();
   check_websocket_server_runs_child_and_closes_normally(server.port());
+  check_websocket_server_reports_child_exit_without_stdin_eos(server.port());
   check_websocket_server_e2e_forwards_stdin_and_closes_normally();
   check_websocket_server_e2e_accepts_client_credential_verifier();
   check_websocket_server_logs_audit_fields_for_authenticated_e2e_session();

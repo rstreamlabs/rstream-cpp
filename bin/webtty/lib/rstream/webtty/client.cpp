@@ -398,6 +398,8 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void on_cmd_complete(int code);
 
+  void finish_cmd_if_idle();
+
   void do_close_websocket(int code);
 
   void on_close_websocket(const std::error_code& error_code, int code);
@@ -495,6 +497,10 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   state_changed_signal_type m_state_changed_signal;
 
   boost::optional<rstream::webtty::protobuf::ServerHello> m_server_hello;
+
+  std::size_t m_pending_messages = 0;
+
+  boost::optional<int> m_remote_return_code;
 };
 
 client::client(const executor_type& executor, const config& config, const settings_client& settings)
@@ -965,11 +971,30 @@ void client::impl::on_cmd_complete(int code)
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  if ((m_state != state::connected && m_state != state::disconnecting) || m_remote_return_code) {
+    return;
+  }
+  if (m_state == state::connected) {
+    set_state(state::disconnecting);
+    arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
+  }
+  m_remote_return_code = code;
+  finish_cmd_if_idle();
+}
+
+void client::impl::finish_cmd_if_idle()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::disconnecting || !m_remote_return_code || m_pending_messages != 0) {
+    return;
+  }
   if (m_websocket) {
-    do_close_websocket(code);
+    do_close_websocket(m_remote_return_code.get());
   }
   else {
-    on_close(std::error_code(), code);
+    on_close(std::error_code(), m_remote_return_code.get());
   }
 }
 
@@ -1016,7 +1041,7 @@ void client::impl::do_read_std_in()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state != state::connected) {
     return;
   }
   auto completion_handler = std::bind(&impl::on_read_std_in, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
@@ -1028,7 +1053,7 @@ void client::impl::on_read_std_in(const std::error_code& error_code, std::size_t
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state != state::connected) {
     return;
   }
   bool eos = false;
@@ -1077,7 +1102,7 @@ void client::impl::do_wait_for_terminal_size()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state != state::connected) {
     return;
   }
 #ifdef _WIN32
@@ -1103,7 +1128,7 @@ void client::impl::on_terminal_size_signal(const std::error_code& error_code, in
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state != state::connected) {
     return;
   }
   auto cause = error_code;
@@ -1156,6 +1181,7 @@ void client::impl::do_send_message(const rstream::webtty::protobuf::Message& mes
     return;
   }
   auto completion_handler = std::bind(&impl::on_send_message, shared_from_this(), std::placeholders::_1, loop);
+  ++m_pending_messages;
   m_queue->async_send(buffer, boost::asio::bind_executor(m_strand, completion_handler));
 }
 
@@ -1164,11 +1190,16 @@ void client::impl::on_send_message(const std::error_code& error_code, enum loop 
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  assert(m_pending_messages != 0);
+  --m_pending_messages;
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
   if (error_code) {
     on_error(error_code);
+  }
+  else if (m_remote_return_code) {
+    finish_cmd_if_idle();
   }
   else {
     switch (loop) {
