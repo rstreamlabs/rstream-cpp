@@ -152,6 +152,14 @@ void invoke_completion_handler(const Executor& ctx, Handler&& handler, Args&&...
   boost::asio::post(ctx, invocation_type(ctx, std::forward<Handler>(handler), std::forward<Args>(args)...));
 }
 
+template <typename Executor, typename Handler, typename... Args>
+void dispatch_completion_handler(const Executor& ctx, Handler&& handler, Args&&... args)
+{
+  using invocation_type = detail::completion_invocation<std::decay_t<Executor>, std::decay_t<Handler>, std::decay_t<Args>...>;
+  const auto executor    = boost::asio::get_associated_executor(handler, ctx);
+  boost::asio::dispatch(executor, invocation_type(ctx, std::forward<Handler>(handler), std::forward<Args>(args)...));
+}
+
 }  // namespace core
 }  // namespace rstream
 

@@ -123,6 +123,8 @@ class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_
 
   void async_shutdown(async_shutdown_completion_handler&& handler);
 
+  void async_shutdown_send(async_shutdown_send_completion_handler&& handler);
+
   void async_connect(const endpoint& endpoint, async_connect_completion_handler&& handler);
 
   void async_write_some(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler);
@@ -143,6 +145,8 @@ class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_
 
   void async_shutdown_internal(async_shutdown_completion_handler&& handler);
 
+  void async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler);
+
   void async_connect_internal(const endpoint& endpoint, async_connect_completion_handler&& handler);
 
   void async_write_some_internal(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler);
@@ -153,6 +157,24 @@ class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_
 
   void async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler);
 #endif
+
+  template <typename Handler>
+  auto bind_ssl_handler(Handler&& handler)
+  {
+    auto completion_handler = rstream::core::bind_associated_handler(
+        std::forward<Handler>(handler),
+        [executor = m_next_layer->get_executor()](auto& associated_handler, auto&&... args) mutable {
+          rstream::core::dispatch_completion_handler(
+              executor,
+              std::move(associated_handler),
+              std::forward<decltype(args)>(args)...);
+        });
+#if SSL_STREAM_USE_STRAND == 1
+    return boost::asio::bind_executor(m_strand, std::move(completion_handler));
+#else
+    return completion_handler;
+#endif
+  }
 
   boost::asio::ssl::context make_ssl_context();
 
@@ -341,6 +363,11 @@ void stream_socket_ssl::async_read_some_internal(const mutable_buffer_sequence_t
   m_impl->async_read_some(buffer, std::move(handler));
 }
 
+void stream_socket_ssl::async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler)
+{
+  m_impl->async_shutdown_send(std::move(handler));
+}
+
 stream_socket_ssl::impl::impl(stream_socket_ptr next_layer, const ssl::config& config, type type, core::allocator::ptr allocator)
     :
 #if SSL_STREAM_USE_STRAND == 1
@@ -414,6 +441,13 @@ void stream_socket_ssl::impl::async_shutdown(async_shutdown_completion_handler&&
 #endif
 
 #if SSL_STREAM_USE_STRAND == 1
+void stream_socket_ssl::impl::async_shutdown_send(async_shutdown_send_completion_handler&& handler)
+{
+  boost::asio::dispatch(m_strand, std::bind_front(&impl::async_shutdown_send_internal, shared_from_this(), std::move(handler)));
+}
+#endif
+
+#if SSL_STREAM_USE_STRAND == 1
 void stream_socket_ssl::impl::async_connect(const endpoint& endpoint, async_connect_completion_handler&& handler)
 {
   boost::asio::dispatch(m_strand, std::bind_front(&impl::async_connect_internal, shared_from_this(), endpoint, std::move(handler)));
@@ -480,7 +514,7 @@ void stream_socket_ssl::impl::
 #endif
   m_ssl_stream.async_handshake(
       handshake_type,
-      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
+      bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
 }
 
 void stream_socket_ssl::impl::
@@ -496,8 +530,43 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  std::allocate_shared<async_shutdown_operation>(operation_allocator, shared_from_this(), std::forward<decltype(handler)>(handler))->run();
+  std::allocate_shared<async_shutdown_operation>(
+      core::allocator::wrapper<async_shutdown_operation>(m_allocator),
+      shared_from_this(),
+      std::forward<decltype(handler)>(handler))
+      ->run();
+}
+
+void stream_socket_ssl::impl::
+#if SSL_STREAM_USE_STRAND == 1
+    async_shutdown_send_internal
+#else
+    async_shutdown_send
+#endif
+    (async_shutdown_send_completion_handler&& handler)
+{
+#if SSL_STREAM_USE_STRAND == 1
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+#endif
+  auto* ssl                   = m_ssl_stream.native_handle();
+  const auto previous_state   = ::SSL_get_shutdown(ssl);
+  const auto previous_receive = previous_state & SSL_RECEIVED_SHUTDOWN;
+  if ((previous_state & SSL_SENT_SHUTDOWN) != 0) {
+    rstream::core::invoke_completion_handler(m_next_layer->get_executor(), std::move(handler), boost::system::error_code());
+    return;
+  }
+  ::SSL_set_shutdown(ssl, previous_state | SSL_RECEIVED_SHUTDOWN);
+  try {
+    m_ssl_stream.async_shutdown(bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
+  }
+  catch (...) {
+    ::SSL_set_shutdown(ssl, previous_state);
+    throw;
+  }
+  const auto shutdown_state = ::SSL_get_shutdown(ssl);
+  ::SSL_set_shutdown(ssl, (shutdown_state & ~SSL_RECEIVED_SHUTDOWN) | previous_receive);
 }
 
 void stream_socket_ssl::impl::
@@ -513,8 +582,12 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  std::allocate_shared<async_connect_operation>(operation_allocator, shared_from_this(), endpoint, std::forward<decltype(handler)>(handler))->run();
+  std::allocate_shared<async_connect_operation>(
+      core::allocator::wrapper<async_connect_operation>(m_allocator),
+      shared_from_this(),
+      endpoint,
+      std::forward<decltype(handler)>(handler))
+      ->run();
 }
 
 void stream_socket_ssl::impl::
@@ -532,7 +605,7 @@ void stream_socket_ssl::impl::
 #endif
   m_ssl_stream.async_write_some(
       buffer,
-      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
+      bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
 }
 
 void stream_socket_ssl::impl::
@@ -550,7 +623,7 @@ void stream_socket_ssl::impl::
 #endif
   m_ssl_stream.async_write_some(
       buffer,
-      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
+      bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
 }
 
 void stream_socket_ssl::impl::
@@ -568,7 +641,7 @@ void stream_socket_ssl::impl::
 #endif
   m_ssl_stream.async_read_some(
       buffer,
-      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
+      bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
 }
 
 void stream_socket_ssl::impl::
@@ -586,7 +659,7 @@ void stream_socket_ssl::impl::
 #endif
   m_ssl_stream.async_read_some(
       buffer,
-      rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler)));
+      bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
 }
 
 boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
@@ -1733,12 +1806,22 @@ void stream_socket_ssl::impl::async_connect_operation::do_connect()
     on_complete(error_code);
   }
   else {
-    m_ptr->m_next_layer->async_connect(m_endpoint, std::bind(&async_connect_operation::on_connect, shared_from_this(), std::placeholders::_1));
+    auto completion_handler = std::bind(&async_connect_operation::on_connect, shared_from_this(), std::placeholders::_1);
+#if SSL_STREAM_USE_STRAND == 1
+    m_ptr->m_next_layer->async_connect(m_endpoint, boost::asio::bind_executor(m_ptr->m_strand, std::move(completion_handler)));
+#else
+    m_ptr->m_next_layer->async_connect(m_endpoint, std::move(completion_handler));
+#endif
   }
 }
 
 void stream_socket_ssl::impl::async_connect_operation::on_connect(const boost::system::error_code& error_code)
 {
+#if SSL_STREAM_USE_STRAND == 1
+#ifdef DEBUG_BUILD
+  assert(m_ptr->m_strand.running_in_this_thread());
+#endif
+#endif
   if (error_code) {
     on_complete(error_code);
   }
@@ -1752,11 +1835,21 @@ void stream_socket_ssl::impl::async_connect_operation::do_handshake()
 #ifdef DEBUG_BUILD
   m_logger->trace("handshaking with SSL server...");
 #endif
-  m_ptr->async_handshake(std::bind(&async_connect_operation::on_handshake, shared_from_this(), std::placeholders::_1));
+  auto completion_handler = std::bind(&async_connect_operation::on_handshake, shared_from_this(), std::placeholders::_1);
+#if SSL_STREAM_USE_STRAND == 1
+  m_ptr->async_handshake(boost::asio::bind_executor(m_ptr->m_strand, std::move(completion_handler)));
+#else
+  m_ptr->async_handshake(std::move(completion_handler));
+#endif
 }
 
 void stream_socket_ssl::impl::async_connect_operation::on_handshake(const boost::system::error_code& error_code)
 {
+#if SSL_STREAM_USE_STRAND == 1
+#ifdef DEBUG_BUILD
+  assert(m_ptr->m_strand.running_in_this_thread());
+#endif
+#endif
 #ifdef DEBUG_BUILD
   m_logger->trace("handshake with SSL server completed [error_code: {}]", (error_code ? error_code.message() : "none"));
 #endif

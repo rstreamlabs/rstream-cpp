@@ -15,6 +15,7 @@
 #include <boost/asio/associated_cancellation_slot.hpp>
 #include <boost/asio/associated_executor.hpp>
 #include <boost/asio/async_result.hpp>
+#include <boost/asio/bind_allocator.hpp>
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/deferred.hpp>
@@ -25,6 +26,54 @@
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/io/error.hpp>
 #include <rstream/io/queue.hpp>
+
+struct allocator_state {
+  std::atomic_size_t m_allocations   = 0;
+  std::atomic_size_t m_deallocations = 0;
+};
+
+template <typename T>
+class stateful_allocator {
+ public:
+  using value_type = T;
+
+  explicit stateful_allocator(std::shared_ptr<allocator_state> state)
+      : m_state(std::move(state))
+  {
+  }
+
+  template <typename U>
+  stateful_allocator(const stateful_allocator<U>& other)
+      : m_state(other.state())
+  {
+  }
+
+  T* allocate(std::size_t count)
+  {
+    ++m_state->m_allocations;
+    return std::allocator<T>().allocate(count);
+  }
+
+  void deallocate(T* pointer, std::size_t count)
+  {
+    ++m_state->m_deallocations;
+    std::allocator<T>().deallocate(pointer, count);
+  }
+
+  const std::shared_ptr<allocator_state>& state() const
+  {
+    return m_state;
+  }
+
+  template <typename U>
+  bool operator==(const stateful_allocator<U>& other) const
+  {
+    return m_state == other.state();
+  }
+
+ private:
+  std::shared_ptr<allocator_state> m_state;
+};
 
 class controlled_transport {
  public:
@@ -446,6 +495,23 @@ static void check_deferred_operations_are_lazy()
   assert(cancel_calls == 1);
 }
 
+static void check_abandoned_type_erased_operations_are_safe()
+{
+  auto allocation = std::make_shared<allocator_state>();
+  {
+    boost::asio::io_context io_context;
+    controlled_transport transport(io_context.get_executor());
+    rstream::io::queue<controlled_transport&> queue(transport);
+    queue.async_send(
+        make_buffer(1),
+        boost::asio::bind_allocator(stateful_allocator<std::byte>(allocation), [](const boost::system::error_code&) {}));
+    queue.async_cancel(
+        boost::asio::bind_allocator(stateful_allocator<std::byte>(allocation), [](const boost::system::error_code&) {}));
+  }
+  assert(allocation->m_allocations > 0);
+  assert(allocation->m_allocations == allocation->m_deallocations);
+}
+
 int main()
 {
   check_owned_move_only_transport();
@@ -457,5 +523,6 @@ int main()
   check_async_cancel_waits_for_active_send();
   check_async_cancel_supports_multiple_waiters();
   check_deferred_operations_are_lazy();
+  check_abandoned_type_erased_operations_are_safe();
   return 0;
 }

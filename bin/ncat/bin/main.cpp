@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
@@ -48,9 +49,26 @@ options:
 
 const auto version = std::string("rstream-ncat ") + RSTREAM_VERSION;
 
+static std::vector<std::string> normalize_cli_arguments(int argc, char** argv)
+{
+  std::vector<std::string> result;
+  for (int index = 1; index < argc; ++index) {
+    std::string argument = argv[index];
+    if (argument.starts_with("-c=") || argument.starts_with("-e=")) {
+      result.emplace_back(argument.substr(0, 2));
+      result.emplace_back(argument.substr(3));
+    }
+    else {
+      result.emplace_back(std::move(argument));
+    }
+  }
+  return result;
+}
+
 int run(int argc, char** argv)
 {
-  auto args    = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
+  auto cli_args = normalize_cli_arguments(argc, argv);
+  auto args     = docopt::docopt(USAGE, cli_args, true, version);
   bool verbose = false;
   {
     auto it = args.find("--verbose");

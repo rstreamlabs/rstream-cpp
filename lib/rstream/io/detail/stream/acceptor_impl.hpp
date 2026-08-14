@@ -211,9 +211,7 @@ native_endpoint_type acceptor_impl<native_acceptor_type, native_socket_type, nat
 template <typename native_acceptor_type, typename native_socket_type, typename native_endpoint_type>
 void acceptor_impl<native_acceptor_type, native_socket_type, native_endpoint_type>::async_accept_internal(stream_socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler)
 {
-  const auto allocator = boost::asio::get_associated_allocator(handler);
-  std::allocate_shared<async_accept_operation>(
-      allocator,
+  std::make_shared<async_accept_operation>(
       std::enable_shared_from_this<acceptor_impl>::shared_from_this(),
       peer, endpoint, m_url, std::move(handler))
       ->run();

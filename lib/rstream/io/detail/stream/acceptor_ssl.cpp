@@ -211,12 +211,11 @@ endpoint acceptor_ssl::impl::local_endpoint(boost::system::error_code& error_cod
 
 void acceptor_ssl::impl::async_accept(stream_socket& peer, endpoint& endpoint, async_accept_completion_handler&& handler)
 {
-  const auto allocator = boost::asio::get_associated_allocator(handler);
-  auto self            = shared_from_this();
+  auto self = shared_from_this();
   boost::asio::dispatch(
       m_strand,
       boost::asio::bind_allocator(
-          allocator,
+          core::allocator::wrapper<char>(m_allocator),
           [self = std::move(self), peer = &peer, endpoint = &endpoint, handler = std::move(handler)]() mutable {
             self->async_accept_internal(*peer, *endpoint, std::move(handler));
           }));
@@ -261,8 +260,8 @@ void acceptor_ssl::impl::async_accept_internal(stream_socket& peer, endpoint& en
       it = m_async_accept_upstream_ops.erase(it);
     }
     else {
-      const auto allocator         = boost::asio::get_associated_allocator(handler);
-      m_async_accept_downstream_op = std::allocate_shared<async_accept_downstream_op_type>(allocator, peer, endpoint, std::move(handler));
+      m_async_accept_downstream_op = std::allocate_shared<async_accept_downstream_op_type>(
+          core::allocator::wrapper<async_accept_downstream_op_type>(m_allocator), peer, endpoint, std::move(handler));
       do_accept();
     }
   }

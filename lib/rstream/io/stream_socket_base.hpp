@@ -48,7 +48,29 @@ class stream_socket_base_interface {
         buffers);
   }
 
+  using async_shutdown_send_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&)>;
+  template <typename shutdown_handler>
+  auto async_shutdown_send(BOOST_ASIO_MOVE_ARG(shutdown_handler) handler)
+  {
+    return boost::asio::async_initiate<shutdown_handler, void(const boost::system::error_code&)>(
+        async_shutdown_send_op(*this), handler);
+  }
+
  private:
+  struct async_shutdown_send_op {
+    async_shutdown_send_op(stream_socket_base_interface& socket)
+        : m_socket(socket)
+    {
+    }
+    template <typename shutdown_handler>
+    void operator()(BOOST_ASIO_MOVE_ARG(shutdown_handler) handler)
+    {
+      auto executor = boost::asio::get_associated_executor(handler, m_socket.m_executor);
+      m_socket.async_shutdown_send_internal(boost::asio::bind_executor(executor, std::forward<decltype(handler)>(handler)));
+    }
+    stream_socket_base_interface& m_socket;
+  };
+
   template <typename const_buffer_sequence>
   struct async_write_some_op {
     async_write_some_op(stream_socket_base_interface& socket)
@@ -128,6 +150,8 @@ class stream_socket_base_interface {
   virtual void async_read_some_internal(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler) = 0;
 
   virtual void async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler) = 0;
+
+  virtual void async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler) = 0;
 
   io_object::executor_type m_executor;
 };

@@ -455,9 +455,18 @@ void client::impl::on_read_std_in(const boost::system::error_code& error_code, s
   }
   else if (eos) {
     m_std_in_eos = true;
-#ifndef RSTREAM_WITH_IO_STREAMS
-    boost::system::error_code tmp;
-    m_socket.shutdown(boost::asio::socket_base::shutdown_send, tmp);
+#ifdef RSTREAM_WITH_IO_STREAMS
+    m_socket.async_shutdown_send(boost::asio::bind_executor(m_strand, [self = shared_from_this()](const boost::system::error_code& shutdown_error) {
+      if (self->m_state == state::connected && shutdown_error && !core::helpers::is_eof_error(shutdown_error)) {
+        self->on_error(shutdown_error);
+      }
+    }));
+#else
+    boost::system::error_code shutdown_error;
+    m_socket.shutdown(boost::asio::socket_base::shutdown_send, shutdown_error);
+    if (shutdown_error) {
+      on_error(shutdown_error);
+    }
 #endif
   }
   else {

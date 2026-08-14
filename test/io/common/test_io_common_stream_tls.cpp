@@ -5,10 +5,12 @@
 #include <cassert>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -16,6 +18,7 @@
 #include <vector>
 
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
@@ -198,6 +201,11 @@ class fake_stream_socket : public rstream::io::detail::stream::stream_socket_int
   void async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler) override
   {
     rstream::core::invoke_completion_handler(get_executor(), std::move(handler), boost::asio::error::would_block, boost::asio::buffer_size(buffer));
+  }
+
+  void async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler) override
+  {
+    rstream::core::invoke_completion_handler(get_executor(), std::move(handler), boost::system::error_code());
   }
 
   endpoint_type m_endpoint;
@@ -636,6 +644,224 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   assert(server_sequence_sent);
 }
 
+class tls_half_close_exchange : public std::enable_shared_from_this<tls_half_close_exchange> {
+ public:
+  tls_half_close_exchange(rstream::io::stream::stream_socket& client, rstream::io::stream::stream_socket& server)
+      : m_client(client),
+        m_server(server),
+        m_payload(1024 * 1024, '\0'),
+        m_response("response-after-client-eof"),
+        m_client_response(m_response.size(), '\0')
+  {
+    for (std::size_t i = 0; i < m_payload.size(); ++i) {
+      m_payload[i] = static_cast<char>((i * 31U + 17U) % 251U);
+    }
+  }
+
+  void run()
+  {
+    read_server();
+    boost::asio::async_read(
+        m_client,
+        boost::asio::buffer(m_client_response),
+        [self = shared_from_this()](const boost::system::error_code& error_code, std::size_t size) {
+          self->m_client_read_error = error_code;
+          self->m_client_read_size  = size;
+          self->m_client_read_done  = true;
+          self->mark_completed(g_client_read_completed);
+        });
+    boost::asio::async_write(
+        m_client,
+        boost::asio::buffer(m_payload),
+        [self = shared_from_this()](const boost::system::error_code& error_code, std::size_t size) {
+          self->m_client_write_error = error_code;
+          self->m_client_write_size  = size;
+          self->m_client_write_done  = true;
+          self->mark_completed(g_client_write_completed);
+          self->m_client.async_shutdown_send(
+              [self](const boost::system::error_code& shutdown_error) {
+                self->on_shutdown_send(shutdown_error);
+              });
+        });
+  }
+
+  bool completed() const
+  {
+    return m_completion_mask.load(std::memory_order_acquire) == g_all_completed;
+  }
+
+  bool wait_for_completion(std::chrono::milliseconds timeout)
+  {
+    std::unique_lock lock(m_completion_mutex);
+    return m_completion_condition.wait_for(lock, timeout, [this] { return completed(); });
+  }
+
+  void assert_success() const
+  {
+    assert(!m_client_write_error);
+    assert(m_client_write_size == m_payload.size());
+    assert(m_server_read_error == boost::asio::error::eof);
+    assert(m_server_payload == m_payload);
+    assert(!m_server_write_error);
+    assert(m_server_write_size == m_response.size());
+    assert(!m_client_read_error);
+    assert(m_client_read_size == m_response.size());
+    assert(m_client_response == m_response);
+    assert(!m_first_shutdown_error);
+    assert(!m_second_shutdown_error);
+    assert(m_shutdown_count == 2);
+  }
+
+ private:
+  void read_server()
+  {
+    m_server.async_read_some(
+        boost::asio::buffer(m_server_buffer),
+        [self = shared_from_this()](const boost::system::error_code& error_code, std::size_t size) {
+          self->m_server_payload.append(self->m_server_buffer.data(), size);
+          if (!error_code) {
+            self->read_server();
+            return;
+          }
+          self->m_server_read_error = error_code;
+          self->m_server_read_done  = true;
+          self->mark_completed(g_server_read_completed);
+          if (error_code == boost::asio::error::eof) {
+            boost::asio::async_write(
+                self->m_server,
+                boost::asio::buffer(self->m_response),
+                [self](const boost::system::error_code& write_error, std::size_t write_size) {
+                  self->m_server_write_error = write_error;
+                  self->m_server_write_size  = write_size;
+                  self->m_server_write_done  = true;
+                  self->mark_completed(g_server_write_completed);
+                });
+          }
+          else {
+            self->m_server_write_done = true;
+            self->mark_completed(g_server_write_completed);
+          }
+        });
+  }
+
+  void on_shutdown_send(const boost::system::error_code& error_code)
+  {
+    ++m_shutdown_count;
+    if (m_shutdown_count == 1) {
+      m_first_shutdown_error = error_code;
+      m_client.async_shutdown_send(
+          [self = shared_from_this()](const boost::system::error_code& repeated_error) {
+            self->on_shutdown_send(repeated_error);
+          });
+    }
+    else {
+      m_second_shutdown_error = error_code;
+      mark_completed(g_shutdown_completed);
+    }
+  }
+
+  void mark_completed(unsigned int bit)
+  {
+    const auto previous = m_completion_mask.fetch_or(bit, std::memory_order_acq_rel);
+    assert((previous & bit) == 0);
+    if ((previous | bit) == g_all_completed) {
+      std::lock_guard lock(m_completion_mutex);
+      m_completion_condition.notify_all();
+    }
+  }
+
+  static constexpr unsigned int g_client_write_completed = 1U << 0U;
+  static constexpr unsigned int g_shutdown_completed     = 1U << 1U;
+  static constexpr unsigned int g_server_read_completed  = 1U << 2U;
+  static constexpr unsigned int g_server_write_completed = 1U << 3U;
+  static constexpr unsigned int g_client_read_completed  = 1U << 4U;
+  static constexpr unsigned int g_all_completed          = g_client_write_completed | g_shutdown_completed | g_server_read_completed | g_server_write_completed | g_client_read_completed;
+
+  rstream::io::stream::stream_socket& m_client;
+  rstream::io::stream::stream_socket& m_server;
+  std::string m_payload;
+  std::string m_response;
+  std::string m_client_response;
+  std::string m_server_payload;
+  std::array<char, 32 * 1024> m_server_buffer{};
+  boost::system::error_code m_client_write_error;
+  boost::system::error_code m_server_read_error;
+  boost::system::error_code m_server_write_error;
+  boost::system::error_code m_client_read_error;
+  boost::system::error_code m_first_shutdown_error;
+  boost::system::error_code m_second_shutdown_error;
+  std::size_t m_client_write_size = 0;
+  std::size_t m_server_write_size = 0;
+  std::size_t m_client_read_size  = 0;
+  unsigned int m_shutdown_count   = 0;
+  std::atomic_uint m_completion_mask = 0;
+  std::mutex m_completion_mutex;
+  std::condition_variable m_completion_condition;
+  bool m_client_write_done        = false;
+  bool m_server_read_done         = false;
+  bool m_server_write_done        = false;
+  bool m_client_read_done         = false;
+};
+
+static void check_tls_half_close_preserves_receive_direction()
+{
+  certificate_files files;
+  boost::asio::io_context io_context;
+  const auto port            = unused_tcp_port();
+  const auto server_endpoint = resolve_one(
+      io_context,
+      "tcp://127.0.0.1:" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()
+          + "&ssl.key_file=" + files.key_file()
+          + "&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.async_shutdown_timeout_ms=0");
+  const auto client_endpoint = resolve_one(
+      io_context,
+      "tcp://127.0.0.1:" + std::to_string(port)
+          + "?ssl&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.sni=localhost&ssl.async_shutdown_timeout_ms=0");
+  rstream::io::stream::acceptor acceptor(io_context.get_executor());
+  boost::system::error_code error_code;
+  acceptor.open(server_endpoint, error_code);
+  assert(!error_code);
+  acceptor.bind(server_endpoint, error_code);
+  assert(!error_code);
+  acceptor.listen(boost::asio::socket_base::max_listen_connections, error_code);
+  assert(!error_code);
+  rstream::io::stream::stream_socket server(io_context.get_executor());
+  rstream::io::stream::stream_socket client(io_context.get_executor());
+  rstream::io::stream::endpoint remote_endpoint;
+  bool accepted  = false;
+  bool connected = false;
+  acceptor.async_accept(server, remote_endpoint, [&](const boost::system::error_code& error) {
+    assert(!error);
+    accepted = true;
+  });
+  client.async_connect(client_endpoint, [&](const boost::system::error_code& error) {
+    assert(!error);
+    connected = true;
+  });
+  run_until(io_context, [&] { return accepted && connected; });
+  auto exchange = std::make_shared<tls_half_close_exchange>(client, server);
+  exchange->run();
+  auto work = boost::asio::make_work_guard(io_context);
+  std::array<std::thread, 4> workers;
+  for (auto& worker : workers) {
+    worker = std::thread([&] { io_context.run(); });
+  }
+  const auto completed = exchange->wait_for_completion(std::chrono::seconds(10));
+  boost::system::error_code ignored;
+  client.close(ignored);
+  server.close(ignored);
+  acceptor.close(ignored);
+  work.reset();
+  if (!completed) {
+    io_context.stop();
+  }
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  assert(completed);
+  exchange->assert_success();
+}
+
 static void check_tls_shutdown_timeout_is_serialized()
 {
   certificate_files files;
@@ -825,6 +1051,7 @@ int main(int argc, char** argv)
   check_tls_config_errors();
   check_direct_tls_context_configuration();
   check_tls_accept_connect_and_transfer();
+  check_tls_half_close_preserves_receive_direction();
   check_tls_shutdown_timeout_is_serialized();
   check_tls_accept_preserves_peer_executor();
   check_tls_peer_verification_checks_hostname();

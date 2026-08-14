@@ -103,7 +103,11 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
   rstream::test::connect_stream_pair(*socket_a, *socket_b);
   test_stream stream(*socket_a, true);
   rstream::io_rstrm::config config;
+#ifdef RSTREAM_WITH_IO_STREAMS
   config.m_token     = "secret-token";
+#else
+  config.m_no_token  = true;
+#endif
   config.m_zero_rtt  = true;
   bool client_called = false;
   bool server_called = false;
@@ -123,8 +127,12 @@ static void check_zero_rtt_stream_request_does_not_wait_for_response()
     assert(message.stream_req().tunnel_id_name() == "api");
     assert(message.stream_req().has_zero_rtt());
     assert(message.stream_req().zero_rtt().value());
+#ifdef RSTREAM_WITH_IO_STREAMS
     assert(message.stream_req().client_details().has_token());
     assert(message.stream_req().client_details().token().value() == "secret-token");
+#else
+    assert(!message.stream_req().client_details().has_token());
+#endif
     server_called = true;
     socket->close();
     co_return; }, boost::asio::detached);
@@ -256,6 +264,7 @@ static void check_proxy_success_response_completes()
   assert(server_called);
 }
 
+#ifdef RSTREAM_WITH_IO_STREAMS
 static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
 {
   boost::asio::io_context io_context;
@@ -293,6 +302,7 @@ static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
   assert(client_called);
   assert(server_called);
 }
+#endif
 
 static void check_unexpected_response_type_is_rejected()
 {
@@ -429,7 +439,9 @@ int main(int argc, char** argv)
   check_stream_response_error_is_mapped();
   check_stream_success_response_completes();
   check_proxy_success_response_completes();
+#ifdef RSTREAM_WITH_IO_STREAMS
   check_proxy_secret_is_allowed_with_mtls_agent_auth();
+#endif
   check_unexpected_response_type_is_rejected();
   check_invalid_protobuf_response_is_rejected();
   check_cancellation_reaches_the_transport();
