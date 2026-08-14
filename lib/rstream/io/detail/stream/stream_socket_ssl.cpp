@@ -558,15 +558,31 @@ void stream_socket_ssl::impl::
     return;
   }
   ::SSL_set_shutdown(ssl, previous_state | SSL_RECEIVED_SHUTDOWN);
+  auto completion_handler = rstream::core::bind_associated_handler(
+      std::move(handler),
+      [self = shared_from_this(), previous_receive, executor = m_next_layer->get_executor()](auto& associated_handler, const boost::system::error_code& error_code) mutable {
+#if SSL_STREAM_USE_STRAND == 1
+#ifdef DEBUG_BUILD
+        assert(self->m_strand.running_in_this_thread());
+#endif
+#endif
+        auto* native_ssl          = self->m_ssl_stream.native_handle();
+        const auto shutdown_state = ::SSL_get_shutdown(native_ssl);
+        ::SSL_set_shutdown(native_ssl, (shutdown_state & ~SSL_RECEIVED_SHUTDOWN) | previous_receive);
+        rstream::core::dispatch_completion_handler(executor, std::move(associated_handler), error_code);
+      });
+  auto lifetime_handler = rstream::core::bind_handler_lifetime(shared_from_this(), std::move(completion_handler));
   try {
-    m_ssl_stream.async_shutdown(bind_ssl_handler(rstream::core::bind_handler_lifetime(shared_from_this(), std::move(handler))));
+#if SSL_STREAM_USE_STRAND == 1
+    m_ssl_stream.async_shutdown(boost::asio::bind_executor(m_strand, std::move(lifetime_handler)));
+#else
+    m_ssl_stream.async_shutdown(std::move(lifetime_handler));
+#endif
   }
   catch (...) {
     ::SSL_set_shutdown(ssl, previous_state);
     throw;
   }
-  const auto shutdown_state = ::SSL_get_shutdown(ssl);
-  ::SSL_set_shutdown(ssl, (shutdown_state & ~SSL_RECEIVED_SHUTDOWN) | previous_receive);
 }
 
 void stream_socket_ssl::impl::
