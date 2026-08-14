@@ -191,6 +191,15 @@ static protobuf::Message open_control_response()
   return response;
 }
 
+static protobuf::Message open_control_liveness_response(std::uint32_t heartbeat_interval_ms, std::uint32_t heartbeat_timeout_ms)
+{
+  auto response = open_control_response();
+  auto* liveness = response.mutable_open_control_channel_rsp()->mutable_ok()->mutable_liveness();
+  liveness->set_heartbeat_interval_ms(heartbeat_interval_ms);
+  liveness->set_heartbeat_timeout_ms(heartbeat_timeout_ms);
+  return response;
+}
+
 static protobuf::Message open_tunnel_response(const protobuf::OpenTunnelReq& request)
 {
   protobuf::Message response;
@@ -1096,6 +1105,8 @@ static void check_client_heartbeat_and_unexpected_close_response()
 
     auto heartbeat = read_message(socket);
     assert(heartbeat.has_heartbeat());
+    assert(heartbeat.heartbeat().sequence() == 0);
+    assert(heartbeat.heartbeat().acknowledgement() == 0);
     write_message(socket, close_control_response());
     wait_for_peer_close(socket);
   });
@@ -1104,7 +1115,7 @@ static void check_client_heartbeat_and_unexpected_close_response()
   rstream::io_rstrm::config_client config;
   config.m_no_token              = true;
   config.m_hearbeat              = true;
-  config.m_heartbeat_interval_ms = 1;
+  config.m_heartbeat_interval_ms = 1000;
   config.m_connection_timeout_ms = kControlChannelTimeoutMs;
   rstream::io_rstrm::client client(io_context.get_executor(), config);
 
@@ -1133,6 +1144,325 @@ static void check_client_heartbeat_and_unexpected_close_response()
   assert(!test_watchdog.timed_out());
   assert(connected);
   assert(disconnected);
+}
+
+static void check_client_negotiates_liveness_and_accepts_delayed_acknowledgement()
+{
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    const auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing control channel request");
+    const auto& request = open_request.open_control_channel_req();
+    check(request.has_liveness(), "control channel request did not advertise liveness");
+    check(request.liveness().heartbeat_interval_ms() == 1000, "control channel request advertised the wrong heartbeat interval");
+    check(request.liveness().heartbeat_timeout_ms() == 0, "control channel request selected its own timeout");
+    write_message(socket, open_control_liveness_response(1000, 1000));
+    const auto heartbeat = read_message(socket);
+    check(heartbeat.has_heartbeat(), "client did not send a negotiated heartbeat");
+    check(heartbeat.heartbeat().sequence() == 1, "negotiated heartbeat sequence is invalid");
+    check(heartbeat.heartbeat().acknowledgement() == 0, "client sent a heartbeat acknowledgement");
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    protobuf::Message acknowledgement;
+    acknowledgement.mutable_heartbeat()->set_acknowledgement(heartbeat.heartbeat().sequence());
+    write_message(socket, acknowledgement);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    write_message(socket, close_control_response());
+    wait_for_peer_close(socket);
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = true;
+  config.m_heartbeat_interval_ms = 1000;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool connected    = false;
+  bool disconnected = false;
+  watchdog test_watchdog(io_context);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  callbacks.m_on_disconnection_cb = [&](const boost::system::error_code& error_code) {
+    check(error_code == rstream::io_rstrm::error::code::server_error, "delayed heartbeat acknowledgement did not preserve the connection");
+    disconnected = true;
+  };
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install liveness callback");
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    check(!error_code, "client failed to connect with negotiated liveness");
+    connected = true;
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "negotiated liveness check timed out");
+  check(connected, "client did not connect with negotiated liveness");
+  check(disconnected, "client did not process the post-acknowledgement close response");
+}
+
+static void check_client_expires_missing_liveness_acknowledgement()
+{
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    const auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing control channel request");
+    check(open_request.open_control_channel_req().has_liveness(), "control channel request did not advertise liveness");
+    write_message(socket, open_control_liveness_response(1000, 1000));
+    const auto heartbeat = read_message(socket);
+    check(heartbeat.has_heartbeat() && heartbeat.heartbeat().sequence() == 1, "client did not send the first negotiated heartbeat");
+    wait_for_peer_close(socket);
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = true;
+  config.m_heartbeat_interval_ms = 1000;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool connected    = false;
+  bool disconnected = false;
+  watchdog test_watchdog(io_context);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  callbacks.m_on_disconnection_cb = [&](const boost::system::error_code& error_code) {
+    check(error_code == rstream::io_rstrm::error::code::operation_timeout, "missing heartbeat acknowledgement returned the wrong error");
+    disconnected = true;
+  };
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install liveness callback");
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    check(!error_code, "client failed to connect with negotiated liveness");
+    connected = true;
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "missing liveness acknowledgement check timed out");
+  check(connected, "client did not connect before liveness expiry");
+  check(disconnected, "client remained connected without heartbeat acknowledgements");
+}
+
+static void check_client_tolerates_intermittent_heartbeat_loss()
+{
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    const auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing control channel request");
+    check(open_request.open_control_channel_req().has_liveness(), "control channel request did not advertise liveness");
+    write_message(socket, open_control_liveness_response(1000, 2500));
+    for (std::uint64_t sequence = 1; sequence <= 4; ++sequence) {
+      const auto heartbeat = read_message(socket);
+      check(heartbeat.has_heartbeat(), "client did not send a negotiated heartbeat");
+      check(heartbeat.heartbeat().sequence() == sequence, "negotiated heartbeat sequence is invalid");
+      if (sequence % 2 == 0) {
+        protobuf::Message acknowledgement;
+        acknowledgement.mutable_heartbeat()->set_acknowledgement(sequence);
+        write_message(socket, acknowledgement);
+      }
+    }
+    write_message(socket, close_control_response());
+    wait_for_peer_close(socket);
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = true;
+  config.m_heartbeat_interval_ms = 1000;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool connected    = false;
+  bool disconnected = false;
+  watchdog test_watchdog(io_context);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  callbacks.m_on_disconnection_cb = [&](const boost::system::error_code& error_code) {
+    check(error_code == rstream::io_rstrm::error::code::server_error, "intermittent heartbeat loss closed the connection before recovery");
+    disconnected = true;
+  };
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install liveness callback");
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    check(!error_code, "client failed to connect with negotiated liveness");
+    connected = true;
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "intermittent liveness check timed out");
+  check(connected, "client did not connect before intermittent heartbeat loss");
+  check(disconnected, "client did not process the post-recovery close response");
+}
+
+static void check_client_rejects_invalid_liveness_acknowledgement()
+{
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    const auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing control channel request");
+    check(open_request.open_control_channel_req().has_liveness(), "control channel request did not advertise liveness");
+    write_message(socket, open_control_liveness_response(1000, 60000));
+    const auto heartbeat = read_message(socket);
+    check(heartbeat.has_heartbeat() && heartbeat.heartbeat().sequence() == 1, "client did not send the first negotiated heartbeat");
+    protobuf::Message acknowledgement;
+    acknowledgement.mutable_heartbeat()->set_acknowledgement(heartbeat.heartbeat().sequence() + 1);
+    write_message(socket, acknowledgement);
+    wait_for_peer_close(socket);
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = true;
+  config.m_heartbeat_interval_ms = 1000;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool connected    = false;
+  bool disconnected = false;
+  watchdog test_watchdog(io_context);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  callbacks.m_on_disconnection_cb = [&](const boost::system::error_code& error_code) {
+    check(error_code == rstream::io_rstrm::error::code::protocol_error, "invalid heartbeat acknowledgement returned the wrong error");
+    disconnected = true;
+  };
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install liveness callback");
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    check(!error_code, "client failed to connect with negotiated liveness");
+    connected = true;
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "invalid liveness acknowledgement check timed out");
+  check(connected, "client did not connect before invalid acknowledgement");
+  check(disconnected, "client accepted an invalid heartbeat acknowledgement");
+}
+
+static void check_client_rejects_replayed_liveness_acknowledgement()
+{
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    const auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing control channel request");
+    write_message(socket, open_control_liveness_response(1000, 60000));
+    const auto heartbeat = read_message(socket);
+    check(heartbeat.has_heartbeat() && heartbeat.heartbeat().sequence() == 1, "client did not send the first negotiated heartbeat");
+    protobuf::Message acknowledgement;
+    acknowledgement.mutable_heartbeat()->set_acknowledgement(heartbeat.heartbeat().sequence());
+    write_message(socket, acknowledgement);
+    write_message(socket, acknowledgement);
+    wait_for_peer_close(socket);
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = true;
+  config.m_heartbeat_interval_ms = 1000;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool connected    = false;
+  bool disconnected = false;
+  watchdog test_watchdog(io_context);
+  rstream::io_rstrm::client::control_callbacks callbacks;
+  callbacks.m_on_disconnection_cb = [&](const boost::system::error_code& error_code) {
+    check(error_code == rstream::io_rstrm::error::code::protocol_error, "replayed heartbeat acknowledgement returned the wrong error");
+    disconnected = true;
+  };
+  boost::system::error_code callback_error;
+  client.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install liveness callback");
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    check(!error_code, "client failed to connect with negotiated liveness");
+    connected = true;
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "replayed liveness acknowledgement check timed out");
+  check(connected, "client did not connect before replayed acknowledgement");
+  check(disconnected, "client accepted a replayed heartbeat acknowledgement");
+}
+
+static void check_client_rejects_invalid_liveness_configuration()
+{
+  for (const auto interval : {999U, 300001U}) {
+    fake_engine engine;
+    engine.start([](tcp::socket& socket) { wait_for_peer_close(socket); });
+    boost::asio::io_context io_context;
+    rstream::io_rstrm::config_client config;
+    config.m_no_token              = true;
+    config.m_hearbeat              = true;
+    config.m_heartbeat_interval_ms = interval;
+    config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+    rstream::io_rstrm::client client(io_context.get_executor(), config);
+    bool completed = false;
+    watchdog test_watchdog(io_context);
+    client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+      check(error_code == rstream::io_rstrm::error::code::invalid_configuration, "invalid heartbeat interval returned the wrong error");
+      completed = true;
+    });
+    io_context.run();
+    test_watchdog.complete();
+    engine.join();
+    check(!test_watchdog.timed_out(), "invalid heartbeat interval check timed out");
+    check(completed, "invalid heartbeat interval did not complete");
+  }
+}
+
+static void check_client_rejects_invalid_server_liveness_policy()
+{
+  const std::array<std::pair<std::uint32_t, std::uint32_t>, 3> policies = {{{2000, 60000}, {1000, 999}, {1000, 900001}}};
+  for (const auto& policy : policies) {
+    fake_engine engine;
+    engine.start([policy](tcp::socket& socket) {
+      const auto open_request = read_message(socket);
+      check(open_request.has_open_control_channel_req(), "missing control channel request");
+      write_message(socket, open_control_liveness_response(policy.first, policy.second));
+      wait_for_peer_close(socket);
+    });
+    boost::asio::io_context io_context;
+    rstream::io_rstrm::config_client config;
+    config.m_no_token              = true;
+    config.m_hearbeat              = true;
+    config.m_heartbeat_interval_ms = 1000;
+    config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+    rstream::io_rstrm::client client(io_context.get_executor(), config);
+    bool completed = false;
+    watchdog test_watchdog(io_context);
+    client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+      check(error_code == rstream::io_rstrm::error::code::protocol_error, "invalid server liveness policy returned the wrong error");
+      completed = true;
+    });
+    io_context.run();
+    test_watchdog.complete();
+    engine.join();
+    check(!test_watchdog.timed_out(), "invalid server liveness policy check timed out");
+    check(completed, "invalid server liveness policy did not complete");
+  }
+  fake_engine engine;
+  engine.start([](tcp::socket& socket) {
+    const auto open_request = read_message(socket);
+    check(open_request.has_open_control_channel_req(), "missing control channel request");
+    check(!open_request.open_control_channel_req().has_liveness(), "disabled heartbeat advertised liveness");
+    write_message(socket, open_control_liveness_response(1000, 60000));
+    wait_for_peer_close(socket);
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::config_client config;
+  config.m_no_token              = true;
+  config.m_hearbeat              = false;
+  config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  rstream::io_rstrm::client client(io_context.get_executor(), config);
+  bool completed = false;
+  watchdog test_watchdog(io_context);
+  client.async_connect(rstream::io::make_address(engine.address()), [&](const boost::system::error_code& error_code) {
+    check(error_code == rstream::io_rstrm::error::code::protocol_error, "unsolicited server liveness policy returned the wrong error");
+    completed = true;
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "unsolicited server liveness policy check timed out");
+  check(completed, "unsolicited server liveness policy did not complete");
 }
 
 static void check_client_can_reconnect_from_disconnection_callback()
@@ -1624,6 +1954,70 @@ static void check_socket_rejects_invalid_state_operations()
   boost::system::error_code close_error = boost::asio::error::operation_aborted;
   socket.close(close_error);
   assert(!close_error);
+}
+
+static void check_error_completions_are_thread_safe()
+{
+  constexpr std::size_t operation_count = 256;
+  boost::asio::io_context io_context;
+  std::vector<std::unique_ptr<rstream::io_rstrm::socket>> sockets;
+  std::vector<std::unique_ptr<rstream::io_rstrm::client>> clients;
+  std::vector<std::unique_ptr<rstream::io_rstrm::acceptor>> acceptors;
+  std::vector<std::unique_ptr<rstream::io_rstrm::socket>> accepted_peers;
+  std::vector<std::unique_ptr<rstream::io_rstrm::endpoint>> accepted_endpoints;
+  sockets.reserve(operation_count);
+  clients.reserve(operation_count);
+  acceptors.reserve(operation_count);
+  accepted_peers.reserve(operation_count);
+  accepted_endpoints.reserve(operation_count);
+  std::atomic_size_t completions = 0;
+  std::atomic_size_t failures    = 0;
+  for (std::size_t index = 0; index < operation_count; ++index) {
+    sockets.push_back(std::make_unique<rstream::io_rstrm::socket>(io_context.get_executor()));
+    rstream::io_rstrm::endpoint missing_id;
+    missing_id.m_server_address = rstream::io::make_address("127.0.0.1:1");
+    sockets.back()->async_connect(missing_id, [&](const boost::system::error_code& error_code) {
+      if (error_code != rstream::io_rstrm::error::code::invalid_endpoint) {
+        failures.fetch_add(1, std::memory_order_relaxed);
+      }
+      completions.fetch_add(1, std::memory_order_relaxed);
+    });
+
+    rstream::io_rstrm::config_client client_config;
+    client_config.m_no_token = true;
+    clients.push_back(std::make_unique<rstream::io_rstrm::client>(io_context.get_executor(), client_config));
+    rstream::io_rstrm::tunnel_properties properties;
+    clients.back()->async_create_tunnel(properties, [&](const boost::system::error_code& error_code, rstream::io_rstrm::tunnel) {
+      if (error_code != rstream::io_rstrm::error::code::invalid_state) {
+        failures.fetch_add(1, std::memory_order_relaxed);
+      }
+      completions.fetch_add(1, std::memory_order_relaxed);
+    });
+
+    rstream::io_rstrm::settings_acceptor acceptor_settings;
+    acceptor_settings.m_config.m_no_token = true;
+    acceptors.push_back(std::make_unique<rstream::io_rstrm::acceptor>(io_context.get_executor(), acceptor_settings));
+    accepted_peers.push_back(std::make_unique<rstream::io_rstrm::socket>(io_context.get_executor()));
+    accepted_endpoints.push_back(std::make_unique<rstream::io_rstrm::endpoint>());
+    acceptors.back()->async_accept(
+        *accepted_peers.back(),
+        *accepted_endpoints.back(),
+        [&](const boost::system::error_code& error_code) {
+          if (error_code != rstream::io_rstrm::error::code::no_valid_endpoint) {
+            failures.fetch_add(1, std::memory_order_relaxed);
+          }
+          completions.fetch_add(1, std::memory_order_relaxed);
+        });
+  }
+  std::array<std::thread, 4> workers;
+  for (auto& worker : workers) {
+    worker = std::thread([&] { io_context.run(); });
+  }
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  assert(failures.load(std::memory_order_relaxed) == 0);
+  assert(completions.load(std::memory_order_relaxed) == operation_count * 3);
 }
 
 static void check_async_connect_freezes_client_configuration()
@@ -2457,12 +2851,20 @@ int main(int argc, char** argv)
   run_selected_check(selected, "client_rejects_malformed_tunnel_responses", check_client_rejects_malformed_tunnel_responses);
   run_selected_check(selected, "client_rejects_duplicate_active_tunnel_id", check_client_rejects_duplicate_active_tunnel_id);
   run_selected_check(selected, "client_heartbeat_and_unexpected_close_response", check_client_heartbeat_and_unexpected_close_response);
+  run_selected_check(selected, "client_negotiates_liveness_and_accepts_delayed_acknowledgement", check_client_negotiates_liveness_and_accepts_delayed_acknowledgement);
+  run_selected_check(selected, "client_expires_missing_liveness_acknowledgement", check_client_expires_missing_liveness_acknowledgement);
+  run_selected_check(selected, "client_tolerates_intermittent_heartbeat_loss", check_client_tolerates_intermittent_heartbeat_loss);
+  run_selected_check(selected, "client_rejects_invalid_liveness_acknowledgement", check_client_rejects_invalid_liveness_acknowledgement);
+  run_selected_check(selected, "client_rejects_replayed_liveness_acknowledgement", check_client_rejects_replayed_liveness_acknowledgement);
+  run_selected_check(selected, "client_rejects_invalid_liveness_configuration", check_client_rejects_invalid_liveness_configuration);
+  run_selected_check(selected, "client_rejects_invalid_server_liveness_policy", check_client_rejects_invalid_server_liveness_policy);
   run_selected_check(selected, "client_can_reconnect_from_disconnection_callback", check_client_can_reconnect_from_disconnection_callback);
   run_selected_check(selected, "client_drains_active_control_write_before_reconnect", check_client_drains_active_control_write_before_reconnect);
   run_selected_check(selected, "client_accepts_delayed_proxy_stream_and_rejects_max_streams", check_client_accepts_delayed_proxy_stream_and_rejects_max_streams);
   run_selected_check(selected, "client_rejects_proxy_request_for_unknown_tunnel", check_client_rejects_proxy_request_for_unknown_tunnel);
   run_selected_check(selected, "client_reports_redirected_proxy_failures", check_client_reports_redirected_proxy_failures);
   run_selected_check(selected, "socket_rejects_invalid_state_operations", check_socket_rejects_invalid_state_operations);
+  run_selected_check(selected, "error_completions_are_thread_safe", check_error_completions_are_thread_safe);
   run_selected_check(selected, "async_connect_freezes_client_configuration", check_async_connect_freezes_client_configuration);
   run_selected_check(selected, "async_connect_freezes_socket_configuration", check_async_connect_freezes_socket_configuration);
   run_selected_check(selected, "async_accept_freezes_acceptor_configuration", check_async_accept_freezes_acceptor_configuration);
