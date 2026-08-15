@@ -602,6 +602,10 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   void on_send_message(const std::error_code& error_code, enum loop loop);
 
+  void do_shutdown_plain_send();
+
+  void on_shutdown_plain_send(const std::error_code& error_code);
+
   void process_incoming_messages_loop();
 
   void do_read_incoming_message();
@@ -677,6 +681,8 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
   boost::beast::http::response<boost::beast::http::empty_body> m_http_response;
 
   std::error_code m_error_code;
+
+  bool m_incoming_read_pending = false;
 
   state_session_changed_signal_type m_state_changed_signal;
 
@@ -1863,6 +1869,7 @@ void server::impl::session::do_send_error(const std::error_code& error_code)
   }
   log_session_rejected(error_code);
   set_state(state::disconnecting);
+  arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   rstream::webtty::protobuf::Message message;
   error::code code;
   if (error_code.category() == std::error_code(error::code{}).category()) {
@@ -1896,6 +1903,7 @@ void server::impl::session::do_send_close(int code)
   }
   if (m_active_streams.empty()) {
     set_state(state::disconnecting);
+    arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
     rstream::webtty::protobuf::Message message;
     message.mutable_close()->set_return_code(code);
     do_send_message(message, loop::exit);
@@ -1957,7 +1965,7 @@ void server::impl::session::on_send_message(const std::error_code& error_code, e
           do_close_websocket();
         }
         else {
-          on_close(error_code);
+          do_shutdown_plain_send();
         }
         break;
       case loop::null: {
@@ -1968,6 +1976,38 @@ void server::impl::session::on_send_message(const std::error_code& error_code, e
       default:
         break;
     }
+  }
+}
+
+void server::impl::session::do_shutdown_plain_send()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::disconnecting || m_websocket) {
+    return;
+  }
+#ifdef RSTREAM_WITH_IO_STREAMS
+  auto completion_handler = std::bind(&session::on_shutdown_plain_send, shared_from_this(), std::placeholders::_1);
+  m_socket.async_shutdown_send(boost::asio::bind_executor(m_strand, completion_handler));
+#else
+  boost::system::error_code error_code;
+  m_socket.shutdown(boost::asio::socket_base::shutdown_send, error_code);
+  on_shutdown_plain_send(error_code);
+#endif
+  do_read_incoming_message();
+}
+
+void server::impl::session::on_shutdown_plain_send(const std::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::disconnecting) {
+    return;
+  }
+  if (error_code && !core::helpers::is_eof_error(error_code)) {
+    on_error(error_code);
   }
 }
 
@@ -1984,9 +2024,10 @@ void server::impl::session::do_read_incoming_message()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state == state::null || m_state == state::disconnected || m_incoming_read_pending) {
     return;
   }
+  m_incoming_read_pending = true;
   m_buffer_socket.reset_size();
   auto self               = shared_from_this();
   auto completion_handler = std::bind(&session::on_read_incoming_data, self, std::placeholders::_1);
@@ -2008,11 +2049,18 @@ void server::impl::session::on_read_incoming_data(const std::error_code& error_c
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  assert(m_incoming_read_pending);
+  m_incoming_read_pending = false;
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
   if (error_code) {
-    on_error(error_code);
+    if (m_state == state::disconnecting && core::helpers::is_eof_error(error_code)) {
+      on_close(std::error_code());
+    }
+    else {
+      on_error(error_code);
+    }
   }
   else {
     rstream::webtty::protobuf::Message message;
@@ -2182,6 +2230,10 @@ void server::impl::session::on_read_incoming_message(const rstream::webtty::prot
     error_code = error::code::unexpected_message;
   }
   else {
+    if (m_state == state::disconnecting) {
+      do_read_incoming_message();
+      return;
+    }
     if (message_type == payload_type::kOpen) {
       protocol::config protocol_config;
       detail::convert(protocol_config, message.open().config());
@@ -2303,7 +2355,10 @@ void server::impl::session::on_process_data(const std::error_code& error_code)
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  if (error_code) {
+  if (m_state == state::disconnecting) {
+    do_read_incoming_message();
+  }
+  else if (error_code) {
     on_error(error_code);
   }
   else {
