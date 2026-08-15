@@ -170,6 +170,19 @@ static void wait_for_peer_close(tcp::socket& socket)
   }
 }
 
+static protobuf::Message read_control_message_and_acknowledge_heartbeats(tcp::socket& socket)
+{
+  for (;;) {
+    auto message = read_message(socket);
+    if (!message.has_heartbeat()) {
+      return message;
+    }
+    protobuf::Message acknowledgement;
+    acknowledgement.mutable_heartbeat()->set_acknowledgement(message.heartbeat().sequence());
+    write_message(socket, acknowledgement);
+  }
+}
+
 static void wait_until_ready(const std::atomic_bool& ready, const std::string& timeout_message)
 {
   const auto deadline = std::chrono::steady_clock::now() + kFakeEngineIoTimeout;
@@ -1403,6 +1416,115 @@ static void check_established_stream_survives_control_liveness_timeout()
   check(!test_watchdog.timed_out(), "established stream liveness check timed out");
   check(disconnected, "control channel did not expire after missing heartbeat acknowledgements");
   check(stream_replied, "established stream did not survive control liveness timeout");
+}
+
+static void check_acceptor_reconnects_after_liveness_timeout_without_breaking_established_stream()
+{
+  constexpr std::string_view request_payload = "after-acceptor-reconnect";
+  constexpr std::string_view reply_payload   = "accepted-stream-survived";
+  std::atomic_bool second_tunnel_online      = false;
+  fake_engine engine;
+  engine.start_multi([request_payload, reply_payload, &second_tunnel_online](tcp::acceptor& network_acceptor) {
+    auto first_control = accept_connection(network_acceptor);
+    auto open_request  = read_message(first_control);
+    check(open_request.has_open_control_channel_req(), "missing first acceptor control request");
+    write_message(first_control, open_control_liveness_response(1000, 2500));
+    auto tunnel_request = read_control_message_and_acknowledge_heartbeats(first_control);
+    check(tunnel_request.has_open_tunnel_req(), "missing first acceptor tunnel request");
+    write_message(first_control, open_tunnel_response(tunnel_request.open_tunnel_req()));
+    write_message(first_control, proxy_connection_request("accepted-before-control-loss", "tunnel-1"));
+    auto stream    = accept_connection(network_acceptor);
+    auto handshake = read_message(stream);
+    check(handshake.has_proxy_req(), "missing accepted-stream handshake");
+    check(handshake.proxy_req().stream_id() == "accepted-before-control-loss", "accepted-stream handshake used the wrong stream ID");
+    write_proxy_response_if_needed(stream, handshake);
+    auto stream_acknowledgement = read_control_message_and_acknowledge_heartbeats(first_control);
+    check(stream_acknowledgement.has_proxy_conn_rsp(), "missing accepted-stream acknowledgement");
+    check(!stream_acknowledgement.proxy_conn_rsp().has_error(), "acceptor rejected the established stream");
+    wait_for_peer_close(first_control);
+    auto second_control = accept_connection(network_acceptor);
+    open_request        = read_message(second_control);
+    check(open_request.has_open_control_channel_req(), "acceptor did not reconnect after liveness timeout");
+    write_message(second_control, open_control_liveness_response(1000, 2500));
+    tunnel_request = read_control_message_and_acknowledge_heartbeats(second_control);
+    check(tunnel_request.has_open_tunnel_req(), "acceptor did not recreate its tunnel after reconnecting");
+    write_message(second_control, open_tunnel_response(tunnel_request.open_tunnel_req()));
+    wait_until_ready(second_tunnel_online, "acceptor did not report its recreated tunnel online");
+    boost::asio::write(stream, boost::asio::buffer(std::string(request_payload)));
+    std::vector<char> reply(reply_payload.size());
+    boost::asio::read(stream, boost::asio::buffer(reply));
+    check(std::string(reply.data(), reply.size()) == reply_payload, "accepted stream stopped after acceptor reconnection");
+    auto close_request = read_control_message_and_acknowledge_heartbeats(second_control);
+    check(close_request.has_close_control_channel_req(), "acceptor did not close the reconnected control channel cleanly");
+    write_message(second_control, close_control_response());
+  });
+  boost::asio::io_context io_context;
+  rstream::io_rstrm::settings_acceptor settings;
+  settings.m_config.m_no_token              = true;
+  settings.m_config.m_hearbeat              = true;
+  settings.m_config.m_heartbeat_interval_ms = 1000;
+  settings.m_config.m_connection_timeout_ms = kControlChannelTimeoutMs;
+  settings.m_auto_reconnect                 = true;
+  settings.m_reconnect_timeout_ms           = 1;
+  settings.m_auto_recreate_tunnel           = true;
+  settings.m_recreate_tunnel_timeout_ms     = 1;
+  settings.m_tunnel_properties.m_type       = "bytestream";
+  settings.m_tunnel_properties.m_publish    = true;
+  rstream::io_rstrm::acceptor network_acceptor(io_context.get_executor(), settings);
+  rstream::io_rstrm::endpoint endpoint;
+  endpoint.m_id_name        = "api";
+  endpoint.m_server_address = rstream::io::make_address(engine.address());
+  boost::system::error_code bind_error;
+  network_acceptor.bind(endpoint, bind_error);
+  check(!bind_error, "failed to bind reconnecting acceptor");
+  std::size_t online_status_count = 0;
+  std::size_t disconnected_count  = 0;
+  rstream::io_rstrm::acceptor::control_callbacks callbacks;
+  callbacks.m_on_status_cb = [&](const rstream::io_rstrm::status_extd& status) {
+    if (status.m_status && status.m_status.value() == "online") {
+      ++online_status_count;
+      if (online_status_count == 2) {
+        second_tunnel_online.store(true, std::memory_order_release);
+      }
+    }
+    else if (status.m_status && status.m_status.value().starts_with("disconnected")) {
+      ++disconnected_count;
+    }
+  };
+  boost::system::error_code callback_error;
+  network_acceptor.set_control_callbacks(callbacks, callback_error);
+  check(!callback_error, "failed to install reconnecting acceptor callbacks");
+  rstream::io_rstrm::socket peer(io_context.get_executor());
+  rstream::io_rstrm::endpoint accepted_endpoint;
+  auto request        = std::make_shared<std::vector<char>>(request_payload.size());
+  bool stream_replied = false;
+  watchdog test_watchdog(io_context);
+  network_acceptor.async_accept(peer, accepted_endpoint, [&](const boost::system::error_code& accept_error) {
+    check(!accept_error, "acceptor failed to establish the stream before control loss");
+    boost::asio::async_read(peer, boost::asio::buffer(*request), [&](const boost::system::error_code& read_error, std::size_t read) {
+      check(!read_error, "accepted stream read failed after acceptor reconnection");
+      check(read == request->size(), "accepted stream read was truncated after acceptor reconnection");
+      check(std::string(request->data(), request->size()) == request_payload, "accepted stream payload changed after acceptor reconnection");
+      auto reply = std::make_shared<std::string>(reply_payload);
+      boost::asio::async_write(peer, boost::asio::buffer(*reply), [&, reply](const boost::system::error_code& write_error, std::size_t written) {
+        check(!write_error, "accepted stream write failed after acceptor reconnection");
+        check(written == reply->size(), "accepted stream reply was truncated after acceptor reconnection");
+        stream_replied = true;
+        boost::system::error_code close_error;
+        peer.close(close_error);
+        check(!close_error, "failed to close accepted stream after reconnect test");
+        network_acceptor.close(close_error);
+        check(!close_error, "failed to close reconnecting acceptor");
+      });
+    });
+  });
+  io_context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out(), "acceptor reconnect check timed out");
+  check(disconnected_count == 1, "acceptor reported " + std::to_string(disconnected_count) + " liveness disconnections instead of one");
+  check(online_status_count == 2, "acceptor reported " + std::to_string(online_status_count) + " online states instead of two");
+  check(stream_replied, "accepted stream did not survive acceptor reconnection");
 }
 
 static void check_client_rejects_invalid_liveness_acknowledgement()
@@ -2968,6 +3090,7 @@ int main(int argc, char** argv)
   run_selected_check(selected, "client_expires_missing_liveness_acknowledgement", check_client_expires_missing_liveness_acknowledgement);
   run_selected_check(selected, "client_tolerates_intermittent_heartbeat_loss", check_client_tolerates_intermittent_heartbeat_loss);
   run_selected_check(selected, "established_stream_survives_control_liveness_timeout", check_established_stream_survives_control_liveness_timeout);
+  run_selected_check(selected, "acceptor_reconnects_after_liveness_timeout_without_breaking_established_stream", check_acceptor_reconnects_after_liveness_timeout_without_breaking_established_stream);
   run_selected_check(selected, "client_rejects_invalid_liveness_acknowledgement", check_client_rejects_invalid_liveness_acknowledgement);
   run_selected_check(selected, "client_rejects_replayed_liveness_acknowledgement", check_client_rejects_replayed_liveness_acknowledgement);
   run_selected_check(selected, "client_rejects_invalid_liveness_configuration", check_client_rejects_invalid_liveness_configuration);
