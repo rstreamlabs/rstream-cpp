@@ -35,6 +35,9 @@
 #endif
 
 #include <rstream/core/completion_handler.hpp>
+#ifndef _WIN32
+#include <rstream/core/posix/child_stdin.hpp>
+#endif
 
 #include "error.hpp"
 #include "webtty.hpp"
@@ -97,12 +100,25 @@ class pty {
 class pipe : public base {
  public:
   using stream_type = boost::process::async_pipe;
+#ifdef _WIN32
+  using input_stream_type = stream_type;
+#else
+  using input_stream_type = rstream::core::posix::child_stdin::stream_type;
+#endif
 
   pipe(const executor_type& executor);
 
   virtual ~pipe();
 
-  stream_type& stream(type type);
+  stream_type& output_stream(type type);
+
+  input_stream_type& input_stream();
+
+#ifndef _WIN32
+  int child_stdin_native_handle();
+
+  void child_spawned();
+#endif
 
   void async_read_some(const boost::asio::mutable_buffer& buffer, type type, async_read_some_completion_handler&& handler) override;
 
@@ -113,7 +129,11 @@ class pipe : public base {
   void close(type type);
 
  private:
+#ifdef _WIN32
   stream_type m_std_in;
+#else
+  rstream::core::posix::child_stdin m_std_in;
+#endif
 
   stream_type m_std_out;
 

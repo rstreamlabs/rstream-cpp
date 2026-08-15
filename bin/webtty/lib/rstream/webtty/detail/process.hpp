@@ -29,6 +29,13 @@
 #else
 #include <boost/process/extend.hpp>
 #endif
+#ifndef _WIN32
+#if __has_include(<boost/process/v1/posix.hpp>)
+#include <boost/process/v1/posix.hpp>
+#else
+#include <boost/process/posix.hpp>
+#endif
+#endif
 
 #include <rstream/webtty/stream.hpp>
 #include <rstream/webtty/webtty.hpp>
@@ -109,10 +116,24 @@ std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&
   }
   else {
     auto stream_ptr_pipe = std::dynamic_pointer_cast<stream::pipe>(stream_ptr);
-    child                = std::make_shared<boost::process::child>(boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
-                                                                   boost::process::std_err > stream_ptr_pipe->stream(stream::type::std_err),
-                                                                   boost::process::std_in < stream_ptr_pipe->stream(stream::type::std_in),
-                                                                   std::forward<Args>(args)...);
+#ifdef _WIN32
+    child = std::make_shared<boost::process::child>(boost::process::std_out > stream_ptr_pipe->output_stream(stream::type::std_out),
+                                                    boost::process::std_err > stream_ptr_pipe->output_stream(stream::type::std_err),
+                                                    boost::process::std_in < stream_ptr_pipe->input_stream(),
+                                                    std::forward<Args>(args)...);
+#else
+    try {
+      child = std::make_shared<boost::process::child>(boost::process::std_out > stream_ptr_pipe->output_stream(stream::type::std_out),
+                                                      boost::process::std_err > stream_ptr_pipe->output_stream(stream::type::std_err),
+                                                      boost::process::posix::fd.bind(STDIN_FILENO, stream_ptr_pipe->child_stdin_native_handle()),
+                                                      std::forward<Args>(args)...);
+    }
+    catch (...) {
+      stream_ptr_pipe->child_spawned();
+      throw;
+    }
+    stream_ptr_pipe->child_spawned();
+#endif
   }
   return child;
 }
