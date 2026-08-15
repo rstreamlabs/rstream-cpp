@@ -1,10 +1,14 @@
 // See LICENSE file in the project root for license information.
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/cancellation_signal.hpp>
@@ -13,7 +17,9 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
+#include <boost/asio/read.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/write.hpp>
 
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/detail/protobuf.hpp>
@@ -264,6 +270,53 @@ static void check_proxy_success_response_completes()
   assert(server_called);
 }
 
+static void check_proxy_response_preserves_coalesced_payload()
+{
+  boost::asio::io_context io_context;
+  auto socket_a = std::make_shared<socket_type>(io_context.get_executor());
+  auto socket_b = std::make_shared<socket_type>(io_context.get_executor());
+  rstream::test::connect_stream_pair(*socket_a, *socket_b);
+  test_stream stream(*socket_a, false);
+  rstream::io_rstrm::config config;
+  config.m_no_token = true;
+  config.m_zero_rtt = false;
+  bool handshake_called = false;
+  bool payload_called = false;
+  std::array<char, 5> received{};
+  handshake_type handshake(stream, rstream::io::make_address("engine.example:443"), config);
+  handshake.async_run(handshake_type::type::proxy_req, "stream-123", boost::none, [&](const boost::system::error_code& error_code) {
+    handshake_called = true;
+    assert(!error_code);
+    boost::asio::async_read(*socket_a, boost::asio::buffer(received), [&](const boost::system::error_code& read_error, std::size_t size) {
+      assert(!read_error);
+      assert(size == received.size());
+      payload_called = true;
+    });
+  });
+  boost::asio::co_spawn(io_context.get_executor(), [socket = socket_b]() -> boost::asio::awaitable<void> {
+    payloader_type payloader(*socket);
+    auto request = rstream::core::make_buffer_allocated(4096);
+    co_await payloader.async_recv(request, boost::asio::use_awaitable);
+    protobuf::Message response;
+    response.mutable_proxy_rsp();
+    auto payload = serialize_message(response);
+    const std::string application_payload = "world";
+    const auto payload_size = static_cast<std::uint32_t>(payload.get_size());
+    std::vector<std::uint8_t> wire(sizeof(payload_size) + payload_size + application_payload.size());
+    wire[0] = static_cast<std::uint8_t>(payload_size >> 24);
+    wire[1] = static_cast<std::uint8_t>(payload_size >> 16);
+    wire[2] = static_cast<std::uint8_t>(payload_size >> 8);
+    wire[3] = static_cast<std::uint8_t>(payload_size);
+    std::memcpy(wire.data() + sizeof(payload_size), payload.map().get_const_data(), payload_size);
+    std::memcpy(wire.data() + sizeof(payload_size) + payload_size, application_payload.data(), application_payload.size());
+    co_await boost::asio::async_write(*socket, boost::asio::buffer(wire), boost::asio::use_awaitable);
+    co_return; }, boost::asio::detached);
+  io_context.run();
+  assert(handshake_called);
+  assert(payload_called);
+  assert(std::string(received.data(), received.size()) == "world");
+}
+
 #ifdef RSTREAM_WITH_IO_STREAMS
 static void check_proxy_secret_is_allowed_with_mtls_agent_auth()
 {
@@ -439,6 +492,7 @@ int main(int argc, char** argv)
   check_stream_response_error_is_mapped();
   check_stream_success_response_completes();
   check_proxy_success_response_completes();
+  check_proxy_response_preserves_coalesced_payload();
 #ifdef RSTREAM_WITH_IO_STREAMS
   check_proxy_secret_is_allowed_with_mtls_agent_auth();
 #endif
