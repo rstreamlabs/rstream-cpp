@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.3](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.2...1.14.3) (2026-08-13)
+
+
+### Bug Fixes
+
+* **webtty:** serialize remote close with pending writes ([7db0f0a](https://github.com/rstreamlabs/rstream-cpp/commit/7db0f0afc10f5de55437f2bf2e5467c795c393d9))
+
 ## [1.14.2](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.1...1.14.2) (2026-08-09)
 
 
