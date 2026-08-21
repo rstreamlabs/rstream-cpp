@@ -1,0 +1,11 @@
+# Exact historical fingerprints for deterministic STUN, WebTTY and parser fixtures.
+71e7f1d4842b4b64b2b3a9acbb4c4cf9231f3d10:test/webtty/test_webtty_cli_config.cpp:generic-api-key:315
+71e7f1d4842b4b64b2b3a9acbb4c4cf9231f3d10:test/webtty/test_webtty_cli_config.cpp:generic-api-key:359
+71e7f1d4842b4b64b2b3a9acbb4c4cf9231f3d10:test/webtty/test_webtty_cli_config.cpp:generic-api-key:389
+71e7f1d4842b4b64b2b3a9acbb4c4cf9231f3d10:test/webtty/test_webtty_cli_config.cpp:generic-api-key:410
+71e7f1d4842b4b64b2b3a9acbb4c4cf9231f3d10:test/webtty/test_webtty_cli_config.cpp:generic-api-key:429
+9421075d74d3f358fb611a65efada1940e4941d7:demo/stun/test/test_stun_parsing.cpp:generic-api-key:82
+9421075d74d3f358fb611a65efada1940e4941d7:demo/stun/test/test_stun_parsing.cpp:generic-api-key:149
+9421075d74d3f358fb611a65efada1940e4941d7:demo/stun/test/test_stun_parsing.cpp:generic-api-key:216
+9f49ad13c199e569a0487bbb74cc57dbe3b37b8c:test/io/io-rstrm/test_io_rstrm_config.cpp:private-key:202
+9f49ad13c199e569a0487bbb74cc57dbe3b37b8c:test/io/io-rstrm/test_io_rstrm_config.cpp:private-key:387
