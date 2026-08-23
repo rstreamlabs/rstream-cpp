@@ -1,4 +1,4 @@
-ARG BASE=ubuntu:24.04
+ARG BASE=ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
 FROM $BASE AS build
 
@@ -6,7 +6,7 @@ ARG BUILD_TYPE="Release"
 
 ARG BUILD_LIBS_TYPE="shared"
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN mkdir -p /rstream/build
 
