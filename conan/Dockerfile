@@ -1,10 +1,10 @@
-FROM alpine:latest AS alpine
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS alpine
 
 RUN apk update && apk add libstdc++
 
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build tools
 RUN apt-get update && apt-get -y install --no-install-recommends \
@@ -26,7 +26,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
 
 RUN apt-get update && apt-get -y install --no-install-recommends nasm
 
-ARG LLVM_MINGW_VERSION=20251118
+ARG LLVM_MINGW_VERSION=20260616
 
 RUN set -eux; \
     host_arch="$(dpkg --print-architecture)"; \
@@ -49,7 +49,7 @@ COPY --from=alpine /usr/lib/libstdc++.so.6 /usr/lib/*-linux-musl/libstdc++.so.6
 COPY --from=alpine /usr/lib/libgcc_s.so.1 /usr/lib/*-linux-musl/libgcc_s.so.1
 
 # Install conan
-ARG CONAN_VERSION=2.26.2
+ARG CONAN_VERSION=2.31.2
 
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}" PyYAML
 

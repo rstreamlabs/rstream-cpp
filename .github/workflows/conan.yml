@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 env:
-  CONAN_VERSION: "2.26.2"
+  CONAN_VERSION: "2.31.2"
 jobs:
   build:
     name: Linux ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
@@ -55,13 +55,13 @@ jobs:
             pkg-config \
             tar \
             xz-utils
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.x"
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
           path: ~/.conan2/p
@@ -73,7 +73,7 @@ jobs:
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -136,12 +136,12 @@ jobs:
         run: |
           set -euo pipefail
           conan cache clean "*" --source --build --download --temp
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: ~/.conan2/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -175,13 +175,13 @@ jobs:
             plugin_mode: dynamic
             static_plugins: "False"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.x"
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
           path: ~/.conan2/p
@@ -193,7 +193,7 @@ jobs:
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -245,12 +245,12 @@ jobs:
         run: |
           set -euo pipefail
           conan cache clean "*" --source --build --download --temp
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: ~/.conan2/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -272,13 +272,13 @@ jobs:
           - linkage: static
             shared: "False"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.x"
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
           path: ~/.conan2/p
@@ -288,7 +288,7 @@ jobs:
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-
-      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -342,12 +342,12 @@ jobs:
         if: ${{ always() && !cancelled() }}
         shell: pwsh
         run: conan cache clean "*" --source --build --download --temp
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
           path: ~/.conan2/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
-      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
         with:
           path: ${{ env.CCACHE_DIR }}

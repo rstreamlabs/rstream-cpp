@@ -6,7 +6,7 @@ services:
       context: ./
       dockerfile: Dockerfile
       args:
-        CONAN_VERSION: ${CONAN_VERSION:-2.26.2}
+        CONAN_VERSION: ${CONAN_VERSION:-2.31.2}
         CONAN_REMOTE_NAME: ${CONAN_REMOTE_NAME:-rstream}
         CONAN_REMOTE_URL: ${CONAN_REMOTE_URL:-}
         CONAN_REMOTE_USERNAME: ${CONAN_REMOTE_USERNAME:-}

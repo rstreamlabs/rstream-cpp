@@ -1,8 +1,8 @@
-ARG BASE=ubuntu:24.04
+ARG BASE=ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
 FROM $BASE AS build
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get -y install --no-install-recommends devscripts
 
@@ -18,7 +18,7 @@ RUN debuild -b -uc -us
 
 FROM $BASE AS test_package
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN mkdir -p /rstream
 
@@ -38,7 +38,7 @@ RUN test_package
 
 FROM $BASE AS final
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN mkdir -p /rstream
 
