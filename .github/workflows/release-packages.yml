@@ -1,9 +1,10 @@
 name: Release Packages
+
 on:
   workflow_dispatch:
     inputs:
       upload:
-        description: Upload packages after a successful export.
+        description: Publish the verified candidates after approval.
         required: true
         type: boolean
         default: false
@@ -31,11 +32,14 @@ on:
   push:
     tags:
       - "*"
+
 permissions:
   contents: read
+
 concurrency:
   group: release-packages-${{ github.ref }}
   cancel-in-progress: false
+
 env:
   CHANNEL: "${{ inputs.channel || (github.ref_type == 'tag' && 'stable' || 'dev') }}"
   CONAN_VERSION: "2.26.2"
@@ -48,13 +52,13 @@ env:
   PATCHED_CONAN_CHANNEL: conan/stable
   PATCHED_NCURSES_VERSION: "6.5"
   RSTREAM_URL: "${{ inputs.rstream_url || (github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io') }}"
-  UPLOAD_PACKAGES: "${{ github.ref_type == 'tag' || inputs.upload == true }}"
   USE_PATCHED_CONAN_DEPS: "on"
   VERSION: "${{ github.ref_name }}"
+
 jobs:
   package-linux-windows:
+    name: Build ${{ matrix.target.os }} ${{ matrix.target.arch }} candidate
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
-    name: Package ${{ matrix.target.os }} ${{ matrix.target.arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -133,29 +137,17 @@ jobs:
           key: conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-release-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}-
-      - name: Validate release tag
-        if: ${{ github.ref_type == 'tag' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "invalid release tag: ${VERSION}" >&2
-            exit 1
-          fi
-          package_version="$(tr -d '[:space:]' < version.txt)"
-          if [[ "${package_version}" != "${VERSION#v}" ]]; then
-            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
-            exit 1
-          fi
-          echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
-      - name: Resolve package version
-        if: ${{ github.ref_type != 'tag' }}
+      - name: Resolve and validate package version
         shell: bash
         run: |
           set -euo pipefail
           package_version="$(tr -d '[:space:]' < version.txt)"
           if [[ ! "${package_version}" =~ ^[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "invalid package version: ${package_version}" >&2
+            exit 1
+          fi
+          if [[ "${{ github.ref_type }}" == "tag" && "${package_version}" != "${VERSION#v}" ]]; then
+            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
             exit 1
           fi
           echo "VERSION=${package_version}" >> "${GITHUB_ENV}"
@@ -219,23 +211,18 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            if conan remote list | grep -q "^${remote_name}:"; then
-              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
-            else
-              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
-            fi
+            conan remote add "${remote_name}" "${CONAN_REMOTE_URL}" --force
             if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
               conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
             fi
           fi
-      - name: Validate package version
-        if: ${{ github.ref_type == 'tag' }}
+      - name: Validate Conan package version
         shell: bash
         run: |
           set -euo pipefail
           package_version=$(conan inspect . --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
           if [[ "${package_version}" != "${VERSION}" ]]; then
-            echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
+            echo "version.txt ${VERSION} does not match Conan package version ${package_version}" >&2
             exit 1
           fi
       - name: Build and export packages
@@ -244,54 +231,18 @@ jobs:
           set -euo pipefail
           unset LD_LIBRARY_PATH
           ./build-conan-cross.sh
-      - name: Upload Conan binary cache
-        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
+      - name: Pack immutable candidate
         shell: bash
-        env:
-          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
         run: |
           set -euo pipefail
-          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
-            echo "CONAN_REMOTE_URL, CONAN_REMOTE_USERNAME and CONAN_PASSWORD are required when Conan binary cache upload is enabled."
-            exit 1
-          fi
-          remote_name="${CONAN_REMOTE_NAME:-rstream}"
-          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
-          refs=("rstream/${VERSION}")
-          if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
-            refs+=(
-              "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}"
-              "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}"
-            )
-          fi
-          has_packages=$(cat <<'PY'
-          import json
-          import sys
-          def has_packages(value):
-              if isinstance(value, dict):
-                  packages = value.get("packages")
-                  if isinstance(packages, dict) and packages:
-                      return True
-                  return any(has_packages(child) for child in value.values())
-              if isinstance(value, list):
-                  return any(has_packages(child) for child in value)
-              return False
-          sys.exit(0 if has_packages(json.load(sys.stdin)) else 1)
-          PY
-          )
-          for ref in "${refs[@]}"; do
-            if conan list "${ref}:*" --format=json | python3 -c "${has_packages}"; then
-              conan upload "${ref}:*" -r "${remote_name}" --check --confirm
-            else
-              echo "no local Conan packages to upload for ${ref}"
-            fi
-          done
+          ./.github/scripts/pack-release-candidate.sh candidate "${GITHUB_SHA}" "${VERSION}" "${CHANNEL}" "${{ matrix.target.os }}" "${{ matrix.target.arch }}" "${EXPORT_PACKAGE_NAME}"
+          ./.github/scripts/pack-conan-candidate.sh candidate/conan "${GITHUB_SHA}" \
+            "rstream/${VERSION}#latest:*#latest" \
+            "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}#latest:*#latest" \
+            "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}#latest:*#latest"
       - name: Trim Conan cache
         if: ${{ always() && !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          conan cache clean "*" --source --build --download --temp
+        run: conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         if: ${{ always() && !cancelled() && (matrix.target.arch == 'x86_64' || matrix.target.arch == 'arm64') && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
@@ -299,29 +250,17 @@ jobs:
             ~/.conan2/p
             ~/.cache/ccache
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
-      - name: Upload workflow artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.EXPORT_PACKAGE_NAME }}-${{ matrix.target.os }}-${{ matrix.target.arch }}-${{ env.CHANNEL }}
-          path: out/release/**/${{ matrix.target.os }}/${{ matrix.target.arch }}/**/packages/*
+          name: cpp-release-candidate-${{ github.sha }}-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: candidate
           if-no-files-found: error
-          retention-days: 14
-      - name: Upload packages
-        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
-        shell: bash
-        env:
-          RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${RSTREAM_TOKEN}" ]]; then
-            echo "RSTREAM_TOKEN is required when package upload is enabled."
-            exit 1
-          fi
-          unset LD_LIBRARY_PATH
-          ./build-conan-cross.sh upload
+          compression-level: 0
+          retention-days: 30
+
   package-macos:
+    name: Build macos candidate
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
-    name: Package macos
     runs-on: macos-latest
     env:
       MACOS_APP_STORE_API_KEY: ${{ secrets.MACOS_APP_STORE_API_KEY }}
@@ -349,29 +288,17 @@ jobs:
           restore-keys: |
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ env.CHANNEL }}-
             conan2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-
-      - name: Validate release tag
-        if: ${{ github.ref_type == 'tag' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "invalid release tag: ${VERSION}" >&2
-            exit 1
-          fi
-          package_version="$(tr -d '[:space:]' < version.txt)"
-          if [[ "${package_version}" != "${VERSION#v}" ]]; then
-            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
-            exit 1
-          fi
-          echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
-      - name: Resolve package version
-        if: ${{ github.ref_type != 'tag' }}
+      - name: Resolve and validate package version
         shell: bash
         run: |
           set -euo pipefail
           package_version="$(tr -d '[:space:]' < version.txt)"
           if [[ ! "${package_version}" =~ ^[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "invalid package version: ${package_version}" >&2
+            exit 1
+          fi
+          if [[ "${{ github.ref_type }}" == "tag" && "${package_version}" != "${VERSION#v}" ]]; then
+            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
             exit 1
           fi
           echo "VERSION=${package_version}" >> "${GITHUB_ENV}"
@@ -414,78 +341,34 @@ jobs:
           conan config install conan/config
           if [[ -n "${CONAN_REMOTE_URL}" ]]; then
             remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            if conan remote list | grep -q "^${remote_name}:"; then
-              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
-            else
-              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
-            fi
+            conan remote add "${remote_name}" "${CONAN_REMOTE_URL}" --force
             if [[ -n "${CONAN_REMOTE_USERNAME}" && -n "${CONAN_PASSWORD}" ]]; then
               conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
             fi
           fi
-      - name: Validate package version
-        if: ${{ github.ref_type == 'tag' }}
+      - name: Validate Conan package version
         shell: bash
         run: |
           set -euo pipefail
           package_version=$(conan inspect . --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
           if [[ "${package_version}" != "${VERSION}" ]]; then
-            echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
+            echo "version.txt ${VERSION} does not match Conan package version ${package_version}" >&2
             exit 1
           fi
       - name: Build and export packages
+        run: ./build-conan-cross.sh
+      - name: Pack immutable candidate
         shell: bash
         run: |
           set -euo pipefail
-          ./build-conan-cross.sh
-      - name: Upload Conan binary cache
-        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
-        shell: bash
-        env:
-          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
-            echo "CONAN_REMOTE_URL, CONAN_REMOTE_USERNAME and CONAN_PASSWORD are required when Conan binary cache upload is enabled."
-            exit 1
-          fi
-          remote_name="${CONAN_REMOTE_NAME:-rstream}"
-          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
-          refs=("rstream/${VERSION}")
-          if [[ "${USE_PATCHED_CONAN_DEPS}" == "on" ]]; then
-            refs+=(
-              "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}"
-              "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}"
-            )
-          fi
-          has_packages=$(cat <<'PY'
-          import json
-          import sys
-          def has_packages(value):
-              if isinstance(value, dict):
-                  packages = value.get("packages")
-                  if isinstance(packages, dict) and packages:
-                      return True
-                  return any(has_packages(child) for child in value.values())
-              if isinstance(value, list):
-                  return any(has_packages(child) for child in value)
-              return False
-          sys.exit(0 if has_packages(json.load(sys.stdin)) else 1)
-          PY
-          )
-          for ref in "${refs[@]}"; do
-            if conan list "${ref}:*" --format=json | python3 -c "${has_packages}"; then
-              conan upload "${ref}:*" -r "${remote_name}" --check --confirm
-            else
-              echo "no local Conan packages to upload for ${ref}"
-            fi
-          done
+          ./.github/scripts/pack-release-candidate.sh candidate "${GITHUB_SHA}" "${VERSION}" "${CHANNEL}" macos all "${EXPORT_PACKAGE_NAME}"
+          ./.github/scripts/pack-conan-candidate.sh candidate/conan "${GITHUB_SHA}" \
+            "rstream/${VERSION}#latest:*#latest" \
+            "boost/${PATCHED_BOOST_VERSION}@${PATCHED_CONAN_CHANNEL}#latest:*#latest" \
+            "ncurses/${PATCHED_NCURSES_VERSION}@${PATCHED_CONAN_CHANNEL}#latest:*#latest"
       - name: Trim Conan cache
         if: ${{ success() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          conan cache clean "*" --source --build --download --temp
+        run: conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         if: ${{ success() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
@@ -493,100 +376,210 @@ jobs:
             ~/.conan2/p
             ~/.cache/ccache
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
-      - name: Upload workflow artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.EXPORT_PACKAGE_NAME }}-macos-${{ env.CHANNEL }}
-          path: out/release/**/macos/**/packages/*
+          name: cpp-release-candidate-${{ github.sha }}-macos
+          path: candidate
           if-no-files-found: error
-          retention-days: 14
-      - name: Upload packages
-        if: ${{ env.UPLOAD_PACKAGES == 'true' }}
-        shell: bash
+          compression-level: 0
+          retention-days: 30
+
+  approve:
+    name: Approve immutable package candidates
+    needs:
+      - package-linux-windows
+      - package-macos
+    if: ${{ github.ref_type == 'tag' || inputs.upload == true }}
+    runs-on: ubuntu-latest
+    environment: stable-release
+    steps:
+      - run: printf 'Approved C++ package candidates for %s\n' "${GITHUB_SHA}"
+
+  publish-linux-windows:
+    name: Publish ${{ matrix.target.os }} ${{ matrix.target.arch }} candidate
+    needs: approve
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        target:
+          - os: linux
+            arch: x86_i686
+          - os: linux
+            arch: x86_core2
+          - os: linux
+            arch: x86_64
+          - os: linux
+            arch: x86_64_v2
+          - os: linux
+            arch: x86_64_v3
+          - os: linux
+            arch: x86_64_v4
+          - os: linux
+            arch: armv6
+          - os: linux
+            arch: armv6hf
+          - os: linux
+            arch: armv7
+          - os: linux
+            arch: armv7hf
+          - os: linux
+            arch: arm64
+          - os: linux
+            arch: mips
+          - os: linux
+            arch: mipsle
+          - os: linux
+            arch: mips64
+          - os: linux
+            arch: mips64le
+          - os: linux
+            arch: riscv64
+          - os: windows
+            arch: x86_i686
+          - os: windows
+            arch: x86_core2
+          - os: windows
+            arch: x86_64
+          - os: windows
+            arch: x86_64_v2
+          - os: windows
+            arch: x86_64_v3
+          - os: windows
+            arch: x86_64_v4
+          - os: windows
+            arch: arm64
+    env:
+      LINUX_BUILD_SHARED: "off"
+      LINUX_ARCHS: ${{ matrix.target.os == 'linux' && matrix.target.arch || '' }}
+      LINUX_TCLIBCS: musl
+      OSS: ${{ matrix.target.os }}
+      USE_DOCKER: "off"
+      WINDOWS_BUILD_SHARED: "off"
+      WINDOWS_ARCHS: ${{ matrix.target.os == 'windows' && matrix.target.arch || '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.x"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cpp-release-candidate-${{ github.sha }}-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: candidate
+      - name: Install publishing dependencies
+        run: |
+          sudo apt update
+          sudo apt-get install -y jq libdigest-sha-perl pipx
+          pipx install "conan==${CONAN_VERSION}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Resolve package version
+        run: echo "VERSION=$(tr -d '[:space:]' < version.txt)" >> "${GITHUB_ENV}"
+      - name: Configure publishing remotes
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "Conan publishing credentials are required." >&2
+            exit 1
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote add "${remote_name}" "${CONAN_REMOTE_URL}" --force
+          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+      - name: Publish exact candidate
         env:
           RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -z "${RSTREAM_TOKEN}" ]]; then
-            echo "RSTREAM_TOKEN is required when package upload is enabled."
+            echo "RSTREAM_TOKEN is required." >&2
             exit 1
           fi
+          ./.github/scripts/verify-release-candidate.sh candidate "${GITHUB_SHA}" "${VERSION}" "${CHANNEL}" "${{ matrix.target.os }}" "${{ matrix.target.arch }}"
+          ./.github/scripts/publish-conan-candidate.sh candidate/conan "${GITHUB_SHA}" "${CONAN_REMOTE_NAME:-rstream}"
+          mkdir -p out/release
+          cp -R candidate/package-api/. out/release/
           ./build-conan-cross.sh upload
-  publish-conan-source:
-    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && github.ref_type == 'tag' }}
-    name: Publish Conan source package
-    needs:
-      - package-linux-windows
-      - package-macos
-    runs-on: ubuntu-latest
+
+  publish-macos:
+    name: Publish macos candidate
+    needs: approve
+    permissions:
+      actions: read
+      contents: read
+    runs-on: macos-latest
+    env:
+      MACOS_ARCHS: "x86_64 x86_64_v2 x86_64_v3 x86_64_v4 arm64 apple-m1 apple-m2"
+      MACOS_BUILD_SHARED: "on"
+      OSS: macos
+      USE_DOCKER: "off"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.x"
-      - name: Validate release tag
-        shell: bash
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cpp-release-candidate-${{ github.sha }}-macos
+          path: candidate
+      - name: Install publishing dependencies
         run: |
-          set -euo pipefail
-          if [[ ! "${VERSION}" =~ ^v?[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "invalid release tag: ${VERSION}" >&2
-            exit 1
-          fi
-          package_version="$(tr -d '[:space:]' < version.txt)"
-          if [[ "${package_version}" != "${VERSION#v}" ]]; then
-            echo "release tag ${VERSION#v} does not match version.txt ${package_version}" >&2
-            exit 1
-          fi
-          echo "VERSION=${VERSION#v}" >> "${GITHUB_ENV}"
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt update
-          sudo apt-get install -y \
-            pipx
-          pipx install "conan==${CONAN_VERSION}"
-          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
-      - name: Configure Conan
-        shell: bash
-        run: |
-          set -euo pipefail
-          conan config install conan/config
-          if [[ -n "${CONAN_REMOTE_URL}" ]]; then
-            remote_name="${CONAN_REMOTE_NAME:-rstream}"
-            if conan remote list | grep -q "^${remote_name}:"; then
-              conan remote update "${remote_name}" --url "${CONAN_REMOTE_URL}"
-            else
-              conan remote add "${remote_name}" "${CONAN_REMOTE_URL}"
-            fi
-          fi
-      - name: Validate package version
-        shell: bash
-        run: |
-          set -euo pipefail
-          package_version=$(conan inspect . --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
-          if [[ "${package_version}" != "${VERSION}" ]]; then
-            echo "release tag ${VERSION} does not match Conan package version ${package_version}" >&2
-            exit 1
-          fi
-      - name: Export Conan recipe
-        shell: bash
-        run: |
-          set -euo pipefail
-          conan export .
-      - name: Upload Conan source package
-        shell: bash
+          brew list bash >/dev/null 2>&1 || brew install bash
+          brew list jq >/dev/null 2>&1 || brew install jq
+          echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
+          python3 -m pip install --user "conan==${CONAN_VERSION}"
+          echo "$(python3 -m site --user-base)/bin" >> "${GITHUB_PATH}"
+      - name: Resolve package version
+        run: echo "VERSION=$(tr -d '[:space:]' < version.txt)" >> "${GITHUB_ENV}"
+      - name: Configure publishing remotes
         env:
-          CONAN_LOGIN_USERNAME: ${{ env.CONAN_REMOTE_USERNAME }}
           CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
         run: |
           set -euo pipefail
-          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_LOGIN_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
-            echo "CONAN_REMOTE_URL, CONAN_REMOTE_USERNAME and CONAN_PASSWORD are required on release tags."
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "Conan publishing credentials are required." >&2
             exit 1
           fi
           remote_name="${CONAN_REMOTE_NAME:-rstream}"
-          conan remote login "${remote_name}" "${CONAN_LOGIN_USERNAME}" -p "${CONAN_PASSWORD}"
-          conan upload "rstream/${VERSION}" --only-recipe -r "${remote_name}" --check --confirm
+          conan remote add "${remote_name}" "${CONAN_REMOTE_URL}" --force
+          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+      - name: Publish exact candidate
+        env:
+          RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RSTREAM_TOKEN}" ]]; then
+            echo "RSTREAM_TOKEN is required." >&2
+            exit 1
+          fi
+          ./.github/scripts/verify-release-candidate.sh candidate "${GITHUB_SHA}" "${VERSION}" "${CHANNEL}" macos all
+          ./.github/scripts/publish-conan-candidate.sh candidate/conan "${GITHUB_SHA}" "${CONAN_REMOTE_NAME:-rstream}"
+          mkdir -p out/release
+          cp -R candidate/package-api/. out/release/
+          ./build-conan-cross.sh upload
+
+  verify-publication:
+    name: Verify package publication completed
+    needs:
+      - publish-linux-windows
+      - publish-macos
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: printf 'Published verified C++ package candidates for %s\n' "${GITHUB_SHA}"
+      - name: Publish GitHub release
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --repo "${GITHUB_REPOSITORY}"
