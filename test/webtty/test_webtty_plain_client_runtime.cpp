@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -516,6 +517,13 @@ class fake_early_exit_plain_server {
         protobuf::Message close;
         close.mutable_close()->set_return_code(0);
         write_message(socket, close);
+        boost::system::error_code error_code;
+        socket.shutdown(tcp::socket::shutdown_send, error_code);
+        assert(!error_code);
+        std::array<char, 4096> drain_buffer{};
+        while (socket.read_some(boost::asio::buffer(drain_buffer), error_code) != 0) {
+        }
+        assert(error_code == boost::asio::error::eof);
       }
       catch (...) {
         m_exception = std::current_exception();

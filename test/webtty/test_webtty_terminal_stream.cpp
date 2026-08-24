@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <stdexcept>
 #include <system_error>
@@ -28,6 +29,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <dirent.h>
 #include <unistd.h>
 #ifdef __APPLE__
 #include <util.h>
@@ -240,15 +242,112 @@ static void check_pipe_stream_lifecycle()
   auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::pipe);
   assert(stream_ptr);
   assert(stream_ptr->backend() == stream::backend::pipe);
-  assert(std::dynamic_pointer_cast<stream::pipe>(stream_ptr));
+  auto pipe = std::dynamic_pointer_cast<stream::pipe>(stream_ptr);
+  assert(pipe);
+  bool invalid_output_rejected = false;
+  try {
+    (void)pipe->output_stream(stream::type::std_in);
+  }
+  catch (const std::invalid_argument&) {
+    invalid_output_rejected = true;
+  }
+  assert(invalid_output_rejected);
   stream_ptr->close();
   stream_ptr->close();
 }
 
+#ifndef _WIN32
+static int run_pipe_write_after_child_exit()
+{
+  std::signal(SIGPIPE, SIG_DFL);
+  boost::asio::io_context io_context;
+  auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::pipe);
+  auto child      = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe("/bin/sh"),
+      boost::process::args(std::vector<std::string>{"-c", "exit 0"}));
+  child->wait();
+  std::vector<char> payload(1024 * 1024, 'x');
+  std::error_code write_error;
+  std::size_t completions = 0;
+  stream_ptr->async_write(boost::asio::buffer(payload), stream::type::std_in, [&](const std::error_code& error_code, std::size_t) {
+    write_error = error_code;
+    ++completions;
+  });
+  io_context.run();
+  assert(completions == 1);
+  assert(write_error);
+  return 0;
+}
+
+static void check_pipe_subprocess(const char* executable, const char* mode)
+{
+  boost::process::child child(
+      boost::process::exe(executable),
+      boost::process::args(std::vector<std::string>{mode}));
+  child.wait();
+  assert(child.exit_code() == 0);
+}
+
+static void check_pipe_write_after_child_exit_does_not_raise_sigpipe(const char* executable)
+{
+  check_pipe_subprocess(executable, "--pipe-write-after-child-exit");
+  check_pipe_subprocess(executable, "--pipe-write-after-child-exit-with-closed-stdin");
+}
+
+static std::size_t open_descriptor_count()
+{
+  auto directory = ::opendir("/dev/fd");
+  assert(directory != nullptr);
+  std::size_t count = 0;
+  while (const auto* entry = ::readdir(directory)) {
+    if (entry->d_name[0] != '.') {
+      ++count;
+    }
+  }
+  assert(::closedir(directory) == 0);
+  return count;
+}
+
+static void spawn_pipe_child_once()
+{
+  boost::asio::io_context io_context;
+  auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::pipe);
+  auto child      = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe("/bin/sh"),
+      boost::process::args(std::vector<std::string>{"-c", "exit 0"}));
+  child->wait();
+  stream_ptr->close();
+}
+
+static void check_pipe_child_spawn_does_not_leak_descriptors()
+{
+  spawn_pipe_child_once();
+  const auto before = open_descriptor_count();
+  for (std::size_t iteration = 0; iteration < 64; ++iteration) {
+    spawn_pipe_child_once();
+  }
+  assert(open_descriptor_count() == before);
+}
+#endif
+
 int main(int argc, char** argv)
 {
+#ifndef _WIN32
+  if (argc == 2 && std::string(argv[1]) == "--pipe-write-after-child-exit") {
+    return run_pipe_write_after_child_exit();
+  }
+  if (argc == 2 && std::string(argv[1]) == "--pipe-write-after-child-exit-with-closed-stdin") {
+    assert(::close(STDIN_FILENO) == 0);
+    return run_pipe_write_after_child_exit();
+  }
+  check_pipe_write_after_child_exit_does_not_raise_sigpipe(argv[0]);
+  check_pipe_child_spawn_does_not_leak_descriptors();
+#else
   (void)argc;
   (void)argv;
+#endif
   check_pipe_stream_lifecycle();
 #ifdef _WIN32
   check_windows_pty_rejects_overlapping_writes();

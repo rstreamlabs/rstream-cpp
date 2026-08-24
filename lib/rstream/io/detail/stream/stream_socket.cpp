@@ -44,6 +44,8 @@ class RSTREAM_GNUC_INTERNAL stream_socket::impl {
 
   void async_read_some(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler);
 
+  void async_shutdown_send(async_shutdown_send_completion_handler&& handler);
+
   stream_socket_const_ptr native_handle() const;
 
   stream_socket_ptr native_handle();
@@ -147,6 +149,11 @@ void stream_socket::async_read_some_internal(const boost::asio::mutable_buffer& 
 void stream_socket::async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler)
 {
   m_impl->async_read_some(buffer, std::move(handler));
+}
+
+void stream_socket::async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler)
+{
+  m_impl->async_shutdown_send(std::move(handler));
 }
 
 stream_socket::impl::impl(const executor_type& executor)
@@ -268,6 +275,15 @@ void stream_socket::impl::async_read_some(const mutable_buffer_sequence_type& bu
   else {
     m_native_handle->async_read_some(buffer, std::move(handler));
   }
+}
+
+void stream_socket::impl::async_shutdown_send(async_shutdown_send_completion_handler&& handler)
+{
+  if (!initialized()) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(handler), error::make_error_code(error::code::uninitialized_object));
+    return;
+  }
+  m_native_handle->async_shutdown_send(std::move(handler));
 }
 
 stream_socket_const_ptr stream_socket::impl::native_handle() const

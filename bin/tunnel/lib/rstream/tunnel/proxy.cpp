@@ -189,6 +189,10 @@ class RSTREAM_GNUC_INTERNAL proxy::impl::session : public std::enable_shared_fro
 
   void on_read(const boost::system::error_code& error_code, std::size_t size, type type);
 
+  void do_shutdown_send(type type);
+
+  void on_shutdown_send(const boost::system::error_code& error_code);
+
   void do_write(type type);
 
   void on_write(const boost::system::error_code& error_code, std::size_t size, type type);
@@ -220,6 +224,10 @@ class RSTREAM_GNUC_INTERNAL proxy::impl::session : public std::enable_shared_fro
   core::logger m_logger;
 
   state m_state;
+
+  bool m_downstream_read_closed;
+
+  bool m_upstream_read_closed;
 
   async_run_completion_handler m_handler;
 
@@ -574,7 +582,9 @@ proxy::impl::session::session(downstream_socket_type&& downstream_socket, const 
       m_session_id(session_id),
       m_upstream_address(upstream_address),
       m_logger({"rstream", "tunnel", "session", fmt::format("#{}", session_id)}),
-      m_state(state::null)
+      m_state(state::null),
+      m_downstream_read_closed(false),
+      m_upstream_read_closed(false)
 {
   std::stringstream str;
   {
@@ -790,13 +800,70 @@ void proxy::impl::session::on_read(const boost::system::error_code& error_code, 
   if (m_state != state::connected) {
     return;
   }
-  if (error_code) {
+  const auto eof = error_code && core::helpers::is_eof_error(error_code);
+  if (error_code && !eof) {
     on_error(error_code);
+    return;
   }
-  else {
+  if (eof) {
+    if (type == type::downstream) {
+      m_downstream_read_closed = true;
+    }
+    else {
+      m_upstream_read_closed = true;
+    }
+  }
+  if (size > 0) {
     auto& buffer = type == type::downstream ? *m_buffer_read_downstream : *m_buffer_read_upstream;
     buffer.set_size(size);
     do_write(type == type::downstream ? type::upstream : type::downstream);
+  }
+  else if (eof) {
+    do_shutdown_send(type == type::downstream ? type::upstream : type::downstream);
+  }
+  else {
+    do_read(type);
+  }
+}
+
+void proxy::impl::session::do_shutdown_send(type type)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (type == type::downstream) {
+    auto completion_handler = boost::asio::bind_executor(
+        m_strand,
+        [ptr = shared_from_this()](const boost::system::error_code& error_code) { ptr->on_shutdown_send(error_code); });
+    m_downstream_socket.async_shutdown_send(std::move(completion_handler));
+  }
+  else {
+#ifdef RSTREAM_WITH_IO_STREAMS
+    auto completion_handler = boost::asio::bind_executor(
+        m_strand,
+        [ptr = shared_from_this()](const boost::system::error_code& error_code) { ptr->on_shutdown_send(error_code); });
+    m_upstream_socket.async_shutdown_send(std::move(completion_handler));
+#else
+    boost::system::error_code error_code;
+    m_upstream_socket.shutdown(boost::asio::socket_base::shutdown_send, error_code);
+    on_shutdown_send(error_code);
+#endif
+  }
+}
+
+void proxy::impl::session::on_shutdown_send(const boost::system::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::connected) {
+    return;
+  }
+  if (error_code && !core::helpers::is_eof_error(error_code)) {
+    on_error(error_code);
+  }
+  else if (m_downstream_read_closed && m_upstream_read_closed) {
+    on_close(boost::system::error_code());
   }
 }
 
@@ -831,7 +898,13 @@ void proxy::impl::session::on_write(const boost::system::error_code& error_code,
     on_error(error_code);
   }
   else {
-    do_read(type == type::downstream ? type::upstream : type::downstream);
+    const auto source_closed = type == type::downstream ? m_upstream_read_closed : m_downstream_read_closed;
+    if (source_closed) {
+      do_shutdown_send(type);
+    }
+    else {
+      do_read(type == type::downstream ? type::upstream : type::downstream);
+    }
   }
 }
 

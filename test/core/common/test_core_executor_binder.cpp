@@ -180,6 +180,45 @@ static void check_completion_is_deferred_on_associated_executor()
   assert(allocation->m_allocations == allocation->m_deallocations);
 }
 
+static void check_completion_can_dispatch_on_associated_executor()
+{
+  boost::asio::io_context fallback_context;
+  boost::asio::io_context associated_context;
+  auto strand     = boost::asio::make_strand(associated_context);
+  auto allocation = std::make_shared<allocation_state>();
+  boost::asio::cancellation_signal cancellation;
+  std::atomic_size_t calls = 0;
+  auto work = boost::asio::make_work_guard(associated_context);
+  boost::asio::post(strand, [&] {
+    rstream::core::completion_handler<void(const boost::system::error_code&)> handler(
+        associated_handler(strand, counting_allocator<std::byte>(allocation), cancellation.slot(), calls));
+    rstream::core::dispatch_completion_handler(fallback_context.get_executor(), std::move(handler), boost::system::error_code());
+    assert(calls == 1);
+    work.reset();
+  });
+  associated_context.run();
+  assert(calls == 1);
+  assert(allocation->m_allocations == allocation->m_deallocations);
+}
+
+static void check_abandoned_completion_releases_associated_state()
+{
+  auto allocation = std::make_shared<allocation_state>();
+  std::atomic_size_t calls = 0;
+  {
+    boost::asio::io_context associated_context;
+    boost::asio::io_context fallback_context;
+    auto strand = boost::asio::make_strand(associated_context);
+    boost::asio::cancellation_signal cancellation;
+    rstream::core::completion_handler<void(const boost::system::error_code&)> handler(
+        associated_handler(strand, counting_allocator<std::byte>(allocation), cancellation.slot(), calls));
+    rstream::core::invoke_completion_handler(fallback_context.get_executor(), std::move(handler), boost::system::error_code());
+  }
+  assert(calls == 0);
+  assert(allocation->m_allocations > 0);
+  assert(allocation->m_allocations == allocation->m_deallocations);
+}
+
 static void check_adapter_preserves_associations()
 {
   boost::asio::io_context fallback_context;
@@ -320,6 +359,8 @@ int main()
 {
   check_type_erasure_preserves_associations();
   check_completion_is_deferred_on_associated_executor();
+  check_completion_can_dispatch_on_associated_executor();
+  check_abandoned_completion_releases_associated_state();
   check_adapter_preserves_associations();
   check_lifetime_adapter_preserves_owner_and_associations();
   check_strand_serializes_type_erased_handlers();

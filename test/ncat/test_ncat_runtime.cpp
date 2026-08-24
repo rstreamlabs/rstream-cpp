@@ -2,7 +2,9 @@
 
 #include <array>
 #include <cassert>
+#include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -19,6 +21,7 @@
 #include <boost/asio/write.hpp>
 
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <rstream/ncat/client.hpp>
@@ -510,6 +513,46 @@ static void check_exec_server_pipes_downstream_to_child()
   assert(response.find("exec") != std::string::npos);
 }
 
+static int run_exec_server_write_after_child_closed_stdin()
+{
+  std::signal(SIGPIPE, SIG_DFL);
+  const auto port                      = unused_tcp_port();
+  rstream::ncat::server::config config = {
+      .m_local  = rstream::io::address(std::string("127.0.0.1:") + std::to_string(port)),
+      .m_remote = rstream::ncat::server::exec{.m_shell = true, .m_cmd = "exec 0<&-; printf ready; sleep 30"},
+  };
+  ncat_server_fixture server(config);
+  server.start();
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, server.port());
+  std::array<char, 5> ready{};
+  boost::asio::read(socket, boost::asio::buffer(ready));
+  assert(std::string(ready.data(), ready.size()) == "ready");
+  boost::system::error_code error_code;
+  boost::asio::write(socket, boost::asio::buffer(std::string("payload")), error_code);
+  std::array<char, 1> response{};
+  socket.read_some(boost::asio::buffer(response), error_code);
+  assert(error_code);
+  server.stop();
+  return 0;
+}
+
+static void check_exec_server_write_after_child_closed_stdin_does_not_raise_sigpipe(const char* executable)
+{
+  const auto pid = ::fork();
+  require_posix(pid != -1, "fork failed");
+  if (pid == 0) {
+    ::execl(executable, executable, "--exec-write-after-child-closed-stdin", static_cast<char*>(nullptr));
+    ::_exit(127);
+  }
+  int status = 0;
+  while (::waitpid(pid, &status, 0) == -1) {
+    require_posix(errno == EINTR, "waitpid failed");
+  }
+  assert(WIFEXITED(status));
+  assert(WEXITSTATUS(status) == 0);
+}
+
 static void check_proxy_server_pipes_downstream_to_upstream()
 {
   echo_upstream upstream;
@@ -685,8 +728,10 @@ static void check_exec_server_cancel_keeps_active_child_alive_until_completion()
 
 int main(int argc, char** argv)
 {
-  (void)argc;
-  (void)argv;
+  if (argc == 2 && std::string(argv[1]) == "--exec-write-after-child-closed-stdin") {
+    return run_exec_server_write_after_child_closed_stdin();
+  }
+  check_exec_server_write_after_child_closed_stdin_does_not_raise_sigpipe(argv[0]);
   check_error_category();
   check_exec_server_pipes_downstream_to_child();
   check_proxy_server_pipes_downstream_to_upstream();

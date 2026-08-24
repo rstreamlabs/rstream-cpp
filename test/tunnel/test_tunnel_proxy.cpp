@@ -222,9 +222,10 @@ class tcp_thread_server {
 
 class fake_engine {
  public:
-  explicit fake_engine(std::atomic_bool& stream_exchanged)
+  explicit fake_engine(std::atomic_bool& stream_exchanged, bool half_close = false)
       : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0)),
-        m_stream_exchanged(stream_exchanged)
+        m_stream_exchanged(stream_exchanged),
+        m_half_close(half_close)
   {
   }
 
@@ -272,6 +273,11 @@ class fake_engine {
 
         const std::string downstream_payload = "hello";
         boost::asio::write(stream, boost::asio::buffer(downstream_payload));
+        if (m_half_close) {
+          boost::system::error_code error_code;
+          stream.shutdown(tcp::socket::shutdown_send, error_code);
+          check(!error_code, "failed to half-close downstream test stream");
+        }
         std::array<char, 5> upstream_reply{};
         boost::asio::read(stream, boost::asio::buffer(upstream_reply));
         check(std::string(upstream_reply.data(), upstream_reply.size()) == "world", "unexpected proxied reply");
@@ -301,25 +307,37 @@ class fake_engine {
   boost::asio::io_context m_io_context;
   tcp::acceptor m_acceptor;
   std::atomic_bool& m_stream_exchanged;
+  bool m_half_close;
   std::thread m_thread;
   std::exception_ptr m_exception;
 };
 
-static void check_proxy_forwards_engine_stream_to_upstream_and_back()
+static void check_proxy_forwards_engine_stream_to_upstream_and_back(bool half_close = false)
 {
   std::atomic_bool upstream_served = false;
-  tcp_thread_server upstream([&](tcp::socket& socket) {
+  tcp_thread_server upstream([&, half_close](tcp::socket& socket) {
     std::array<char, 5> request{};
     boost::asio::read(socket, boost::asio::buffer(request));
     check(std::string(request.data(), request.size()) == "hello", "unexpected upstream request");
+    if (half_close) {
+      std::array<char, 1> trailing{};
+      boost::system::error_code error_code;
+      socket.read_some(boost::asio::buffer(trailing), error_code);
+      check(error_code == boost::asio::error::eof, "upstream did not receive the downstream half-close");
+    }
     const std::string response = "world";
     boost::asio::write(socket, boost::asio::buffer(response));
+    if (half_close) {
+      boost::system::error_code error_code;
+      socket.shutdown(tcp::socket::shutdown_send, error_code);
+      check(!error_code, "failed to half-close upstream test stream");
+    }
     upstream_served = true;
   });
   upstream.start();
 
   std::atomic_bool stream_exchanged = false;
-  fake_engine engine(stream_exchanged);
+  fake_engine engine(stream_exchanged, half_close);
   engine.start();
 
   boost::asio::io_context io_context;
@@ -500,6 +518,7 @@ int main(int argc, char** argv)
   (void)argc;
   (void)argv;
   check_proxy_forwards_engine_stream_to_upstream_and_back();
+  check_proxy_forwards_engine_stream_to_upstream_and_back(true);
   check_proxy_rejects_second_run_while_active();
   check_proxy_default_tunnel_request_leaves_public_policy_to_server();
   return 0;

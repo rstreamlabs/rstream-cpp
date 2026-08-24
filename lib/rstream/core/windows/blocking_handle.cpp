@@ -95,14 +95,12 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
 
   void async_read_some(const boost::asio::mutable_buffer& buffer, completion_handler&& handler)
   {
-    auto operation_allocator = boost::asio::get_associated_allocator(handler);
-    submit(std::allocate_shared<operation>(operation_allocator, operation::type::read, buffer, m_executor, std::move(handler)));
+    submit(std::make_shared<operation>(operation::type::read, buffer, m_executor, std::move(handler)));
   }
 
   void async_write(const boost::asio::const_buffer& buffer, completion_handler&& handler)
   {
-    auto operation_allocator = boost::asio::get_associated_allocator(handler);
-    submit(std::allocate_shared<operation>(operation_allocator, operation::type::write, buffer, m_executor, std::move(handler)));
+    submit(std::make_shared<operation>(operation::type::write, buffer, m_executor, std::move(handler)));
   }
 
   void cancel()

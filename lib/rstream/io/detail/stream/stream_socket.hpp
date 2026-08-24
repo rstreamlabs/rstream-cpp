@@ -69,6 +69,8 @@ class stream_socket : public stream_socket_base<endpoint> {
 
   void async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler) override;
 
+  void async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler) override;
+
   std::shared_ptr<impl> m_impl;
 };
 

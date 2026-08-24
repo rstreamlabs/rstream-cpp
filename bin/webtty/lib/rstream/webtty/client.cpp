@@ -1195,11 +1195,17 @@ void client::impl::on_send_message(const std::error_code& error_code, enum loop 
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  if (error_code) {
-    on_error(error_code);
-  }
-  else if (m_remote_return_code) {
+  if (m_remote_return_code) {
     finish_cmd_if_idle();
+  }
+  else if (error_code) {
+    if (m_state == state::connected) {
+      set_state(state::disconnecting);
+      arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
+    }
+    if (!m_error_code) {
+      m_error_code = error_code;
+    }
   }
   else {
     switch (loop) {

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <boost/asio/associated_allocator.hpp>
+#include <boost/asio/socket_base.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/url.hpp>
 
@@ -67,6 +68,8 @@ class stream_socket_impl : public stream_socket_base<endpoint>, public object_ba
   void async_read_some_internal(const boost::asio::mutable_buffer& buffer, async_read_some_completion_handler&& handler) override;
 
   void async_read_some_internal(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler) override;
+
+  void async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler) override;
 
   native_socket_type m_socket;
 
@@ -239,6 +242,29 @@ void stream_socket_impl<native_socket_type, native_endpoint_type>::async_read_so
       rstream::core::bind_handler_lifetime(
           std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
           std::move(handler)));
+}
+
+template <typename native_socket_type, typename native_endpoint_type>
+void stream_socket_impl<native_socket_type, native_endpoint_type>::async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler)
+{
+  if constexpr (requires(native_socket_type& socket, async_shutdown_send_completion_handler&& completion_handler) {
+                  socket.async_shutdown_send(std::move(completion_handler));
+                }) {
+    m_socket.async_shutdown_send(
+        rstream::core::bind_handler_lifetime(
+            std::enable_shared_from_this<stream_socket_impl>::shared_from_this(),
+            std::move(handler)));
+  }
+  else if constexpr (requires(native_socket_type& socket, boost::system::error_code& error_code) {
+                       socket.shutdown(boost::asio::socket_base::shutdown_send, error_code);
+                     }) {
+    boost::system::error_code error_code;
+    m_socket.shutdown(boost::asio::socket_base::shutdown_send, error_code);
+    rstream::core::invoke_completion_handler(get_executor(), std::move(handler), error_code);
+  }
+  else {
+    rstream::core::invoke_completion_handler(get_executor(), std::move(handler), boost::asio::error::operation_not_supported);
+  }
 }
 
 }  // namespace stream

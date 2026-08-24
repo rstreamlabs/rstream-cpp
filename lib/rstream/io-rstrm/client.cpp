@@ -52,6 +52,10 @@
 namespace rstream {
 namespace io_rstrm {
 
+static constexpr unsigned int kMinControlHeartbeatIntervalMs = 1000;
+static constexpr unsigned int kMaxControlHeartbeatIntervalMs = 300000;
+static constexpr unsigned int kMaxControlHeartbeatTimeoutMs  = 900000;
+
 static bool invalid_published_tcp_options(const tunnel_properties& properties)
 {
   const bool published_tcp = properties.m_protocol && properties.m_protocol.value() == protocol::tcp;
@@ -245,6 +249,8 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void arm_state_timer(unsigned int timeout_ms);
 
+  void arm_liveness_timer();
+
   boost::system::result<client_details> effective_client_details() const;
 
   void async_connect_internal(const connect_op_type::ptr& op);
@@ -359,6 +365,8 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   resolver_type m_resolver;
 
+  boost::asio::steady_timer m_liveness_timer;
+
   socket_type m_socket;
 
   payloader_type m_payloader;
@@ -370,6 +378,12 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   bool m_is_state_non_null;
 
   bool m_close_pending;
+
+  unsigned int m_heartbeat_timeout_ms;
+
+  std::uint64_t m_heartbeat_sequence;
+
+  std::uint64_t m_heartbeat_acknowledgement;
 
   io::address m_server_address;
 
@@ -571,11 +585,15 @@ client::impl::impl(const executor_type& executor, const config_client& config, c
       m_executor(executor),
       m_strand(executor),
       m_resolver(executor),
+      m_liveness_timer(executor),
       m_socket(executor),
       m_payloader(m_socket, allocator),
       m_queue(m_payloader, allocator),
       m_is_state_non_null(false),
       m_close_pending(false),
+      m_heartbeat_timeout_ms(0),
+      m_heartbeat_sequence(0),
+      m_heartbeat_acknowledgement(0),
       m_buffer(allocator)
 {
   const auto server_result = get_rstream_engine_address(config.m_config_path);
@@ -625,8 +643,7 @@ void client::impl::set_control_callbacks(const control_callbacks& callbacks, boo
 
 void client::impl::async_connect(const io::address& address, async_connect_completion_handler&& handler)
 {
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  const auto op            = std::allocate_shared<connect_op_type>(operation_allocator, std::move(handler));
+  const auto op = std::allocate_shared<connect_op_type>(core::allocator::wrapper<connect_op_type>(m_allocator), std::move(handler));
   {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_is_state_non_null) {
@@ -668,9 +685,8 @@ void client::impl::async_connect(async_connect_completion_handler&& handler)
 
 void client::impl::async_create_tunnel(const tunnel_properties& properties, async_create_tunnel_completion_handler&& handler)
 {
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  const auto op            = std::allocate_shared<create_tunnel_op_type>(
-      operation_allocator,
+  const auto op = std::allocate_shared<create_tunnel_op_type>(
+      core::allocator::wrapper<create_tunnel_op_type>(m_allocator),
       normalize_tunnel_properties(properties),
       std::move(handler));
   auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
@@ -697,9 +713,8 @@ void client::impl::async_create_tunnel(const tunnel_properties& properties, asyn
 
 void client::impl::async_accept_tunnel(const std::string& tunnel_id, socket& peer, endpoint& endpoint, tunnel::async_accept_completion_handler&& handler)
 {
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  const auto op            = std::allocate_shared<accept_tunnel_op_type>(
-      operation_allocator,
+  const auto op = std::allocate_shared<accept_tunnel_op_type>(
+      core::allocator::wrapper<accept_tunnel_op_type>(m_allocator),
       peer,
       endpoint,
       std::move(handler));
@@ -804,6 +819,24 @@ void client::impl::arm_state_timer(unsigned int timeout_ms)
   task_ptr->m_timer.expires_after(std::chrono::milliseconds(timeout_ms));
   auto completion_handler = boost::asio::bind_executor(ptr->m_strand, on_timer_cb);
   task_ptr->m_timer.async_wait(completion_handler);
+}
+
+void client::impl::arm_liveness_timer()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_heartbeat_timeout_ms == 0 || m_state != state::connected) {
+    return;
+  }
+  const auto generation = m_generation;
+  m_liveness_timer.expires_after(std::chrono::milliseconds(m_heartbeat_timeout_ms));
+  auto self = shared_from_this();
+  m_liveness_timer.async_wait(boost::asio::bind_executor(m_strand, [self, generation](const boost::system::error_code& error_code) {
+    if (!error_code && generation == self->m_generation && self->m_state == state::connected) {
+      self->on_error(error::code::operation_timeout);
+    }
+  }));
 }
 
 void client::impl::complete_connect(const connect_op_type::ptr& op, const boost::system::error_code& error_code)
@@ -1166,6 +1199,16 @@ void client::impl::do_open()
     }
     if (!error_code) {
       payload.mutable_client_details()->CopyFrom(proto_client_details);
+      if (m_config.m_hearbeat) {
+        if (m_config.m_heartbeat_interval_ms < kMinControlHeartbeatIntervalMs || m_config.m_heartbeat_interval_ms > kMaxControlHeartbeatIntervalMs) {
+          error_code = error::code::invalid_configuration;
+        }
+        else {
+          payload.mutable_liveness()->set_heartbeat_interval_ms(m_config.m_heartbeat_interval_ms);
+        }
+      }
+    }
+    if (!error_code) {
       message.mutable_open_control_channel_req()->CopyFrom(payload);
     }
   }
@@ -1519,7 +1562,22 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
       if (payload.has_ok()) {
         const auto& ok = payload.ok();
         if (!ok.client_id().empty()) {
-          if (ok.has_server_details()) {
+          m_heartbeat_timeout_ms = 0;
+          m_heartbeat_sequence   = 0;
+          m_heartbeat_acknowledgement = 0;
+          if (ok.has_liveness()) {
+            const auto& liveness = ok.liveness();
+            if (!m_config.m_hearbeat
+                || liveness.heartbeat_interval_ms() != m_config.m_heartbeat_interval_ms
+                || liveness.heartbeat_timeout_ms() < liveness.heartbeat_interval_ms()
+                || liveness.heartbeat_timeout_ms() > kMaxControlHeartbeatTimeoutMs) {
+              error_code = error::code::protocol_error;
+            }
+            else {
+              m_heartbeat_timeout_ms = liveness.heartbeat_timeout_ms();
+            }
+          }
+          if (!error_code && ok.has_server_details()) {
             const auto& details = ok.server_details();
             if (details.has_plan()) {
               m_status.m_plan = details.plan().value();
@@ -1534,7 +1592,9 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
               m_status.m_update = details.update().value();
             }
           }
-          on_open();
+          if (!error_code) {
+            on_open();
+          }
         }
         else {
 #ifdef DEBUG_BUILD
@@ -1676,6 +1736,20 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
         }
       }
     }
+    else if (message_type == payload_type::kHeartbeat) {
+      const auto& heartbeat = message.heartbeat();
+      if (m_heartbeat_timeout_ms == 0) {
+        if (heartbeat.sequence() != 0 || heartbeat.acknowledgement() != 0) {
+          error_code = error::code::protocol_error;
+        }
+      }
+      else if (heartbeat.sequence() != 0 || heartbeat.acknowledgement() == 0 || heartbeat.acknowledgement() <= m_heartbeat_acknowledgement || heartbeat.acknowledgement() > m_heartbeat_sequence) {
+        error_code = error::code::protocol_error;
+      }
+      else {
+        m_heartbeat_acknowledgement = heartbeat.acknowledgement();
+      }
+    }
     else if (message_type == payload_type::kCloseControlChannelRsp) {
       boost::system::error_code error;
       if (m_state != state::closing) {
@@ -1691,6 +1765,9 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
     on_error(error_code);
   }
   else {
+    if (m_state == state::connected) {
+      arm_liveness_timer();
+    }
     do_read_incoming_message();
   }
 }
@@ -1746,6 +1823,7 @@ void client::impl::close_internal(const boost::system::error_code& error_code)
 #ifdef DEBUG_BUILD
     m_logger->trace("closing client...");
 #endif
+    m_liveness_timer.cancel();
     set_state(state::closing);
     arm_state_timer(m_config.m_connection_timeout_ms);
     if (error_code && !m_error_code) {
@@ -1791,6 +1869,7 @@ void client::impl::on_close(const boost::system::error_code& error_code)
     disconnection_callback = m_control_callbacks.m_on_disconnection_cb;
   }
   m_close_pending = true;
+  m_liveness_timer.cancel();
   ++m_generation;
   if (m_state != state::closing) {
     set_state(state::closing);
@@ -1828,6 +1907,9 @@ void client::impl::on_queue_cancelled(
   m_error_code     = boost::system::error_code();
   m_client_details = {};
   m_status         = {};
+  m_heartbeat_timeout_ms = 0;
+  m_heartbeat_sequence   = 0;
+  m_heartbeat_acknowledgement = 0;
   set_state(state::null);
   m_close_pending = false;
   {
@@ -1859,7 +1941,19 @@ void client::impl::send_heartbeat()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  do_send_heartbeat();
+  if (m_config.m_heartbeat_interval_ms == 0 || m_state != state::connected) {
+    return;
+  }
+  protobuf::Message message;
+  auto* heartbeat = message.mutable_heartbeat();
+  if (m_heartbeat_timeout_ms > 0) {
+    ++m_heartbeat_sequence;
+    if (m_heartbeat_sequence == 0) {
+      ++m_heartbeat_sequence;
+    }
+    heartbeat->set_sequence(m_heartbeat_sequence);
+  }
+  do_send_message(message, std::bind(&impl::do_send_heartbeat, shared_from_this()));
 }
 
 void client::impl::do_send_heartbeat()
@@ -1905,9 +1999,7 @@ void client::impl::do_send_heartbeat()
       return;
     }
     if (!error_code && generation == ptr->m_generation) {
-      protobuf::Message message;
-      message.mutable_heartbeat();
-      ptr->do_send_message(message, std::bind(&impl::do_send_heartbeat, ptr));
+      ptr->send_heartbeat();
     }
     task_ptr->clean();
   };

@@ -44,6 +44,13 @@
 #include <boost/process/child.hpp>
 #include <boost/process/io.hpp>
 #endif
+#ifndef _WIN32
+#if __has_include(<boost/process/v1/posix.hpp>)
+#include <boost/process/v1/posix.hpp>
+#else
+#include <boost/process/posix.hpp>
+#endif
+#endif
 #include <boost/signals2.hpp>
 #include <boost/system/errc.hpp>
 
@@ -52,6 +59,8 @@
 #ifdef _WIN32
 #include <shellapi.h>
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 // clang-format on
 
@@ -64,6 +73,9 @@
 #include <rstream/core/log.hpp>
 #include <rstream/core/memory.hpp>
 #include <rstream/core/object_id.hpp>
+#ifndef _WIN32
+#include <rstream/core/posix/child_stdin.hpp>
+#endif
 #include <rstream/core/system.hpp>
 #ifdef RSTREAM_WITH_IO_STREAMS
 #include <rstream/io/detail/stream/async_connect.hpp>
@@ -389,7 +401,7 @@ class RSTREAM_GNUC_INTERNAL server::impl::session_proxy : public session, public
 
 class RSTREAM_GNUC_INTERNAL server::impl::session_exec : public session, public std::enable_shared_from_this<session_exec> {
  public:
-  session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec, bool downstream_half_close);
+  session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec);
 
   void async_run(async_run_completion_handler&& handler) override;
 
@@ -454,15 +466,17 @@ class RSTREAM_GNUC_INTERNAL server::impl::session_exec : public session, public 
 
   const exec m_exec;
 
-  const bool m_downstream_half_close;
-
   core::logger m_logger;
 
   state m_state;
 
   async_run_completion_handler m_handler;
 
+#ifdef _WIN32
   boost::process::async_pipe m_child_stdin;
+#else
+  rstream::core::posix::child_stdin m_child_stdin;
+#endif
 
   boost::process::async_pipe m_child_stdout;
 
@@ -726,7 +740,7 @@ void server::impl::on_accept(const boost::system::error_code& error_code)
         session_ptr = std::make_shared<session_proxy>(std::move(m_socket), m_settings, session_id, boost::get<io::address>(m_config.m_remote));
       }
       else if (m_config.m_remote.type() == typeid(exec)) {
-        session_ptr = std::make_shared<session_exec>(std::move(m_socket), m_settings, session_id, boost::get<exec>(m_config.m_remote), m_config.m_local.m_url.scheme() == "tcp");
+        session_ptr = std::make_shared<session_exec>(std::move(m_socket), m_settings, session_id, boost::get<exec>(m_config.m_remote));
       }
       if (session_ptr) {
         m_sessions.insert(std::make_pair(session_id, session_ptr));
@@ -1172,17 +1186,20 @@ void server::impl::session_proxy::on_close(const boost::system::error_code& erro
   m_buffer_read_upstream   = nullptr;
 }
 
-server::impl::session_exec::session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec, bool downstream_half_close)
+server::impl::session_exec::session_exec(socket_type&& downstream_socket, const settings_server& settings, const session_id_type& session_id, const exec& exec)
     : m_executor(downstream_socket.get_executor()),
       m_strand(m_executor),
       m_settings(settings),
       m_downstream_socket(std::move(downstream_socket)),
       m_session_id(session_id),
       m_exec(exec),
-      m_downstream_half_close(downstream_half_close),
       m_logger({"rstream", "ncat", "session", fmt::format("#{}", session_id)}),
       m_state(state::null),
+#ifdef _WIN32
       m_child_stdin(get_io_context(m_executor)),
+#else
+      m_child_stdin(m_executor),
+#endif
       m_child_stdout(get_io_context(m_executor)),
       m_child_stderr(get_io_context(m_executor)),
       m_child_stdout_eos(false),
@@ -1287,9 +1304,14 @@ void server::impl::session_exec::start_child()
       m_logger->trace("starting child process [shell: {} | cmd: {}]", shell, m_exec.m_cmd);
       m_child = std::make_shared<boost::process::child>(shell,
                                                         boost::process::args(args),
+#ifdef _WIN32
                                                         boost::process::std_in<m_child_stdin,
                                                                                boost::process::std_out>
                                                             m_child_stdout,
+#else
+                                                        boost::process::posix::fd.bind(STDIN_FILENO, m_child_stdin.child_native_handle()),
+                                                        boost::process::std_out > m_child_stdout,
+#endif
                                                         boost::process::std_err > m_child_stderr,
                                                         boost::process::on_exit = completion_handler,
                                                         get_io_context(m_executor));
@@ -1317,9 +1339,14 @@ void server::impl::session_exec::start_child()
         m_logger->trace("starting child process [exe: {} | args: {}]", exe, args_stream.str());
         m_child = std::make_shared<boost::process::child>(exe,
                                                           boost::process::args(args),
+#ifdef _WIN32
                                                           boost::process::std_in<m_child_stdin,
                                                                                  boost::process::std_out>
                                                               m_child_stdout,
+#else
+                                                          boost::process::posix::fd.bind(STDIN_FILENO, m_child_stdin.child_native_handle()),
+                                                          boost::process::std_out > m_child_stdout,
+#endif
                                                           boost::process::std_err > m_child_stderr,
                                                           boost::process::on_exit = completion_handler,
                                                           get_io_context(m_executor));
@@ -1329,6 +1356,9 @@ void server::impl::session_exec::start_child()
   catch (...) {
     exception_ptr = std::current_exception();
   }
+#ifndef _WIN32
+  m_child_stdin.close_child_end();
+#endif
   if (exception_ptr) {
     try {
       std::rethrow_exception(exception_ptr);
@@ -1409,10 +1439,6 @@ void server::impl::session_exec::on_read_downstream(const boost::system::error_c
   }
   if (error_code) {
     if (core::helpers::is_eof_error(error_code)) {
-      if (!m_downstream_half_close) {
-        on_close(boost::system::error_code());
-        return;
-      }
       {
         boost::system::error_code tmp;
         m_child_stdin.close(tmp);
@@ -1444,7 +1470,11 @@ void server::impl::session_exec::do_write_child()
   auto completion_handler = [self = shared_from_this(), buffer](const boost::system::error_code& error_code, std::size_t size) {
     self->on_write_child(error_code, size);
   };
+#ifdef _WIN32
   boost::asio::async_write(m_child_stdin, core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
+#else
+  boost::asio::async_write(m_child_stdin.stream(), core::helpers::const_memory_sequence(*buffer), boost::asio::bind_executor(m_strand, std::move(completion_handler)));
+#endif
 }
 
 void server::impl::session_exec::on_write_child(const boost::system::error_code& error_code, std::size_t size)

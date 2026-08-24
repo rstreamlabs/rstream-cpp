@@ -301,11 +301,10 @@ typename queue<transport>::executor_type queue<transport>::impl::get_executor() 
 template <class transport>
 void queue<transport>::impl::async_send(const core::buffer buffer, async_send_completion_handler&& handler)
 {
-  auto allocator = boost::asio::get_associated_allocator(handler);
-  auto self      = std::enable_shared_from_this<impl>::shared_from_this();
-  auto task_ptr  = std::allocate_shared<task>(allocator, buffer, std::move(handler));
+  auto self     = std::enable_shared_from_this<impl>::shared_from_this();
+  auto task_ptr = std::allocate_shared<task>(core::allocator::wrapper<task>(m_allocator), buffer, std::move(handler));
   task_ptr->arm(task_ptr, self, m_strand);
-  boost::asio::dispatch(m_strand, boost::asio::bind_allocator(allocator, [self, task_ptr] { self->send(task_ptr); }));
+  boost::asio::dispatch(m_strand, boost::asio::bind_allocator(core::allocator::wrapper<char>(m_allocator), [self, task_ptr] { self->send(task_ptr); }));
 }
 
 template <class transport>
@@ -318,12 +317,11 @@ void queue<transport>::impl::cancel()
 template <class transport>
 void queue<transport>::impl::async_cancel(async_cancel_completion_handler&& handler)
 {
-  auto allocator = boost::asio::get_associated_allocator(handler);
-  auto self      = std::enable_shared_from_this<impl>::shared_from_this();
+  auto self = std::enable_shared_from_this<impl>::shared_from_this();
   boost::asio::dispatch(
       m_strand,
       boost::asio::bind_allocator(
-          allocator,
+          core::allocator::wrapper<char>(m_allocator),
           [self, handler = std::move(handler)]() mutable {
             self->cancel_internal(std::move(handler));
           }));

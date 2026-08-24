@@ -6,6 +6,7 @@
 #include <array>
 #include <exception>
 #include <limits>
+#include <stdexcept>
 
 #include <rstream/config.hpp>
 
@@ -40,7 +41,11 @@ ptr make_stream(const executor_type& executor, backend backend)
 
 pipe::pipe(const executor_type& executor)
     : base(backend::pipe),
+#ifdef _WIN32
       m_std_in(executor.context()),
+#else
+      m_std_in(executor),
+#endif
       m_std_out(executor.context()),
       m_std_err(executor.context())
 {
@@ -53,12 +58,22 @@ pipe::~pipe()
 
 void pipe::async_read_some(const boost::asio::mutable_buffer& buffer, type type, async_read_some_completion_handler&& handler)
 {
-  stream(type).async_read_some(buffer, std::move(handler));
+  if (type == type::std_in) {
+    input_stream().async_read_some(buffer, std::move(handler));
+  }
+  else {
+    output_stream(type).async_read_some(buffer, std::move(handler));
+  }
 }
 
 void pipe::async_write(const boost::asio::const_buffer& buffer, type type, async_write_completion_handler&& handler)
 {
-  boost::asio::async_write(stream(type), buffer, std::move(handler));
+  if (type == type::std_in) {
+    boost::asio::async_write(input_stream(), buffer, std::move(handler));
+  }
+  else {
+    boost::asio::async_write(output_stream(type), buffer, std::move(handler));
+  }
 }
 
 void pipe::close()
@@ -71,21 +86,39 @@ void pipe::close()
 void pipe::close(type type)
 {
   boost::system::error_code tmp;
-  stream(type).close(tmp);
-}
-
-pipe::stream_type& pipe::stream(type type)
-{
   if (type == type::std_in) {
-    return m_std_in;
-  }
-  else if (type == type::std_out) {
-    return m_std_out;
+    m_std_in.close(tmp);
   }
   else {
-    return m_std_err;
+    output_stream(type).close(tmp);
   }
 }
+
+pipe::stream_type& pipe::output_stream(type type)
+{
+  if (type == type::std_out) {
+    return m_std_out;
+  }
+  else if (type == type::std_err) {
+    return m_std_err;
+  }
+  throw std::invalid_argument("stdin is not an output stream");
+}
+
+pipe::input_stream_type& pipe::input_stream()
+{
+#ifdef _WIN32
+  return m_std_in;
+#else
+  return m_std_in.stream();
+#endif
+}
+
+#ifndef _WIN32
+int pipe::child_stdin_native_handle() { return m_std_in.child_native_handle(); }
+
+void pipe::child_spawned() { m_std_in.close_child_end(); }
+#endif
 
 #ifdef _WIN32
 

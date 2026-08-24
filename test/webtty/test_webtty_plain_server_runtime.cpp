@@ -3,6 +3,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <ctime>
 #include <exception>
 #include <functional>
@@ -61,6 +62,16 @@ static void write_message(tcp::socket& socket, const protobuf::Message& message)
   if (!payload.empty()) {
     boost::asio::write(socket, boost::asio::buffer(payload));
   }
+}
+
+static void append_message(std::vector<char>& dst, const protobuf::Message& message)
+{
+  const auto size          = static_cast<std::uint32_t>(message.ByteSizeLong());
+  std::uint32_t frame_size = htonl(size);
+  const auto offset        = dst.size();
+  dst.resize(offset + sizeof(frame_size) + size);
+  std::memcpy(dst.data() + offset, &frame_size, sizeof(frame_size));
+  assert(message.SerializeToArray(dst.data() + offset + sizeof(frame_size), static_cast<int>(size)));
 }
 
 static void read_exact(tcp::socket& socket, void* data, std::size_t size)
@@ -656,6 +667,46 @@ static void check_plain_server_reports_child_exit_without_stdin_eos(unsigned sho
   }
 }
 
+static void check_plain_server_delivers_child_exit_while_messages_are_in_flight(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, port);
+  write_message(socket, open_message({"/bin/sh", "-c", "IFS= read -r line; exit 23"}, true));
+
+  auto ack = read_message(socket);
+  assert(ack.payload_case() == protobuf::Message::PayloadCase::kAck);
+  protobuf::Message heartbeat;
+  heartbeat.mutable_heartbeat();
+  std::vector<char> in_flight;
+  in_flight.reserve(512 * 1024);
+  for (int i = 0; i < 1000; ++i) {
+    append_message(in_flight, heartbeat);
+  }
+  append_message(in_flight, data_message(protobuf::Data::TYPE_STDIN, "exit\n"));
+  for (int i = 0; i < 50000; ++i) {
+    append_message(in_flight, heartbeat);
+  }
+  boost::asio::write(socket, boost::asio::buffer(in_flight));
+
+  bool saw_close = false;
+  while (!saw_close) {
+    auto message = read_message(socket);
+    switch (message.payload_case()) {
+      case protobuf::Message::PayloadCase::kData:
+      case protobuf::Message::PayloadCase::kHeartbeat:
+        break;
+      case protobuf::Message::PayloadCase::kClose:
+        assert(message.close().return_code() == 23);
+        saw_close = true;
+        break;
+      default:
+        std::cerr << "unexpected webtty message type: " << message.payload_case() << std::endl;
+        assert(false);
+        break;
+    }
+  }
+}
+
 static void check_plain_server_e2e_forwards_stdin_to_child_process()
 {
   std::error_code error_code;
@@ -972,9 +1023,31 @@ static void check_plain_server_cancel_keeps_active_child_resources_alive()
     assert(out.payload_case() == protobuf::Message::PayloadCase::kData);
     assert(out.data().type() == protobuf::Data::TYPE_STDOUT);
     assert(out.data().data() == "active");
-    server.stop();
+    std::exception_ptr stop_exception;
+    std::thread stop_thread([&] {
+      try {
+        server.stop();
+      }
+      catch (...) {
+        stop_exception = std::current_exception();
+      }
+    });
+    bool saw_close = false;
+    while (!saw_close) {
+      auto message = read_message(socket);
+      if (message.payload_case() == protobuf::Message::PayloadCase::kClose) {
+        saw_close = true;
+      }
+      else {
+        assert(message.payload_case() == protobuf::Message::PayloadCase::kData || message.payload_case() == protobuf::Message::PayloadCase::kHeartbeat);
+      }
+    }
     boost::system::error_code ignored;
     socket.close(ignored);
+    stop_thread.join();
+    if (stop_exception) {
+      std::rethrow_exception(stop_exception);
+    }
   }
 }
 
@@ -1002,6 +1075,7 @@ int main(int argc, char** argv)
   run_check("tty environment and workdir", [&server] { check_plain_server_applies_tty_environment_and_workdir(server.port()); });
   run_check("stdin forwarding", [&server] { check_plain_server_forwards_stdin_to_child_process(server.port()); });
   run_check("child exit before stdin EOS", [&server] { check_plain_server_reports_child_exit_without_stdin_eos(server.port()); });
+  run_check("child exit while messages are in flight", [&server] { check_plain_server_delivers_child_exit_while_messages_are_in_flight(server.port()); });
   run_check("E2E stdin forwarding", check_plain_server_e2e_forwards_stdin_to_child_process);
   run_check("client credential verification", check_plain_server_e2e_accepts_client_credential_verifier);
   run_check("missing session key rejection", check_plain_server_e2e_rejects_missing_session_key_grant);
