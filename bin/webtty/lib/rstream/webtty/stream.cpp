@@ -474,7 +474,8 @@ void pty_posix::allocate(std::error_code& error_code)
 void pty_posix::set_window_size(const terminal_size& terminal_size, std::error_code& error_code)
 {
   try {
-    terminal(m_master_fd).resize(terminal_size);
+    auto fd = m_std_in_out.is_open() ? m_std_in_out.native_handle() : m_master_fd;
+    terminal(fd).resize(terminal_size);
   }
   catch (const std::system_error& system_error) {
     error_code = system_error.code();

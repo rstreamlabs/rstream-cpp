@@ -305,6 +305,13 @@ class fake_engine {
   std::exception_ptr m_exception;
 };
 
+static void drain_cancelled_operations(boost::asio::io_context& io_context)
+{
+  io_context.restart();
+  io_context.run_for(rstream::test::timeout(std::chrono::seconds(5)));
+  check(io_context.stopped(), "proxy retained asynchronous work after cancellation");
+}
+
 static void check_proxy_forwards_engine_stream_to_upstream_and_back()
 {
   std::atomic_bool upstream_served = false;
@@ -369,6 +376,7 @@ static void check_proxy_forwards_engine_stream_to_upstream_and_back()
   run_until(io_context, [&] { return stream_exchanged.load(); });
   proxy.cancel();
   run_until(io_context, [&] { return proxy_stopped; });
+  drain_cancelled_operations(io_context);
 
   engine.join();
   upstream.join();
@@ -427,6 +435,7 @@ static void check_proxy_rejects_second_run_while_active()
   run_until(io_context, [&] { return rejected_second_run; });
   proxy.cancel();
   run_until(io_context, [&] { return proxy_stopped; });
+  drain_cancelled_operations(io_context);
 
   engine.join();
   upstream.join();
@@ -489,6 +498,7 @@ static void check_proxy_default_tunnel_request_leaves_public_policy_to_server()
   });
 
   run_until(io_context, [&] { return proxy_stopped; });
+  drain_cancelled_operations(io_context);
   engine.join();
 
   check(saw_default_request.load(), "fake engine did not observe the default tunnel request");

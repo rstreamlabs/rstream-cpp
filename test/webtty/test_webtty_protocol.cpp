@@ -476,6 +476,7 @@ static void check_webtty_uri_is_publishable_and_labelled()
     }
   }
   assert(labels.count("application-protocol=rstream.webtty") == 1);
+  assert(labels.count("rstream.webtty.transport=websocket") == 1);
   assert(labels.count("rstream.webtty.capabilities=exec") == 1);
   assert(labels.count("rstream.webtty.execution.mode=spawn") == 1);
   assert(labels.count("rstream.webtty.exec.path=/") == 1);
@@ -491,11 +492,40 @@ static void check_webtty_uri_is_publishable_and_labelled()
   assert(has_os_family);
 }
 
+static void check_webtty_uri_transport_contract()
+{
+  for (const auto transport : {protocol::type::plain, protocol::type::websocket}) {
+    for (const bool managed : {false, true}) {
+      for (const bool publish : {false, true}) {
+        rstream::webtty::webtty_uri_options options;
+        options.m_transport = transport;
+        options.m_managed   = managed;
+        options.m_publish   = publish;
+        const auto labels   = rstream::webtty::build_webtty_labels(options);
+        assert(labels.at("rstream.webtty.transport") == (transport == protocol::type::plain ? "plain" : "websocket"));
+        const auto url    = parse_url(rstream::webtty::build_webtty_uri(options));
+        const auto params = url.params();
+        assert((*params.find("rstrm.type")).value == "bytestream");
+        if (transport == protocol::type::plain && !managed) {
+          assert((*params.find("rstrm.publish")).value == "false");
+          assert(params.find("rstrm.protocol") == params.end());
+          assert(params.find("rstrm.token_auth") == params.end());
+        }
+        else {
+          assert((*params.find("rstrm.publish")).value == (publish ? "true" : "false"));
+          assert((*params.find("rstrm.protocol")).value == (managed ? "webtty" : "http"));
+        }
+      }
+    }
+  }
+}
+
 static void check_managed_webtty_uri_is_publishable_and_labelled()
 {
   rstream::webtty::webtty_uri_options options;
   options.m_managed           = true;
   options.m_server_id         = "prod-shell";
+  options.m_server_name       = "Production shell";
   options.m_host_key_id       = "host-key-id";
   options.m_encryption_policy = "explicit_key";
   options.m_labels["env"]     = "production";
@@ -515,6 +545,7 @@ static void check_managed_webtty_uri_is_publishable_and_labelled()
   }
   assert(labels.count("application-protocol=rstream.webtty") == 1);
   assert(labels.count("rstream.webtty.server_id=prod-shell") == 1);
+  assert(labels.count("rstream.webtty.server_name=Production shell") == 1);
   assert(labels.count("rstream.webtty.host_key_id=host-key-id") == 1);
   assert(labels.count("rstream.webtty.e2e=required") == 1);
   assert(labels.count("rstream.webtty.client_proof=required") == 1);
@@ -693,6 +724,7 @@ int main(int argc, char** argv)
   check_windows_login_user_is_restricted_to_server_account();
 #endif
   check_webtty_uri_is_publishable_and_labelled();
+  check_webtty_uri_transport_contract();
   check_managed_webtty_uri_is_publishable_and_labelled();
   check_managed_webtty_admission_label_reaches_tunnel_properties();
   check_private_managed_webtty_uri_omits_token_auth();

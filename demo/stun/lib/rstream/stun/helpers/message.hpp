@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <sstream>
 
 #include <boost/system/system_error.hpp>
@@ -22,13 +23,12 @@ template <typename T>
 void parse_value(T& dst, const rstream::core::memory memory, std::size_t& offset)
 {
   auto diff = sizeof(T);
-  auto data = &((const std::uint8_t*)memory.get_const_data())[offset];
-  if ((offset + diff) > memory.get_size()) {
+  if (offset > memory.get_size() || diff > memory.get_size() - offset) {
     throw rstream::core::system_error(rstream::io::error::code::deserialization_error, "data has invalid size");
   }
-  auto value = *((const T*)data);
+  auto data = static_cast<const std::uint8_t*>(memory.get_const_data()) + offset;
+  std::memcpy(&dst, data, sizeof(T));
   offset += diff;
-  dst = value;
 }
 
 template <typename T>

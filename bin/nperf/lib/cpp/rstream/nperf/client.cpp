@@ -1194,7 +1194,11 @@ void client::impl::base::session::do_handshake_websocket(const io::address& addr
   // set the control callback. This will be called
   // on every incoming ping, pong, and close frame
   {
-    auto completion_handler = std::bind(&session::on_control_callback, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
+    auto completion_handler = [weak = weak_from_this()](boost::beast::websocket::frame_type kind, const boost::beast::string_view& payload) {
+      if (auto ptr = weak.lock()) {
+        ptr->on_control_callback(kind, payload);
+      }
+    };
     m_websocket->control_callback(rstream::core::wrap_function<void(boost::beast::websocket::frame_type, const boost::beast::string_view&)>(m_strand, completion_handler));
   }
   // we're sending binary data

@@ -13,3 +13,22 @@ commits = [
 paths = ['''.*demo/stun/test/test_stun_parsing\.cpp''']
 regexTarget = "match"
 regexes = ['''(?:password|integrity_key)\s*=\s*"[^"]+"''']
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Exact public keys, signatures and identifiers from the isolated WebTTY approval fixture; no private keys or authentication tokens."
+condition = "AND"
+paths = ['''(^|/)test/webtty/fixtures/workspace-approved-client\.json$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*"workspaceTrustKeysetId":\ "cmtorkj0w0001f4s7ibymzn7r",\s*$''',
+  '''^\s*"workspaceTrustPublicSigningKey":\ "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqnyUNNjrBJlT3IeiR5_dFnTqaURvuKr2l4uPxHv2NzV3hwriJEbNFRMPlwfRIvAls3J4hYTEdLGLHldtCwddKg"\s*$''',
+  '''^\s*"device_public_encryption_key":\ "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtLfGX25FV2Rxvc52BlCsIJ_6eDzGmMbjtH6PRw2gFf22lJVTQyresVtx6SPBOa8IrUPrwKfNUSEIuEznez2H9g",\s*$''',
+  '''^\s*"device_public_signing_key":\ "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfyoJ8mkp7UIh88xxmuULgqDD11diVcieAgk0kBUoVHq6NR1p0eq5YUuWg7G4A_7OpEDa1qA6_sj9uNBeN43CnQ",\s*$''',
+  '''^\s*"trust_keyset_id":\ "cmtorkj0w0001f4s7ibymzn7r",\s*$''',
+  '''^\s*"trust_keyset_signature":\ "XdspZHqxzF0E7cVIHvrS7XFBr3GGpsQ95AGrRYSyulF\-LfKnqy5cWy\-qo1I09vqvXqdmzf7nReqlyciMdq\-2OQ",\s*$''',
+  '''^\s*"keyset_id":\ "cmtorkj0w0001f4s7ibymzn7r",\s*$''',
+  '''^\s*"webtty_key_algorithm":\ "webtty\-x25519\-hpke\-v1",\s*$''',
+]

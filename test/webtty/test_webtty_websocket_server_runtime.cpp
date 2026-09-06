@@ -363,25 +363,31 @@ class websocket_webtty_server {
       m_result = error_code;
       m_done   = true;
     });
-    m_thread = std::thread([this] {
-      try {
-        m_io_context.run();
-      }
-      catch (...) {
-        m_exception = std::current_exception();
-      }
-    });
+    for (std::size_t i = 0; i < m_threads.size(); ++i) {
+      m_threads[i] = std::thread([this, i] {
+        try {
+          m_io_context.run();
+        }
+        catch (...) {
+          m_exceptions[i] = std::current_exception();
+        }
+      });
+    }
   }
 
   void stop()
   {
-    if (!m_thread.joinable()) {
+    if (!m_threads.front().joinable()) {
       return;
     }
     m_server->cancel();
-    m_thread.join();
-    if (m_exception) {
-      std::rethrow_exception(m_exception);
+    for (auto& thread : m_threads) {
+      thread.join();
+    }
+    for (const auto& exception : m_exceptions) {
+      if (exception) {
+        std::rethrow_exception(exception);
+      }
     }
     assert(m_done);
     assert(!m_result);
@@ -393,8 +399,8 @@ class websocket_webtty_server {
   rstream::webtty::settings_server m_settings;
   boost::asio::io_context m_io_context;
   std::shared_ptr<rstream::webtty::server> m_server;
-  std::thread m_thread;
-  std::exception_ptr m_exception;
+  std::array<std::thread, 4> m_threads;
+  std::array<std::exception_ptr, 4> m_exceptions;
   bool m_done = false;
   std::error_code m_result;
 };

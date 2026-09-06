@@ -221,13 +221,21 @@ static void check_pty_stream_lifecycle_and_window_size()
   pty->set_window_size({.m_row = 40, .m_col = 120, .m_xpixel = 0, .m_ypixel = 0}, error_code);
   assert(!error_code);
 
-  auto pty_posix = std::dynamic_pointer_cast<stream::pty_posix>(stream_ptr);
-  assert(pty_posix);
-  pty_posix->on_success(error_code);
+  stream_ptr->close();
+  auto child = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe("/bin/sleep"),
+      boost::process::args(std::vector<std::string>{"30"}));
+  pty->set_window_size({.m_row = 50, .m_col = 150, .m_xpixel = 0, .m_ypixel = 0}, error_code);
   assert(!error_code);
+  child->terminate();
+  child->wait();
   stream_ptr->close();
   stream_ptr->close();
+  pty->set_window_size({.m_row = 24, .m_col = 80, .m_xpixel = 0, .m_ypixel = 0}, error_code);
+  assert(error_code);
 
+  error_code.clear();
   pty->allocate(error_code);
   assert(!error_code);
   stream_ptr->close();

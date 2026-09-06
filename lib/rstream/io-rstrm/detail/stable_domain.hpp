@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include <boost/asio/ip/address.hpp>
 #include <boost/optional.hpp>
 
 #include <rstream/io/address.hpp>
@@ -71,6 +72,11 @@ inline boost::optional<std::string> generate_stable_domain(const io::address& se
   });
   while (!host.empty() && host.back() == '.') {
     host.pop_back();
+  }
+  boost::system::error_code address_error;
+  boost::asio::ip::make_address(host, address_error);
+  if (!address_error) {
+    return {};
   }
   if (host.empty() || host.find(':') != std::string::npos) {
     return {};

@@ -83,6 +83,10 @@ class queue : public queue_base {
   template <typename arg_type>
   queue(arg_type& arg, core::allocator::ptr allocator = nullptr);
 
+  // Share the stream's strand with reads, close operations, and other writers.
+  template <typename arg_type>
+  queue(arg_type&& arg, boost::asio::strand<executor_type> strand, core::allocator::ptr allocator = nullptr);
+
   next_layer_type& next_layer();
 
   const next_layer_type& next_layer() const;
@@ -109,6 +113,9 @@ class queue<transport>::impl : public std::enable_shared_from_this<impl> {
 
   template <typename arg_type>
   impl(arg_type& arg, core::allocator::ptr allocator);
+
+  template <typename arg_type>
+  impl(arg_type&& arg, boost::asio::strand<executor_type> strand, core::allocator::ptr allocator);
 
   next_layer_type& next_layer();
 
@@ -223,6 +230,13 @@ queue<transport>::queue(arg_type& arg, core::allocator::ptr allocator)
 }
 
 template <class transport>
+template <typename arg_type>
+queue<transport>::queue(arg_type&& arg, boost::asio::strand<executor_type> strand, core::allocator::ptr allocator)
+{
+  m_impl = std::allocate_shared<impl>(core::allocator::wrapper<impl>(allocator), std::forward<arg_type>(arg), std::move(strand), allocator);
+}
+
+template <class transport>
 typename queue<transport>::next_layer_type& queue<transport>::next_layer()
 {
   return m_impl->next_layer();
@@ -281,6 +295,17 @@ queue<transport>::impl::impl(arg_type& arg, core::allocator::ptr allocator)
 }
 
 template <class transport>
+template <typename arg_type>
+queue<transport>::impl::impl(arg_type&& arg, boost::asio::strand<executor_type> strand, core::allocator::ptr allocator)
+    : m_next_layer(std::forward<arg_type>(arg)),
+      m_strand(std::move(strand)),
+      m_allocator(allocator),
+      m_queue(allocator),
+      m_cancel_handlers(allocator)
+{
+}
+
+template <class transport>
 typename queue<transport>::next_layer_type& queue<transport>::impl::next_layer()
 {
   return m_next_layer;
@@ -303,7 +328,7 @@ void queue<transport>::impl::async_send(const core::buffer buffer, async_send_co
 {
   auto allocator = boost::asio::get_associated_allocator(handler);
   auto self      = std::enable_shared_from_this<impl>::shared_from_this();
-  auto task_ptr  = std::allocate_shared<task>(allocator, buffer, std::move(handler));
+  auto task_ptr  = std::allocate_shared<task>(core::allocator::wrapper<task>(m_allocator), buffer, std::move(handler));
   task_ptr->arm(task_ptr, self, m_strand);
   boost::asio::dispatch(m_strand, boost::asio::bind_allocator(allocator, [self, task_ptr] { self->send(task_ptr); }));
 }

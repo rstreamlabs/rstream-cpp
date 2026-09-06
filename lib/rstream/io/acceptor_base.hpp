@@ -16,6 +16,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/operation_allocator.hpp>
 
 #include "socket_base.hpp"
 
@@ -80,8 +81,7 @@ class acceptor_base : public socket_base<T> {
         [this](auto&& handler) {
           using operation_type   = owning_accept_operation<std::decay_t<decltype(handler)>>;
           auto executor          = io_object::get_executor();
-          auto allocator         = boost::asio::get_associated_allocator(handler);
-          auto operation         = std::allocate_shared<operation_type>(allocator, executor, std::forward<decltype(handler)>(handler));
+          auto operation         = std::allocate_shared<operation_type>(core::shared_operation_allocator(handler), executor, std::forward<decltype(handler)>(handler));
           auto cancellation_slot = boost::asio::get_associated_cancellation_slot(operation->m_handler);
           if (cancellation_slot.is_connected()) {
             const std::weak_ptr<operation_type> weak_operation = operation;

@@ -40,7 +40,7 @@ void rstream::plugin::io_generic::tcp::resolver::async_resolve_internal(const bo
   bool inet4      = false;
   bool inet6      = false;
   bool no_resolve = false;
-  const std::string host(url.host());
+  const std::string host(url.host_address());
   const std::string port(url.port());
   boost::system::error_code error_code;
   const auto params = rstream::io::detail::stream::url_params(url);

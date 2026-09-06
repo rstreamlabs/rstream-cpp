@@ -25,4 +25,15 @@ Providing `--identity`, `--identity-file`, `RSTREAM_WEBTTY_IDENTITY`, or `RSTREA
 
 Workspace-managed E2E is driven by trusted workspace devices. The enrollment file contains the workspace trust pins required to verify signed client credentials locally. At runtime, the C++ server verifies the credential embedded in `ClientProof`; it does not call the control plane. Do not configure explicit authorized-client keys for a workspace-managed server.
 
+Workspace credentials support both ASN.1 DER signatures from native clients and IEEE P1363 signatures from browser device approvals. Verification binds the credential to the enrolled workspace, project, server, trusted keyset, and client signing key.
+
 Execution modes are `spawn` and `login`. Registered servers default to `login`; set `--login-user <username>` to the name of the existing local OS account that will own every session. This is not an rstream account or the connecting operator's username. Run `id -un` on the target Linux/macOS host, or `$env:USERNAME` in PowerShell on the target Windows host, and pass that exact result. rstream does not create the account, and a fixed username is resolved before the server starts listening. Use `--allow-client-user` only when clients are deliberately allowed to select the OS user, or `--execution-mode spawn` for the lightweight child-process model. C++ login mode does not handle passwords. On POSIX it applies the target user, primary group, and supplementary groups through the local process credentials, which requires suitable service privileges. On Windows, login mode accepts the same account that runs the server and rejects attempts to switch accounts. Login sessions receive a conservative administrative environment and do not automatically inherit SSH agent sockets, cloud credentials, or rstream tokens. WebTransport is not implemented in the C++ server; use the Go server for WebTransport.
+
+### Advertised transport
+
+Lightweight and registered servers publish
+`rstream.webtty.transport=plain|websocket`, based on the actual listener setting.
+The label is included before the registered server admission signature.
+Lightweight `plain` tunnels are private raw bytestreams; `--publish` is rejected
+for this combination. Both supported transports work through a private
+`rstrm://` dial. C++ WebTransport is not implemented and is rejected explicitly.

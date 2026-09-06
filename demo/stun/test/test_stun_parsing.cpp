@@ -1,6 +1,7 @@
 // See LICENSE file in the project root for license information.
 
 #include <iostream>
+#include <limits>
 #include <sstream>
 
 #include <rstream/config.hpp>
@@ -478,6 +479,32 @@ void test_11()
   compare(attribute.get_length(), static_cast<std::uint16_t>(0));
 }
 
+void test_unaligned_scalar_and_invalid_offsets()
+{
+  alignas(std::uint64_t) const std::uint8_t input[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+  const rstream::core::memory memory(input, sizeof(input), 0, nullptr);
+  std::uint64_t expected = 0;
+  std::memcpy(&expected, input + 1, sizeof(expected));
+  std::uint64_t actual = 0;
+  std::size_t offset   = 1;
+  helpers::parse_value(actual, memory, offset);
+  compare(actual, expected);
+  compare(offset, sizeof(input));
+  for (auto invalid : {std::size_t(2), sizeof(input), std::numeric_limits<std::size_t>::max()}) {
+    offset        = invalid;
+    auto rejected = false;
+    try {
+      helpers::parse_value(actual, memory, offset);
+    }
+    catch (const rstream::core::system_error&) {
+      rejected = true;
+    }
+    compare(rejected, true);
+    compare(offset, invalid);
+    compare(actual, expected);
+  }
+}
+
 void run()
 {
   test_1();
@@ -491,6 +518,7 @@ void run()
   test_9();
   test_10();
   test_11();
+  test_unaligned_scalar_and_invalid_offsets();
 }
 
 int main(int argc, char** argv)

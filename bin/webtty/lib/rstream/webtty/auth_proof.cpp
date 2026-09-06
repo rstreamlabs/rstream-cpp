@@ -374,6 +374,31 @@ void verify_digest_signature(const byte_vector& public_key, const byte_vector& d
   }
 }
 
+byte_vector p256_p1363_signature_to_der(const byte_vector& signature)
+{
+  if (signature.size() != 64) {
+    return {};
+  }
+  std::unique_ptr<BIGNUM, decltype(&BN_free)> r(BN_bin2bn(signature.data(), 32, nullptr), BN_free);
+  std::unique_ptr<BIGNUM, decltype(&BN_free)> s(BN_bin2bn(signature.data() + 32, 32, nullptr), BN_free);
+  std::unique_ptr<ECDSA_SIG, decltype(&ECDSA_SIG_free)> parsed(ECDSA_SIG_new(), ECDSA_SIG_free);
+  if (!r || !s || !parsed || ECDSA_SIG_set0(parsed.get(), r.get(), s.get()) != 1) {
+    return {};
+  }
+  r.release();
+  s.release();
+  auto size = i2d_ECDSA_SIG(parsed.get(), nullptr);
+  if (size <= 0 || size > 72) {
+    return {};
+  }
+  byte_vector der(static_cast<std::size_t>(size));
+  auto cursor = der.data();
+  if (i2d_ECDSA_SIG(parsed.get(), &cursor) != size) {
+    return {};
+  }
+  return der;
+}
+
 }  // namespace
 
 void hash_webtty_client_proof_transcript(byte_vector& dst, const client_proof_transcript& transcript, std::error_code& error_code)
@@ -513,7 +538,15 @@ void verify_p256_sha256_signature(const byte_vector& public_key, const byte_vect
   error_code.clear();
   unsigned char digest[SHA256_DIGEST_LENGTH] = {};
   SHA256(data_ptr(message), message.size(), digest);
-  verify_digest_signature(public_key, byte_vector(digest, digest + SHA256_DIGEST_LENGTH), signature, error_code);
+  auto hash = byte_vector(digest, digest + SHA256_DIGEST_LENGTH);
+  verify_digest_signature(public_key, hash, signature, error_code);
+  if (error_code && signature.size() == 64) {
+    auto der = p256_p1363_signature_to_der(signature);
+    if (!der.empty()) {
+      error_code.clear();
+      verify_digest_signature(public_key, hash, der, error_code);
+    }
+  }
 }
 
 void verify_webtty_client_proof_transcript(const byte_vector& public_key, const client_proof_transcript& transcript, const byte_vector& signature, std::error_code& error_code)

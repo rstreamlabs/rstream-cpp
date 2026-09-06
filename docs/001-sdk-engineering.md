@@ -79,6 +79,17 @@ partial I/O, peer failure, reconnect, close, destruction, and handler
 reentrancy where applicable. ThreadSanitizer and repeated lifecycle tests are
 acceptance gates for changes to shared state.
 
+An `any_completion_handler` allocator borrows storage owned by the handler.
+It cannot allocate a shared operation control block that can outlive completion,
+including blocks retained by cancellation weak pointers or a pending timer.
+Those operations use the object's owning allocator. Templated operations use
+`core::shared_operation_allocator`: ordinary custom allocator associations are
+preserved, while an erased allocator uses the owning fallback. Intermediate I/O
+and completion still preserve executor, allocator and cancellation associations.
+This does not add an allocation, thread or lock; it changes ownership of the
+existing control block. Tests must also exercise completion followed by late
+cancellation and concurrent completion on another executor.
+
 ## rstream runtime contract
 
 The SDK must preserve the rstream contract from configuration input to runtime
@@ -273,3 +284,17 @@ A dependency update is complete only when:
 Do not solve a dependency update by disabling a topology, weakening warnings,
 removing a test, replacing a public dependency with a private one, or silently
 changing runtime behavior.
+
+### Darwin WebTTY stdin FIFOs
+
+WebTTY reads FIFO stdin through a single-request `select` worker on Darwin.
+Regression tests reproduce missed `kqueue` read notifications and missed `poll`
+EOF notifications for named FIFOs. The worker owns no payload queue: one borrowed
+buffer stays alive through completion, and the next read follows network write
+completion. A wakeup pipe cancels a pending wait before the input descriptor is
+closed. Closing joins the worker; it never waits for stdin EOF. The network
+reactor, ordinary files and interactive terminals retain their existing paths.
+This fallback consumes one worker and two wakeup descriptors per FIFO client;
+select descriptor bounds are checked before use. Associated completion execution
+is preserved on the client strand. Native, ASan/UBSan and TSan tests cover bulk
+transfer, pending destruction, EOF, repeated close and descriptor bounds.

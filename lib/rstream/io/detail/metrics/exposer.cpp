@@ -433,7 +433,7 @@ void exposer::impl::do_resolve_host()
 #ifdef RSTREAM_WITH_IO_STREAMS
   m_resolver.async_resolve(m_config.m_address.m_url, boost::asio::bind_executor(m_strand, completion_handler));
 #else
-  m_resolver.async_resolve(m_config.m_address.host(), m_config.m_address.port(), boost::asio::bind_executor(m_strand, completion_handler));
+  m_resolver.async_resolve(m_config.m_address.m_url.host_address(), m_config.m_address.port(), boost::asio::bind_executor(m_strand, completion_handler));
 #endif
 }
 

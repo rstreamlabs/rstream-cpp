@@ -12,6 +12,7 @@
 
 #include <docopt.h>
 #include <webtty_cli.hpp>
+#include <webtty_discovery.hpp>
 
 #include <rstream/config.hpp>
 #include <rstream/core/exception.hpp>
@@ -41,7 +42,8 @@ options:
   -e --env=ARG               pass environment variable
   -w --workdir=ARG           set the working directory
   -u --user=ARG              username or UID
-  --transport=ARG            WebTTY transport to use [default: websocket]
+  --transport=ARG            WebTTY transport override (default: discover for rstrm)
+  --no-discovery             skip engine metadata; requires --transport and local security
   --auth-token-file=ARG      read local WebTTY bearer token from file
   --e2e                      require end-to-end encrypted WebTTY terminal content
   --identity=ARG             named local WebTTY client identity
@@ -280,8 +282,21 @@ int run(int argc, char** argv)
   }
   boost::asio::io_context io_context(jobs);
   boost::asio::signal_set signal_set(io_context, SIGINT, SIGTERM);
+  auto requested_transport = args.at("--transport") ? args.at("--transport").asString() : "";
+  const bool no_discovery  = args.at("--no-discovery").asBool();
+  if (no_discovery && requested_transport.empty()) {
+    throw std::runtime_error("--no-discovery requires --transport (plain, websocket)");
+  }
   rstream::webtty::protocol::type protocol_type;
-  rstream::webtty::protocol::parse_type(protocol_type, args.at("--transport").asString());
+  rstream::webtty::protocol::parse_type(protocol_type, requested_transport.empty() ? "websocket" : requested_transport);
+  rstream::io::address address(args.at("--uri").asString());
+  std::optional<rstream::webtty::cli::discovered_server> discovered;
+  if (address.m_url.scheme() == "rstrm" && !no_discovery) {
+    discovered = rstream::webtty::cli::discover_webtty_server(io_context, signal_set, address, requested_transport);
+    rstream::webtty::protocol::parse_type(protocol_type, discovered->m_transport);
+    address.m_url.set_host(discovered->m_target);
+    address.m_str = boost::none;
+  }
   auto auth_token_file = args.at("--auth-token-file") ? args.at("--auth-token-file").asString() : "";
   auto auth_token      = rstream::webtty::cli::read_auth_token(auth_token_file);
   boost::optional<std::string> auth_token_option;
@@ -292,16 +307,16 @@ int run(int argc, char** argv)
     throw std::runtime_error("plain WebTTY transport does not support HTTP bearer tokens");
   }
   rstream::webtty::client::config config = {
-      .m_address          = rstream::io::address(args.at("--uri").asString()),
-      .m_websocket_target = protocol_type == rstream::webtty::protocol::type::websocket ? boost::optional<std::string>("/") : boost::none,
+      .m_address          = address,
+      .m_websocket_target = protocol_type == rstream::webtty::protocol::type::websocket ? boost::optional<std::string>(discovered ? discovered->m_exec_path : "/") : boost::none,
       .m_auth_token       = auth_token_option,
       .m_protocol_config  = {
-           .m_protocol_type = protocol_type,
-           .m_options       = {},
-           .m_env_vars      = {},
-           .m_cmd_args      = {},
-           .m_workdir       = {},
-           .m_username      = {},
+          .m_protocol_type = protocol_type,
+          .m_options       = {},
+          .m_env_vars      = {},
+          .m_cmd_args      = {},
+          .m_workdir       = {},
+          .m_username      = {},
       },
   };
   {
@@ -355,6 +370,9 @@ int run(int argc, char** argv)
   auto known_server_name                    = args.at("--known-server") ? args.at("--known-server").asString() : "";
   auto known_servers_file                   = args.at("--known-servers-file") ? args.at("--known-servers-file").asString() : "";
   auto known_server_resolution              = read_known_server_resolution(args.at("--known-server-key"), known_servers_file, known_server_name, args.at("--uri").asString(), e2e_requested);
+  if (discovered && discovered->m_requires_known_server && (known_server_resolution.m_recipients.empty() || known_server_resolution.m_endpoint_identities.empty())) {
+    throw std::runtime_error("WebTTY server requires authenticated E2E; configure its known endpoint identity locally");
+  }
   rstream::webtty::settings_client settings = {
       .m_common = {
           .m_mtu         = 1024 * 1024,

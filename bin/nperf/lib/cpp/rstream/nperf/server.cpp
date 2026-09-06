@@ -875,7 +875,11 @@ void server::impl::session::do_accept_websocket()
   // set the control callback. This will be called
   // on every incoming ping, pong, and close frame
   {
-    auto completion_handler = std::bind(&session::on_control_callback, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
+    auto completion_handler = [weak = weak_from_this()](boost::beast::websocket::frame_type kind, const boost::beast::string_view& payload) {
+      if (auto ptr = weak.lock()) {
+        ptr->on_control_callback(kind, payload);
+      }
+    };
     m_websocket->control_callback(boost::asio::bind_executor(m_strand, completion_handler));
   }
   // we're sending binary data

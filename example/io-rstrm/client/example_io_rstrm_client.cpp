@@ -189,10 +189,9 @@ boost::asio::awaitable<void> coro_tunnel(rstream::io_rstrm::client& client, std:
   }
   auto executor = co_await boost::asio::this_coro::executor;
   std::cout << "[tunnel] creating tunnel '" << name << "'..." << std::endl;
-  struct rstream::io_rstrm::tunnel_properties properties = {
-      .m_name     = name,
-      .m_protocol = rstream::io_rstrm::protocol::tls,  // plain TLS tunnel
-  };
+  rstream::io_rstrm::tunnel_properties properties{};
+  properties.m_name     = name;
+  properties.m_protocol = rstream::io_rstrm::protocol::tls;
   auto tunnel = co_await client.async_create_tunnel(properties, boost::asio::use_awaitable);
   std::cout << "[tunnel] tunnel '" << name << "' created" << std::endl;
   auto await_listener = boost::asio::co_spawn(executor, coro_listener(tunnel), boost::asio::use_awaitable);
