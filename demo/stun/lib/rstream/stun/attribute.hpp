@@ -102,7 +102,7 @@ class attribute_value : public helpers::message_base<T> {
  public:
   attribute_type get_attribute_type() const
   {
-    return get_attribute_type<T>();
+    return stun::get_attribute_type<T>();
   }
 };
 

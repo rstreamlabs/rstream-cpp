@@ -479,6 +479,16 @@ void test_11()
   compare(attribute.get_length(), static_cast<std::uint16_t>(0));
 }
 
+void test_attribute_value_type()
+{
+  const attribute_value_software software;
+  const attribute_value_username username;
+  const attribute_value_priority priority;
+  compare(software.get_attribute_type() == attribute_type::software, true);
+  compare(username.get_attribute_type() == attribute_type::username, true);
+  compare(priority.get_attribute_type() == attribute_type::priority, true);
+}
+
 void test_unaligned_scalar_and_invalid_offsets()
 {
   alignas(std::uint64_t) const std::uint8_t input[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
@@ -518,6 +528,7 @@ void run()
   test_9();
   test_10();
   test_11();
+  test_attribute_value_type();
   test_unaligned_scalar_and_invalid_offsets();
 }
 
