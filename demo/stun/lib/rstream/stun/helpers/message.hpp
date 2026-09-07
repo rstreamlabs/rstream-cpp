@@ -4,7 +4,9 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 
 #include <boost/system/system_error.hpp>
 
@@ -18,6 +20,14 @@
 namespace rstream {
 namespace stun {
 namespace helpers {
+
+inline std::uint16_t checked_length(std::size_t size, std::uint16_t previous = 0)
+{
+  if (size > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) - previous) {
+    throw std::length_error("STUN length exceeds its 16-bit field");
+  }
+  return static_cast<std::uint16_t>(size + previous);
+}
 
 template <typename T>
 void parse_value(T& dst, const rstream::core::memory memory, std::size_t& offset)

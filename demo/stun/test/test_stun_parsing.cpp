@@ -3,6 +3,7 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 
 #include <rstream/config.hpp>
 #include <rstream/stun/attribute.hpp>
@@ -481,12 +482,43 @@ void test_11()
 
 void test_attribute_value_type()
 {
-  const attribute_value_software software;
-  const attribute_value_username username;
-  const attribute_value_priority priority;
+  const attribute_value_software software{};
+  const attribute_value_username username{};
+  const attribute_value_priority priority{};
   compare(software.get_attribute_type() == attribute_type::software, true);
   compare(username.get_attribute_type() == attribute_type::username, true);
   compare(priority.get_attribute_type() == attribute_type::priority, true);
+}
+
+void test_length_limits()
+{
+  auto reject = [](auto operation) {
+    auto rejected = false;
+    try {
+      operation();
+    }
+    catch (const std::length_error&) {
+      rejected = true;
+    }
+    compare(rejected, true);
+  };
+  attribute_value_software software;
+  software.get_value().resize(65535, 'a');
+  compare(attribute::make(software).get_header().get_length(), std::uint16_t(65535));
+  software.get_value().push_back('a');
+  reject([&] { attribute::make(software); });
+  software.get_value().resize(65528);
+  message_builder maximum(stun_class::request, stun_method::binding);
+  maximum.add_attribute(software);
+  compare(maximum.build().get_header().get_payload_length(), std::uint16_t(65532));
+  software.get_value().resize(32764);
+  message_builder overflow(stun_class::request, stun_method::binding);
+  overflow.add_attribute(software);
+  overflow.add_attribute(software);
+  reject([&] { overflow.build(); });
+  message unbuilt;
+  unbuilt.get_attributes() = overflow.get_attributes();
+  reject([&] { unbuilt.serialize_to_memory(); });
 }
 
 void test_unaligned_scalar_and_invalid_offsets()
@@ -529,6 +561,7 @@ void run()
   test_10();
   test_11();
   test_attribute_value_type();
+  test_length_limits();
   test_unaligned_scalar_and_invalid_offsets();
 }
 

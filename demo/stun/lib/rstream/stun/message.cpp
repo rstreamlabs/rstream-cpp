@@ -435,7 +435,7 @@ const attributes& message_builder::get_attributes() const
 
 const message& message_builder::build()
 {
-  m_message.get_header().get_payload_length() = byte_size_long_value(get_attributes());
+  m_message.get_header().get_payload_length() = helpers::checked_length(byte_size_long_value(get_attributes()));
 
   return m_message;
 }
@@ -581,7 +581,7 @@ void serialize_value<attributes>(void* dst, const attributes& src, std::size_t& 
 {
   std::uint16_t payload_length = 0;
   for (const auto& attribute : src) {
-    payload_length += byte_size_long_value(attribute);
+    payload_length = checked_length(byte_size_long_value(attribute), payload_length);
     set_message_header_payload_length(dst, payload_length);
     serialize_value(dst, attribute, offset);
   }
