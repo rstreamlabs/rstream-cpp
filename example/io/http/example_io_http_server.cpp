@@ -76,7 +76,7 @@ boost::asio::awaitable<void> session(protocol::socket socket)
   }
 }
 
-boost::asio::awaitable<void> listener(const rstream::io::address &address)
+boost::asio::awaitable<void> listener(rstream::io::address address)
 {
   auto executor = co_await boost::asio::this_coro::executor;
 #ifdef RSTREAM_WITH_IO_STREAMS

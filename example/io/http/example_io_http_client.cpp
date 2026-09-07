@@ -50,7 +50,7 @@ options:
 
 const auto version = std::string("rstream-example-io-http-client ") + RSTREAM_VERSION;
 
-boost::asio::awaitable<void> run(const rstream::io::address &address)
+boost::asio::awaitable<void> run(rstream::io::address address)
 {
   // resolve the hostname
   auto executor = co_await boost::asio::this_coro::executor;
