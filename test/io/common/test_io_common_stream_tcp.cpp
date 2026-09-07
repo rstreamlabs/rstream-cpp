@@ -378,7 +378,7 @@ static void check_tcp_accept_connect_and_transfer()
     assert(std::string(server_buffer.data(), server_buffer.size()) == "ping");
     server_read = true;
   });
-  boost::asio::async_write(client, boost::asio::buffer(std::string("ping")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(client, boost::asio::buffer("ping", 4), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 4);
     client_sent = true;
@@ -397,7 +397,7 @@ static void check_tcp_accept_connect_and_transfer()
     assert(std::string(client_buffer.data(), client_buffer.size()) == "pong");
     client_read = true;
   });
-  boost::asio::async_write(server_peer, boost::asio::buffer(std::string("pong")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(server_peer, boost::asio::buffer("pong", 4), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 4);
     server_sent = true;
