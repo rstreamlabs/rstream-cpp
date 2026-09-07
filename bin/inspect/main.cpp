@@ -68,14 +68,14 @@ int main(int argc, char** argv)
   auto args = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
   if (args["version"].asBool()) {
     if (args["--verbose"].asBool()) {
-      auto version = rstream::core::get_project_info();
+      auto project_info = rstream::core::get_project_info();
       if (args["--json"].asBool()) {
         nlohmann::json json;
-        json << version;
+        json << project_info;
         std::cout << json.dump(2) << std::endl;
       }
       else {
-        std::cout << version << std::endl;
+        std::cout << project_info << std::endl;
       }
     }
     else {

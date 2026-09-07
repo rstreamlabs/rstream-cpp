@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -22,7 +23,6 @@
 #include <rstream/io/stream.hpp>
 #endif
 #include <docopt.h>
-#include <unistd.h>
 
 #include <rstream/config.hpp>
 #include <rstream/core/exception.hpp>

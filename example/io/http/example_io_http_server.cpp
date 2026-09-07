@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -7,6 +8,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/ip/host_name.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
@@ -19,7 +21,6 @@
 #include <rstream/io/stream.hpp>
 #endif
 #include <docopt.h>
-#include <unistd.h>
 
 #include <rstream/config.hpp>
 #include <rstream/core/exception.hpp>
@@ -57,12 +58,10 @@ boost::asio::awaitable<void> session(protocol::socket socket)
     co_await boost::beast::http::async_read(socket, buffer, req, boost::asio::use_awaitable);
     // prepare the response
     boost::beast::http::response<boost::beast::http::string_body> res;
-    char hostname[1024];
-    gethostname(hostname, 1024);
     res = {boost::beast::http::status::ok, req.version()};
     res.set(boost::beast::http::field::content_type, "text/plain");
     res.keep_alive(req.keep_alive());
-    res.body() = hostname;
+    res.body() = boost::asio::ip::host_name();
     res.prepare_payload();
     // write the response back to the client
     co_await boost::beast::http::async_write(socket, res, boost::asio::use_awaitable);
