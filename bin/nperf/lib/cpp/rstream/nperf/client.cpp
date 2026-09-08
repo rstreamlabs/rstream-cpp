@@ -1,5 +1,13 @@
 // See LICENSE file in the project root for license information.
 
+#ifdef _MSC_VER
+// MSVC can flag Asio's buffer conversion as unreachable after inlining.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#include <boost/asio/buffer.hpp>
+#pragma warning(pop)
+#endif
+
 #include "client.hpp"
 
 #include <algorithm>

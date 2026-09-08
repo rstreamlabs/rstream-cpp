@@ -22,10 +22,12 @@ The supported platform contract includes:
 The required native Windows package matrix uses the Visual Studio 2022 runner
 baseline (`windows-2022`) for all library and plugin combinations, with strict
 warnings and warnings as errors. A runner upgrade is a toolchain change to
-qualify explicitly. The floating Windows image selected Visual Studio 2026
-19.51, whose optimized Boost.Asio buffer instantiations produce C4702 errors;
-that toolchain is not yet part of the qualified strict-build baseline. Windows
-11 ConPTY runtime checks remain part of the cross-language WebTTY matrix.
+qualify explicitly. Optimized MSVC builds can report C4702 in Boost 1.89's
+`const_buffer` conversion when instantiated by nperf. Those two translation
+units suppress only that diagnostic while defining the external Asio buffer
+header, then restore the warning state before any SDK definitions. No runtime
+code or optimization settings change. Windows 11 ConPTY runtime checks remain
+part of the cross-language WebTTY matrix.
 
 Library linkage and plugin loading are independent choices:
 
