@@ -73,6 +73,8 @@ Conan Center dependency policy, constrained-system requirements, and complete
 validation procedure are defined in
 [docs/001-sdk-engineering.md](docs/001-sdk-engineering.md).
 
+Windows CLI builds require docopt.cpp compiled with Boost.Regex. The Conan recipe selects and validates this variant and shares the SDK’s supported Boost version with docopt. MSVC’s `std::regex` can overflow the stack while parsing the WebTTY help text. If supplying dependencies directly to CMake, build docopt with `USE_BOOST_REGEX=ON`; the CLI startup tests verify both `--help` and `--version` for the client and server. No process-wide stack-size increase is required.
+
 ## Build from source
 
 The recommended source build uses Conan to provision third-party dependencies and then builds the package:

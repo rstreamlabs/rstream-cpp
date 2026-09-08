@@ -184,6 +184,9 @@ class ConanPackage(ConanFile):
         # component pruning belongs to the root build profile so this recipe remains
         # composable when an application also has a direct Boost requirement.
         self.options["boost"].without_url = False
+        if self.settings.os == "Windows":
+            self.options["docopt.cpp"].boost_regex = True
+            self.options["boost"].without_regex = False
         protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
         if protobuf_ref and protobuf_ref != "none":
             shared_runtime = self.option_enabled(self.options.shared) or not self.option_enabled(
@@ -222,6 +225,9 @@ class ConanPackage(ConanFile):
                 "boost/[>=1.81.0 <1.90.0]",
                 transitive_headers=True,
                 transitive_libs=True,
+                # The Windows docopt Boost.Regex variant pins an older Boost.
+                # Keep it on the same supported Boost version as the SDK.
+                force=self.settings.os == "Windows",
             )
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
@@ -244,6 +250,13 @@ class ConanPackage(ConanFile):
 
     def validate(self):
         self.validate_dependency_overrides()
+        if self.settings.os == "Windows" and not self.option_enabled(
+            self.dependencies["docopt.cpp"].options.get_safe("boost_regex", default=False)
+        ):
+            raise ConanInvalidConfiguration(
+                "Windows CLI tools require docopt.cpp with boost_regex=True to avoid "
+                "MSVC std::regex stack overflow while parsing the command help."
+            )
         if self.option_enabled(self.options.static_libstdcxx) and not self.option_enabled(
             self.options.static_plugins
         ):
