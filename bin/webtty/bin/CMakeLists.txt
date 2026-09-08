@@ -7,11 +7,12 @@ add_subdirectory(server)
 
 if(ENABLE_TESTING)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  math(EXPR WEBTTY_STARTUP_TIMEOUT "10 * ${RSTREAM_TEST_TIMEOUT_SCALE}")
   foreach(WEBTTY_BINARY client server)
     foreach(WEBTTY_OPTION help version)
       add_test(NAME ${PROJECT_NAME}-test-webtty-${WEBTTY_BINARY}-${WEBTTY_OPTION}
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_cli_startup.py
-          $<TARGET_FILE:${PROJECT_NAME}-webtty-${WEBTTY_BINARY}> --${WEBTTY_OPTION})
+          $<TARGET_FILE:${PROJECT_NAME}-webtty-${WEBTTY_BINARY}> --${WEBTTY_OPTION} ${WEBTTY_STARTUP_TIMEOUT})
       rstream_configure_test(${PROJECT_NAME}-test-webtty-${WEBTTY_BINARY}-${WEBTTY_OPTION})
     endforeach()
     set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS ${PROJECT_NAME}-webtty-${WEBTTY_BINARY})

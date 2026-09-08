@@ -23,8 +23,8 @@ The required native Windows package matrix uses the Visual Studio 2022 runner
 baseline (`windows-2022`) for all library and plugin combinations, with strict
 warnings and warnings as errors. A runner upgrade is a toolchain change to
 qualify explicitly. Optimized MSVC builds can report C4702 in Boost 1.89's
-`const_buffer` conversion when instantiated by nperf. Those two translation
-units suppress only that diagnostic while defining the external Asio buffer
+`const_buffer` conversion when instantiated by nperf and WebTTY. Their client
+and server translation units suppress only that diagnostic while defining the external Asio buffer
 header, then restore the warning state before any SDK definitions. No runtime
 code or optimization settings change. Windows 11 ConPTY runtime checks remain
 part of the cross-language WebTTY matrix.
@@ -180,9 +180,11 @@ limited to generated or third-party code and must not hide project warnings.
 ### Sanitizers and concurrency
 
 ```bash
-cmake --preset asan
-cmake --build --preset asan
-ctest --preset asan
+# Linux: ASan, UBSan and LSan with static libraries/plugins.
+python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3
+
+# macOS: ASan and UBSan with shared SDK libraries/dynamic plugins.
+python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3 --shared --dynamic-plugins
 
 cmake --preset tsan
 cmake --build --preset tsan
@@ -192,6 +194,16 @@ ctest --test-dir out/build/quality --repeat until-fail:20 \
   --output-on-failure \
   -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'
 ```
+
+Memory checks require Conan 2.31.2, Ninja and GNU coreutils (`timeout` on
+Linux, `gtimeout` on macOS). The runner instruments the dependency graph and
+includes instrumentation flags in Conan package identities, so cached release
+libraries cannot be substituted. Protobuf's generated code and runtime must
+use compatible instrumentation; mixing an ASan application with a prebuilt
+Homebrew runtime can fail inside parsing or descriptor access. Use the `asan`
+preset only with an already compatible dependency toolchain. Leak detection
+is required on Linux; macOS does not provide that runtime. Both platforms keep
+ASan and UBSan failures fatal and preserve JUnit and dependency provenance.
 
 Run static analysis and the coverage preset for changes that affect public
 operations, ownership, state machines, or shared runtime code. Coverage is a

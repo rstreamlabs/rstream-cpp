@@ -1,6 +1,12 @@
 // See LICENSE file in the project root for license information.
 
-#include "client.hpp"
+#ifdef _MSC_VER
+// MSVC can flag Asio's buffer conversion as unreachable after inlining.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#include <boost/asio/buffer.hpp>
+#pragma warning(pop)
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -19,6 +25,8 @@
 #include <boost/asio/steady_timer.hpp>
 
 #include <openssl/sha.h>
+
+#include "client.hpp"
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif

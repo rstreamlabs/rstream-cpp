@@ -21,8 +21,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Address and undefined behavior sanitizers
-            preset: asan
           - name: Thread sanitizer
             preset: tsan
     steps:
@@ -37,11 +35,25 @@ jobs:
         run: cmake --build --preset "${{ matrix.preset }}"
       - name: Test
         run: ctest --preset "${{ matrix.preset }}"
-  linux-leaks:
-    name: Linux address, undefined behavior and leak checks
+  memory-checks:
+    name: ${{ matrix.name }}
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux address, undefined behavior and leak checks
+            runner: ubuntu-24.04
+            cache: conan-linux-asan-v1
+            test_step: Check runtime with instrumented dependencies
+            options: ""
+          - name: Address and undefined behavior sanitizers
+            runner: macos-latest
+            cache: conan-macos-asan-v1
+            test_step: Test
+            options: --shared --dynamic-plugins
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,39 +61,45 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Install build prerequisites
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config
+      - name: Install macOS build prerequisites
+        if: runner.os == 'macOS'
+        run: brew install cmake coreutils ninja pkg-config
+      - name: Configure Conan
+        run: |
           python3 -m pip install conan==2.31.2
           conan profile detect --force
           conan config install conan/config
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: linux-asan-cache
+        id: memory-cache
         with:
           path: ~/.conan2/p
-          key: conan-linux-asan-v1-${{ runner.arch }}-${{ hashFiles('conanfile.py', 'conan/config/**', '.github/scripts/test-linux-sanitizers.py') }}
-          restore-keys: conan-linux-asan-v1-${{ runner.arch }}-
-      - name: Check runtime with instrumented dependencies
-        run: python3 .github/scripts/test-linux-sanitizers.py --output out/linux-sanitizers --jobs 3
-      - name: Preserve Linux memory check evidence
+          key: ${{ matrix.cache }}-${{ runner.arch }}-${{ hashFiles('conanfile.py', 'conan/config/**', '.github/scripts/test-memory-sanitizers.py') }}
+          restore-keys: ${{ matrix.cache }}-${{ runner.arch }}-
+      - name: ${{ matrix.test_step }}
+        run: python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3 ${{ matrix.options }}
+      - name: Preserve memory check evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: linux-sanitizers-${{ github.sha }}
+          name: memory-sanitizers-${{ runner.os }}-${{ github.sha }}
           path: |
-            out/linux-sanitizers/dependencies.json
-            out/linux-sanitizers/results.junit.xml
+            out/memory-sanitizers/dependencies.json
+            out/memory-sanitizers/results.junit.xml
           if-no-files-found: error
           retention-days: 90
       - name: Trim dependency build caches
         if: ${{ always() && !cancelled() }}
         run: conan cache clean "*" --source --build --download --temp
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: ${{ always() && !cancelled() && steps.linux-asan-cache.outputs.cache-hit != 'true' }}
+        if: ${{ always() && !cancelled() && steps.memory-cache.outputs.cache-hit != 'true' }}
         with:
           path: ~/.conan2/p
-          key: ${{ steps.linux-asan-cache.outputs.cache-primary-key }}
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
   static-analysis:
     name: Static analysis
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}

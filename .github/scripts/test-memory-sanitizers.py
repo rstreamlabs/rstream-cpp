@@ -1,16 +1,22 @@
-"""Run Linux memory checks with a consistently instrumented dependency graph."""
+"""Run native memory checks with a consistently instrumented dependency graph."""
 
 import argparse
 import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 
 
 def run(command, environment, timeout, stdout=None):
+    timeout_tool = shutil.which(
+        "gtimeout" if platform.system() == "Darwin" else "timeout"
+    )
+    if timeout_tool is None:
+        raise RuntimeError("Memory checks require GNU coreutils timeout")
     subprocess.run(
-        ["timeout", "--signal=TERM", "--kill-after=10s", str(timeout), *command],
+        [timeout_tool, "--signal=TERM", "--kill-after=10s", str(timeout), *command],
         env=environment,
         stdout=stdout,
         check=True,
@@ -21,9 +27,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--jobs", type=int, choices=range(1, 17), default=2)
+    parser.add_argument("--shared", action="store_true")
+    parser.add_argument("--dynamic-plugins", action="store_true")
     args = parser.parse_args()
-    if platform.system() != "Linux":
-        parser.error("LeakSanitizer runtime checks require Linux")
+    if platform.system() not in ("Linux", "Darwin"):
+        parser.error("Memory checks require Linux or macOS")
     source = Path(__file__).resolve().parents[2]
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -45,9 +53,9 @@ def main():
         "-o",
         "warnings_as_errors=True",
         "-o",
-        "shared=False",
+        "shared=" + str(args.shared),
         "-o",
-        "static_plugins=True",
+        "static_plugins=" + str(not args.dynamic_plugins),
         "-c:h",
         "tools.build:jobs=" + str(args.jobs),
         "--format=json",
@@ -101,6 +109,7 @@ def main():
         environment,
         1800,
     )
+    detect_leaks = "1" if platform.system() == "Linux" else "0"
     run(
         [
             "ctest",
@@ -112,7 +121,7 @@ def main():
         ],
         environment
         | {
-            "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+            "ASAN_OPTIONS": "detect_leaks=" + detect_leaks + ":halt_on_error=1",
             "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
         },
         1800,
