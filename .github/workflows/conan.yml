@@ -258,7 +258,7 @@ jobs:
   windows:
     name: Windows ${{ matrix.linkage }} libraries
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
-    runs-on: windows-latest
+    runs-on: windows-2022
     env:
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content

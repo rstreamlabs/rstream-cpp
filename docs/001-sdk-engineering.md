@@ -19,6 +19,14 @@ The supported platform contract includes:
 - glibc Linux packages built against the configured Yocto SDK baseline;
 - musl Linux packages for standalone, broadly portable binaries.
 
+The required native Windows package matrix uses the Visual Studio 2022 runner
+baseline (`windows-2022`) for all library and plugin combinations, with strict
+warnings and warnings as errors. A runner upgrade is a toolchain change to
+qualify explicitly. The floating Windows image selected Visual Studio 2026
+19.51, whose optimized Boost.Asio buffer instantiations produce C4702 errors;
+that toolchain is not yet part of the qualified strict-build baseline. Windows
+11 ConPTY runtime checks remain part of the cross-language WebTTY matrix.
+
 Library linkage and plugin loading are independent choices:
 
 | SDK libraries | Plugins | Required |
