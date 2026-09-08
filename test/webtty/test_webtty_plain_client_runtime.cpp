@@ -516,6 +516,14 @@ class fake_early_exit_plain_server {
         protobuf::Message close;
         close.mutable_close()->set_return_code(0);
         write_message(socket, close);
+        // Closing with an unread stdin EOS sends a TCP reset and can discard
+        // the successful close frame. Half-close and drain until the client exits.
+        socket.shutdown(tcp::socket::shutdown_send);
+        char trailing[1024];
+        boost::system::error_code error_code;
+        while (socket.read_some(boost::asio::buffer(trailing), error_code) != 0) {
+        }
+        assert(error_code == boost::asio::error::eof);
       }
       catch (...) {
         m_exception = std::current_exception();
