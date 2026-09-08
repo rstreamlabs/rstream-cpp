@@ -84,25 +84,16 @@ class fifo_reader {
 
   void async_read_some(const boost::asio::mutable_buffer& buffer, completion_handler&& handler)
   {
-    boost::system::error_code error;
-    {
-      std::lock_guard<std::mutex> lock(m_mutex);
-      if (m_stopped) {
-        error = boost::asio::error::operation_aborted;
-      }
-      else if (m_pending || m_active) {
-        error = boost::asio::error::already_started;
-      }
-      else {
-        m_pending = std::make_unique<operation>(m_executor, buffer, std::move(handler));
-      }
-    }
-    if (error) {
+    std::unique_lock<std::mutex> lock(m_mutex);
+    if (m_stopped || m_pending || m_active) {
+      const boost::system::error_code error = m_stopped ? boost::asio::error::operation_aborted : boost::asio::error::already_started;
+      lock.unlock();
       core::invoke_completion_handler(m_executor, std::move(handler), error, std::size_t(0));
+      return;
     }
-    else {
-      m_ready.notify_one();
-    }
+    m_pending = std::make_unique<operation>(m_executor, buffer, std::move(handler));
+    lock.unlock();
+    m_ready.notify_one();
   }
 
   void close()
