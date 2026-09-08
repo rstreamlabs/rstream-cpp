@@ -22,12 +22,14 @@ The supported platform contract includes:
 The required native Windows package matrix uses the Visual Studio 2022 runner
 baseline (`windows-2022`) for all library and plugin combinations, with strict
 warnings and warnings as errors. A runner upgrade is a toolchain change to
-qualify explicitly. Optimized MSVC builds can report C4702 in Boost 1.89's
-`const_buffer` conversion when instantiated by nperf and WebTTY. Their client
-and server translation units suppress only that diagnostic while defining the external Asio buffer
-header, then restore the warning state before any SDK definitions. No runtime
-code or optimization settings change. Windows 11 ConPTY runtime checks remain
-part of the cross-language WebTTY matrix.
+qualify explicitly. The external Conan consumer can select Boost 1.83 within
+the supported range and rebuild the SDK, even when the initial package used
+Boost 1.89. Optimized MSVC builds can report C4702 in Boost 1.83's
+`const_buffer` conversion. Affected application and test translation units
+suppress only that diagnostic while defining the external Asio buffer header,
+then restore the warning state before any SDK definitions. No runtime code or
+optimization settings change. Windows 11 ConPTY runtime checks remain part of
+the cross-language WebTTY matrix.
 
 Library linkage and plugin loading are independent choices:
 

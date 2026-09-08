@@ -1,5 +1,13 @@
 // See LICENSE file in the project root for license information.
 
+#ifdef _MSC_VER
+// MSVC can flag Asio's buffer conversion as unreachable after inlining.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#include <boost/asio/buffer.hpp>
+#pragma warning(pop)
+#endif
+
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
@@ -363,13 +371,13 @@ int run(int argc, char** argv)
       rstream::webtty::protocol::parse_username(config.m_protocol_config.m_username, username.asString());
     }
   }
-  const bool e2e_requested                  = args.at("--e2e").asBool();
-  auto identity_name                        = args.at("--identity") ? args.at("--identity").asString() : "";
-  auto identity_file                        = args.at("--identity-file") ? args.at("--identity-file").asString() : "";
-  auto client_credential_file               = args.at("--client-credential-file") ? args.at("--client-credential-file").asString() : "";
-  auto known_server_name                    = args.at("--known-server") ? args.at("--known-server").asString() : "";
-  auto known_servers_file                   = args.at("--known-servers-file") ? args.at("--known-servers-file").asString() : "";
-  auto known_server_resolution              = read_known_server_resolution(args.at("--known-server-key"), known_servers_file, known_server_name, args.at("--uri").asString(), e2e_requested);
+  const bool e2e_requested     = args.at("--e2e").asBool();
+  auto identity_name           = args.at("--identity") ? args.at("--identity").asString() : "";
+  auto identity_file           = args.at("--identity-file") ? args.at("--identity-file").asString() : "";
+  auto client_credential_file  = args.at("--client-credential-file") ? args.at("--client-credential-file").asString() : "";
+  auto known_server_name       = args.at("--known-server") ? args.at("--known-server").asString() : "";
+  auto known_servers_file      = args.at("--known-servers-file") ? args.at("--known-servers-file").asString() : "";
+  auto known_server_resolution = read_known_server_resolution(args.at("--known-server-key"), known_servers_file, known_server_name, args.at("--uri").asString(), e2e_requested);
   if (discovered && discovered->m_requires_known_server && (known_server_resolution.m_recipients.empty() || known_server_resolution.m_endpoint_identities.empty())) {
     throw std::runtime_error("WebTTY server requires authenticated E2E; configure its known endpoint identity locally");
   }
@@ -442,7 +450,7 @@ int run(int argc, char** argv)
     auto n = jobs - 1;
     threads.reserve(n);
     for (decltype(n) i = 0; i < n; ++i) {
-      threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+      threads.emplace_back(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
     }
   }
   io_context.run();
