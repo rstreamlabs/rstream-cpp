@@ -8,6 +8,9 @@
 #include <limits>
 
 #include <rstream/config.hpp>
+#ifdef _WIN32
+#include <rstream/core/windows/detail/cancel_io.hpp>
+#endif
 
 #include "error.hpp"
 #include "terminal.hpp"
@@ -96,15 +99,6 @@ void close_handle(HANDLE& handle)
   if (handle != nullptr) {
     ::CloseHandle(handle);
     handle = nullptr;
-  }
-}
-
-void cancel_thread_io(const std::shared_ptr<std::thread>& thread)
-{
-  if (thread != nullptr && thread->joinable()) {
-    if (!::CancelSynchronousIo(thread->native_handle()) && ::GetLastError() != ERROR_NOT_FOUND) {
-      // Closing the associated pipe below remains the final cancellation path.
-    }
   }
 }
 
@@ -318,18 +312,16 @@ void pty_windows::stop()
   }
   m_cv_read_op.notify_one();
   m_cv_write_op.notify_one();
-  cancel_thread_io(reading_thread);
-  cancel_thread_io(writing_thread);
+  if (reading_thread != nullptr) {
+    rstream::core::windows::detail::cancel_and_join(*reading_thread);
+  }
+  if (writing_thread != nullptr) {
+    rstream::core::windows::detail::cancel_and_join(*writing_thread);
+  }
   close_handle(in_write);
   close_handle(out_read);
   if (console != nullptr) {
     ::ClosePseudoConsole(console);
-  }
-  if (reading_thread != nullptr && reading_thread->joinable()) {
-    reading_thread->join();
-  }
-  if (writing_thread != nullptr && writing_thread->joinable()) {
-    writing_thread->join();
   }
 }
 
