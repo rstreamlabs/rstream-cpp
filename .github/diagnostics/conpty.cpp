@@ -25,7 +25,6 @@
 #include <boost/process/exe.hpp>
 #endif
 
-#include <rstream/core/system.hpp>
 #include <rstream/webtty/detail/process.hpp>
 #include <rstream/webtty/error.hpp>
 #include <rstream/webtty/stream.hpp>
