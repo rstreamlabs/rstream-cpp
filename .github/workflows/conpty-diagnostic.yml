@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Compile and diagnose only the ConPTY path
+      - name: Check actual Windows CMake ASan target
         shell: pwsh
         run: |
           $vcvars = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat'
@@ -24,7 +24,9 @@ jobs:
               [Environment]::SetEnvironmentVariable($parts[0], $parts[1], 'Process')
             }
           }
-          python -u .github/diagnostics/run-conpty.py
+          python -m pip install conan==2.31.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -u .github/diagnostics/check-cmake-asan.py
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
@@ -33,5 +35,6 @@ jobs:
           path: |
             conpty-diagnostic/*.log
             conpty-diagnostic/*.json
+            conpty-diagnostic/*.xml
             conpty-diagnostic/*.cpp
             conpty-diagnostic/*.dmp

@@ -317,6 +317,9 @@ jobs:
           ccache --set-config=max_size=1G
           ccache --set-config=compression=true
           ccache --zero-stats
+      - name: Check required Windows test configuration
+        shell: pwsh
+        run: python test/test_conan_windows_asan.py
       - name: Build and test Conan package
         shell: pwsh
         run: |
@@ -329,6 +332,7 @@ jobs:
               -o "rstream/*:enable_testing=True" `
               -o "rstream/*:enable_strict_warnings=True" `
               -o "rstream/*:warnings_as_errors=True" `
+              -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': {'value': True, 'cache': True, 'type': 'BOOL'}}" `
               .
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE
