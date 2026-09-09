@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/buffer.hpp>
@@ -30,18 +31,28 @@ namespace detail {
 // Darwin FIFO readiness is not reliably reported through kqueue. Only stdin
 // FIFOs use this single-request select worker; network IO keeps its reactor.
 // poll() also misses EOF for an empty Darwin FIFO, so it is not equivalent here.
+// Even select can miss a concurrent writer close; bounded idle waits recheck EOF.
 // Calls are serialized by the client strand. The borrowed descriptor must be
 // nonblocking and remain open until close() has returned.
-class fifo_reader {
+struct fifo_readiness_wait {
+  int operator()(int count, fd_set* descriptors, timeval* timeout) const
+  {
+    return ::select(count, descriptors, nullptr, nullptr, timeout);
+  }
+};
+
+template <typename ReadinessWait = fifo_readiness_wait>
+class basic_fifo_reader {
  public:
   using executor_type      = boost::asio::any_io_executor;
   using completion_handler = core::completion_handler<void(const boost::system::error_code&, std::size_t)>;
 
-  fifo_reader(const executor_type& executor, int descriptor)
+  basic_fifo_reader(const executor_type& executor, int descriptor, ReadinessWait readiness_wait = {})
       : m_executor(executor),
         m_descriptor(descriptor),
         m_wakeup_read(executor),
-        m_wakeup_write(executor)
+        m_wakeup_write(executor),
+        m_readiness_wait(std::move(readiness_wait))
   {
     if (descriptor < 0 || descriptor >= FD_SETSIZE) {
       throw boost::system::system_error(boost::asio::error::fd_set_failure);
@@ -74,13 +85,13 @@ class fifo_reader {
     m_thread = std::thread([this] { run(); });
   }
 
-  ~fifo_reader()
+  ~basic_fifo_reader()
   {
     close();
   }
 
-  fifo_reader(const fifo_reader&)            = delete;
-  fifo_reader& operator=(const fifo_reader&) = delete;
+  basic_fifo_reader(const basic_fifo_reader&)            = delete;
+  basic_fifo_reader& operator=(const basic_fifo_reader&) = delete;
 
   void async_read_some(const boost::asio::mutable_buffer& buffer, completion_handler&& handler)
   {
@@ -154,7 +165,10 @@ class fifo_reader {
       FD_ZERO(&descriptors);
       FD_SET(m_descriptor, &descriptors);
       FD_SET(wakeup, &descriptors);
-      if (::select(count, &descriptors, nullptr, nullptr, nullptr) == -1) {
+      // Readable data and cancellation still wake immediately. One idle wakeup
+      // per second bounds a lost FIFO EOF notification without busy polling.
+      timeval timeout{1, 0};
+      if (m_readiness_wait(count, &descriptors, &timeout) == -1) {
         if (errno == EINTR) {
           continue;
         }
@@ -199,6 +213,7 @@ class fifo_reader {
   int m_descriptor;
   boost::asio::posix::stream_descriptor m_wakeup_read;
   boost::asio::posix::stream_descriptor m_wakeup_write;
+  [[no_unique_address]] ReadinessWait m_readiness_wait;
   std::mutex m_mutex;
   std::condition_variable m_ready;
   std::thread m_thread;
@@ -206,6 +221,8 @@ class fifo_reader {
   bool m_active  = false;
   bool m_stopped = false;
 };
+
+using fifo_reader = basic_fifo_reader<>;
 
 }  // namespace detail
 }  // namespace webtty

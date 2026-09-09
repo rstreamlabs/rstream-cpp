@@ -212,6 +212,55 @@ static void check_pending_eof_and_empty_buffer()
   assert(completed == 2);
 }
 
+struct suppress_fifo_readiness {
+  boost::asio::any_io_executor executor;
+  int descriptor;
+  boost::asio::posix::stream_descriptor* writer;
+  bool* entered;
+
+  int operator()(int count, fd_set* descriptors, timeval* timeout)
+  {
+    if (!*entered) {
+      *entered = true;
+      boost::asio::post(executor, [output = writer] { output->close(); });
+    }
+    // Model a lost FIFO notification while retaining real cancellation readiness.
+    FD_CLR(descriptor, descriptors);
+    return ::select(count, descriptors, nullptr, nullptr, timeout);
+  }
+};
+
+static void check_eof_without_readiness_notification()
+{
+  boost::asio::io_context context;
+  auto strand = boost::asio::make_strand(context);
+  named_pipe pipe(context);
+  bool entered       = false;
+  using fault_reader = rstream::webtty::detail::basic_fifo_reader<suppress_fifo_readiness>;
+  fault_reader reader(strand, pipe.input.native_handle(), {strand, pipe.input.native_handle(), &pipe.output, &entered});
+  std::array<char, 128> buffer;
+  bool timed_out = false;
+  bool eof       = false;
+  boost::asio::steady_timer deadline(strand, rstream::test::timeout(std::chrono::seconds(5)));
+  deadline.async_wait([&](auto error) {
+    if (!error) {
+      timed_out = true;
+      reader.close();
+    }
+  });
+  reader.async_read_some(boost::asio::buffer(buffer), boost::asio::bind_executor(strand, [&](auto error, auto size) {
+                           eof = error == boost::asio::error::eof;
+                           assert(size == 0);
+                           deadline.cancel();
+                           reader.close();
+                         }));
+  context.run();
+  assert(entered);
+  assert(!timed_out);
+  assert(eof);
+  assert(!pipe.output.is_open());
+}
+
 static void check_descriptor_limit_is_rejected()
 {
   boost::asio::io_context context;
@@ -235,5 +284,6 @@ int main()
     check_pending_eof_and_empty_buffer();
   }
   check_eof_and_repeated_close();
+  check_eof_without_readiness_notification();
   check_descriptor_limit_is_rejected();
 }

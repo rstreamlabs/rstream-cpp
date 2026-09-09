@@ -313,12 +313,18 @@ changing runtime behavior.
 
 WebTTY reads FIFO stdin through a single-request `select` worker on Darwin.
 Regression tests reproduce missed `kqueue` read notifications and missed `poll`
-EOF notifications for named FIFOs. The worker owns no payload queue: one borrowed
-buffer stays alive through completion, and the next read follows network write
-completion. A wakeup pipe cancels a pending wait before the input descriptor is
-closed. Closing joins the worker; it never waits for stdin EOF. The network
+EOF notifications for named FIFOs. A concurrent writer close can also leave
+`select` waiting without an EOF notification. Its idle wait is bounded to one
+second so the next nonblocking read observes EOF even if readiness is lost.
+Data and cancellation still wake immediately; this adds at most one idle check
+per second and no extra worker or payload queue. One borrowed buffer stays alive
+through completion, and the next read follows network write completion. A wakeup
+pipe cancels a pending wait before the input descriptor is closed. Closing joins the worker; it never waits for stdin EOF. The network
 reactor, ordinary files and interactive terminals retain their existing paths.
 This fallback consumes one worker and two wakeup descriptors per FIFO client;
 select descriptor bounds are checked before use. Associated completion execution
 is preserved on the client strand. Native, ASan/UBSan and TSan tests cover bulk
 transfer, pending destruction, EOF, repeated close and descriptor bounds.
+A deterministic fault-injection test suppresses FIFO readiness while preserving
+the real cancellation descriptor, and requires EOF without the test deadline
+having to cancel the reader.
