@@ -32,6 +32,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <dbghelp.h>
 #else
 #include <unistd.h>
 #ifdef __APPLE__
@@ -44,6 +45,18 @@
 namespace stream = rstream::webtty::stream;
 
 #ifdef _WIN32
+static FILE* trace_file()
+{
+  static FILE* file = [] {
+    char path[128];
+    std::snprintf(path, sizeof(path), "conpty-diagnostic/trace-%lu.log", ::GetCurrentProcessId());
+    FILE* result = nullptr;
+    ::fopen_s(&result, path, "w");
+    return result ? result : stderr;
+  }();
+  return file;
+}
+
 static int windows_pty_console_child()
 {
   for (const auto channel : {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE}) {
@@ -76,12 +89,12 @@ static void check_windows_pty_console_io(const char* executable)
   boost::asio::io_context io_context;
   auto work       = boost::asio::make_work_guard(io_context);
   auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::tty);
-  std::fprintf(stderr, "PROBE make_child pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE make_child pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   auto child      = rstream::webtty::detail::process::make_child(
       stream_ptr,
       boost::process::exe(executable),
       boost::process::args(std::vector<std::string>{"--conpty-console-child"}));
-  std::fprintf(stderr, "PROBE child_created pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE child_created pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   char buffer[4096]  = {};
   const char input[] = "conpty-input\r";
   std::string output;
@@ -97,7 +110,7 @@ static void check_windows_pty_console_io(const char* executable)
           if (error_code || output.size() + count > 16384) {
             return;
           }
-          std::fprintf(stderr, "PROBE read count=%zu error=%d\n", count, error_code.value()); std::fflush(stderr);
+          std::fprintf(trace_file(), "PROBE read count=%zu error=%d\n", count, error_code.value()); std::fflush(trace_file());
           output.append(buffer, count);
           if (!input_sent && output.find("CONPTY_READY") != std::string::npos) {
             input_sent = true;
@@ -116,27 +129,27 @@ static void check_windows_pty_console_io(const char* executable)
         };
     stream_ptr->async_read_some(boost::asio::buffer(buffer), stream::type::std_out, std::move(handler));
   };
-  std::fprintf(stderr, "PROBE start_reader pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE start_reader pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   read();
   std::thread runner([&] { io_context.run(); });
-  std::fprintf(stderr, "PROBE wait_child pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE wait_child pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   const auto exited = ::WaitForSingleObject(child->native_handle(), 10000) == WAIT_OBJECT_0;
   boost::system::error_code ignored;
   if (!exited) {
     child->terminate(ignored);
   }
-  std::fprintf(stderr, "PROBE reap_child pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE reap_child pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   child->wait(ignored);
-  std::fprintf(stderr, "PROBE drain_output pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE drain_output pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   const auto drained = exited && child->exit_code() == 0
                        && output_ready.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
-  std::fprintf(stderr, "PROBE close_stream pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE close_stream pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   stream_ptr->close();
-  std::fprintf(stderr, "PROBE reset_work pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE reset_work pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   work.reset();
-  std::fprintf(stderr, "PROBE join_runner pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE join_runner pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   runner.join();
-  std::fprintf(stderr, "PROBE verify_exit pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE verify_exit pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   assert(exited);
   assert(child->exit_code() == 0);
   assert(drained);
@@ -156,10 +169,15 @@ static void check_windows_pty_with_redirected_parent(const char* executable)
   const auto exited = ::WaitForSingleObject(parent.native_handle(), 20000) == WAIT_OBJECT_0;
   boost::system::error_code ignored;
   if (!exited) {
+    HANDLE dump = ::CreateFileA("conpty-diagnostic/parent.dmp", GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (dump != INVALID_HANDLE_VALUE) {
+      ::MiniDumpWriteDump(parent.native_handle(), parent.id(), dump, static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo), nullptr, nullptr, nullptr);
+      ::CloseHandle(dump);
+    }
     parent.terminate(ignored);
   }
   parent.wait(ignored);
-  std::fprintf(stderr, "PROBE verify_exit pid=%lu\n", ::GetCurrentProcessId()); std::fflush(stderr);
+  std::fprintf(trace_file(), "PROBE verify_exit pid=%lu\n", ::GetCurrentProcessId()); std::fflush(trace_file());
   assert(exited);
   assert(parent.exit_code() == 0);
 }
@@ -169,6 +187,7 @@ static void check_windows_pty_with_redirected_parent(const char* executable)
 int main(int argc, char** argv) {
 #ifdef _WIN32
 ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+std::fprintf(trace_file(),"PROBE main argc=%d arg=%s\n",argc, argc>1?argv[1]:"none");std::fflush(trace_file());
 if(argc==2 && std::strcmp(argv[1], "--conpty-console-child")==0) return windows_pty_console_child();
 if(argc==2 && std::strcmp(argv[1], "--conpty-redirected-parent")==0) {check_windows_pty_console_io(argv[0]); return 0;}
 check_windows_pty_with_redirected_parent(argv[0]);

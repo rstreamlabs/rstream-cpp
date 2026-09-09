@@ -34,3 +34,4 @@ jobs:
             conpty-diagnostic/*.log
             conpty-diagnostic/*.json
             conpty-diagnostic/*.cpp
+            conpty-diagnostic/*.dmp
