@@ -10,6 +10,7 @@
 #include <rstream/webtty/webtty.hpp>
 
 #include "../../bin/webtty/bin/common/webtty_cli.hpp"
+#include "../../bin/webtty/bin/common/webtty_workspace_trust.hpp"
 
 namespace cli = rstream::webtty::cli;
 
@@ -297,6 +298,7 @@ static void check_enrollment_validation()
              "version: 1\n"
              "serverId: prod-shell\n"
              "workspaceId: workspace-1\n"
+             "serverName: Production shell\n"
              "projectId: project-1\n"
              "apiUrl: https://app.example.test\n"
              "identityFile: ~/.rstream/webtty/identities/prod-shell.identity.json\n"
@@ -317,6 +319,7 @@ static void check_enrollment_validation()
                  "enrollmentStatus: active\n");
   auto enrollment = cli::load_server_enrollment(path.string());
   assert(enrollment.m_server_id == "prod-shell");
+  assert(enrollment.m_server_name == "Production shell");
   assert(cli::enrollment_requires_e2e(enrollment));
   require_no_runtime_error("explicit enrollment identity validation", [&]() { cli::validate_identity_matches_enrollment(identity, enrollment); });
   auto admission_enrollment                = enrollment;
@@ -325,9 +328,11 @@ static void check_enrollment_validation()
   uri_options.m_managed           = true;
   uri_options.m_publish           = true;
   uri_options.m_server_id         = admission_enrollment.m_server_id;
+  uri_options.m_server_name       = admission_enrollment.m_server_name;
   uri_options.m_encryption_policy = admission_enrollment.m_encryption_policy;
   uri_options.m_labels            = {{"env", "prod"}};
   auto admission_labels           = rstream::webtty::build_webtty_labels(uri_options);
+  assert(admission_labels.at("rstream.webtty.server_name") == "Production shell");
   auto admission_label            = cli::create_server_admission_label(admission_enrollment, identity, admission_labels);
   auto admission_raw              = cli::base64url_decode(admission_label, 0, "server admission label");
   auto admission_json             = nlohmann::json::parse(std::string(admission_raw.begin(), admission_raw.end()));
@@ -430,6 +435,60 @@ static void check_enrollment_validation()
   assert(throws_runtime_error([&tampered_path]() { cli::load_server_enrollment(tampered_path.string()); }));
 }
 
+static void check_workspace_approved_client_credential()
+{
+  auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "workspace-approved-client.json";
+  std::ifstream file(path);
+  assert(file.is_open());
+  auto fixture     = nlohmann::json::parse(file);
+  const auto& pins = fixture.at("enrollment");
+  cli::server_enrollment enrollment;
+  enrollment.m_server_id                          = pins.at("serverId").get<std::string>();
+  enrollment.m_workspace_id                       = pins.at("workspaceId").get<std::string>();
+  enrollment.m_project_id                         = pins.at("projectId").get<std::string>();
+  enrollment.m_workspace_trust_keyset_id          = pins.at("workspaceTrustKeysetId").get<std::string>();
+  enrollment.m_workspace_trust_keyset_fingerprint = pins.at("workspaceTrustKeysetFingerprint").get<std::string>();
+  enrollment.m_workspace_trust_public_signing_key = pins.at("workspaceTrustPublicSigningKey").get<std::string>();
+  const auto& credential                          = fixture.at("credential");
+  const auto& payload                             = credential.at("payload");
+  auto key_id                                     = cli::base64url_decode(payload.at("client_signing_key_id").get<std::string>(), 0, "key id");
+  auto public_key                                 = cli::base64url_decode(payload.at("client_signing_public_key").get<std::string>(), 0, "public key");
+  auto verify                                     = [&](const nlohmann::json& value) {
+    auto serialized = value.dump();
+    return cli::verify_workspace_client_credential(enrollment, key_id, public_key, rstream::webtty::byte_vector(serialized.begin(), serialized.end()));
+  };
+  assert(verify(credential) == public_key);
+  assert(!cli::verify_workspace_client_credential(enrollment, key_id, public_key, {}));
+  for (const auto& name : {"workspace_id", "project_id", "server_id", "trust_keyset_id", "client_signing_key_id", "client_signing_public_key", "device_public_signing_key", "device_public_encryption_key", "device_fingerprint", "trust_payload_hash", "trust_keyset_signature", "type"}) {
+    auto tampered             = credential;
+    tampered["payload"][name] = "invalid";
+    assert(throws_runtime_error([&]() { verify(tampered); }));
+  }
+  auto tampered         = credential;
+  tampered["signature"] = "AA";
+  assert(throws_runtime_error([&]() { verify(tampered); }));
+  tampered      = credential;
+  tampered["v"] = 2;
+  assert(throws_runtime_error([&]() { verify(tampered); }));
+  tampered                                                     = credential;
+  tampered["payload"]["trust_payload"]["target_device_key_id"] = "other-device";
+  tampered["payload"]["trust_payload_hash"]                    = cli::workspace_sha256_base64url(tampered["payload"]["trust_payload"]);
+  assert(throws_runtime_error([&]() { verify(tampered); }));
+  for (auto size : {0, 63, 64, 65, 72}) {
+    tampered                                      = credential;
+    tampered["payload"]["trust_keyset_signature"] = cli::base64url_encode(rstream::webtty::byte_vector(size));
+    assert(throws_runtime_error([&]() { verify(tampered); }));
+  }
+  auto signature = cli::base64url_decode(payload.at("trust_keyset_signature").get<std::string>(), 0, "signature");
+  assert(signature.size() == 64);
+  signature[0] ^= 1;
+  tampered                                      = credential;
+  tampered["payload"]["trust_keyset_signature"] = cli::base64url_encode(signature);
+  assert(throws_runtime_error([&]() { verify(tampered); }));
+  public_key[0] ^= 1;
+  assert(throws_runtime_error([&]() { verify(credential); }));
+}
+
 int main()
 {
   check_argv_has();
@@ -441,5 +500,6 @@ int main()
   check_known_server_entries_file();
   check_runtime_config_validation();
   check_enrollment_validation();
+  check_workspace_approved_client_credential();
   return 0;
 }

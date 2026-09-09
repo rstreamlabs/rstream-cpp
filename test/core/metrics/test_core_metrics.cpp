@@ -319,6 +319,42 @@ void test_summary_concurrent_collection()
   compare(value->m_sample_count, static_cast<std::uint64_t>(499));
 }
 
+class observed_counter : public rstream::core::metrics::counter {
+ public:
+  using counter::counter;
+
+  observed_counter(const counter& value)
+      : counter(value)
+  {
+  }
+
+  std::weak_ptr<void> observer() const
+  {
+    return get_impl();
+  }
+};
+
+void test_labelled_metrics_release_owned_children()
+{
+  for (bool duplicate : {false, true}) {
+    std::weak_ptr<void> child_observer;
+    {
+      auto registry = std::make_shared<rstream::core::metrics::registry>();
+      if (duplicate) {
+        rstream::core::metrics::counter existing("rstream_lifetime_test", "lifetime", {}, registry);
+      }
+      observed_counter counter("rstream_lifetime_test", "lifetime", {}, registry);
+      observed_counter child(counter.labels({{"route", "one"}}));
+      child.increment(7);
+      child_observer = child.observer();
+      registry.reset();
+      compare(child.value(), 7.0);
+      compare(child.name(), std::string("rstream_lifetime_test"));
+    }
+    compare(child_observer.expired(), true);
+  }
+}
+
 void run()
 {
   test_1();
@@ -329,6 +365,7 @@ void run()
   test_collectable_and_system_registry();
   test_system_collector_is_thread_safe_singleton();
   test_summary_concurrent_collection();
+  test_labelled_metrics_release_owned_children();
 }
 
 int main(int argc, char** argv)

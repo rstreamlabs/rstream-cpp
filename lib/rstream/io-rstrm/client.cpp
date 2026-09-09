@@ -33,7 +33,6 @@
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/detail/protobuf.hpp>
 #include <rstream/core/exception.hpp>
-#include <rstream/core/helpers/protobuf.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/core/memory.hpp>
 #include <rstream/core/object_id.hpp>
@@ -625,8 +624,7 @@ void client::impl::set_control_callbacks(const control_callbacks& callbacks, boo
 
 void client::impl::async_connect(const io::address& address, async_connect_completion_handler&& handler)
 {
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  const auto op            = std::allocate_shared<connect_op_type>(operation_allocator, std::move(handler));
+  const auto op = std::allocate_shared<connect_op_type>(core::allocator::wrapper<connect_op_type>(m_allocator), std::move(handler));
   {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_is_state_non_null) {
@@ -668,9 +666,8 @@ void client::impl::async_connect(async_connect_completion_handler&& handler)
 
 void client::impl::async_create_tunnel(const tunnel_properties& properties, async_create_tunnel_completion_handler&& handler)
 {
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  const auto op            = std::allocate_shared<create_tunnel_op_type>(
-      operation_allocator,
+  const auto op = std::allocate_shared<create_tunnel_op_type>(
+      core::allocator::wrapper<create_tunnel_op_type>(m_allocator),
       normalize_tunnel_properties(properties),
       std::move(handler));
   auto cancellation_slot = boost::asio::get_associated_cancellation_slot(op->m_handler);
@@ -697,9 +694,8 @@ void client::impl::async_create_tunnel(const tunnel_properties& properties, asyn
 
 void client::impl::async_accept_tunnel(const std::string& tunnel_id, socket& peer, endpoint& endpoint, tunnel::async_accept_completion_handler&& handler)
 {
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  const auto op            = std::allocate_shared<accept_tunnel_op_type>(
-      operation_allocator,
+  const auto op = std::allocate_shared<accept_tunnel_op_type>(
+      core::allocator::wrapper<accept_tunnel_op_type>(m_allocator),
       peer,
       endpoint,
       std::move(handler));
@@ -1065,7 +1061,7 @@ void client::impl::do_resolve_host()
 #ifdef RSTREAM_WITH_IO_STREAMS
   m_resolver.async_resolve(m_server_address.m_url, boost::asio::bind_executor(m_strand, completion_handler));
 #else
-  m_resolver.async_resolve(m_server_address.host(), m_server_address.port(), boost::asio::bind_executor(m_strand, completion_handler));
+  m_resolver.async_resolve(m_server_address.m_url.host_address(), m_server_address.port(), boost::asio::bind_executor(m_strand, completion_handler));
 #endif
 }
 
@@ -1505,7 +1501,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
     return;
   }
 #ifdef DEBUG_BUILD
-  m_logger->trace("received message from peer\n{}", core::helpers::to_json_string(message));
+  m_logger->trace("received message from peer [message_type={}]", static_cast<int>(message.payload_case()));
 #endif
   boost::system::error_code error_code;
   if (!is_message_expected(m_state, message)) {
@@ -1538,7 +1534,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
         }
         else {
 #ifdef DEBUG_BUILD
-          m_logger->trace("received open response with no client ID\n{}", core::helpers::to_json_string(payload));
+          m_logger->trace("received open response with no client ID");
 #endif
           error_code = error::code::protocol_error;
         }
@@ -1548,7 +1544,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
       }
       else {
 #ifdef DEBUG_BUILD
-        m_logger->trace("received open response with no ok or error\n{}", core::helpers::to_json_string(payload));
+        m_logger->trace("received open response with no ok or error");
 #endif
         error_code = error::code::protocol_error;
       }
@@ -1562,7 +1558,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
         it                  = m_create_tunnel_ops.find(payload.request_id());
         if (it == m_create_tunnel_ops.end()) {
 #ifdef DEBUG_BUILD
-          m_logger->trace("received tunnel response with no matching request\n{}", core::helpers::to_json_string(payload));
+          m_logger->trace("received tunnel response with no matching request");
 #endif
           error_code = error::code::protocol_error;
         }
@@ -1571,7 +1567,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
             detail::convert(tunnel_properties, payload.tunnel_properties());
             if (!tunnel_properties.m_id) {
 #ifdef DEBUG_BUILD
-              m_logger->trace("received tunnel response with no tunnel ID\n{}", core::helpers::to_json_string(payload));
+              m_logger->trace("received tunnel response with no tunnel ID");
 #endif
               error_code = error::code::protocol_error;
             }
@@ -1580,7 +1576,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
             }
             if (!error_code && !error && m_tunnels.find(tunnel_properties.m_id.get()) != m_tunnels.end()) {
 #ifdef DEBUG_BUILD
-              m_logger->trace("received tunnel response with duplicate active tunnel ID\n{}", core::helpers::to_json_string(payload));
+              m_logger->trace("received tunnel response with duplicate active tunnel ID");
 #endif
               error_code = error::code::protocol_error;
             }
@@ -1590,7 +1586,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
           }
           else {
 #ifdef DEBUG_BUILD
-            m_logger->trace("received tunnel response with no properties or error\n{}", core::helpers::to_json_string(payload));
+            m_logger->trace("received tunnel response with no properties or error");
 #endif
             error_code = error::code::protocol_error;
           }
@@ -1607,7 +1603,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
         it                  = m_tunnels.find(payload.tunnel_id());
         if (it == m_tunnels.end()) {
 #ifdef DEBUG_BUILD
-          m_logger->trace("received tunnel close response with no matching tunnel\n{}", core::helpers::to_json_string(payload));
+          m_logger->trace("received tunnel close response with no matching tunnel");
 #endif
           error_code = error::code::protocol_error;
         }
@@ -1627,7 +1623,7 @@ void client::impl::on_read_incoming_message(generation_type generation, const pr
         it                  = m_tunnels.find(payload.tunnel_id());
         if (it == m_tunnels.end()) {
 #ifdef DEBUG_BUILD
-          m_logger->trace("received proxy connection request with no matching tunnel\n{}", core::helpers::to_json_string(payload));
+          m_logger->trace("received proxy connection request with no matching tunnel");
 #endif
           error_code = error::code::protocol_error;
         }
@@ -1704,7 +1700,7 @@ void client::impl::do_send_message(const protobuf::Message& message, const on_se
     return;
   }
 #ifdef DEBUG_BUILD
-  m_logger->trace("sending message to peer\n{}", core::helpers::to_json_string(message));
+  m_logger->trace("sending message to peer [message_type={}]", static_cast<int>(message.payload_case()));
 #endif
   core::buffer buffer;
   if (!core::detail::serialize_protobuf_message(message, buffer, m_allocator)) {

@@ -88,6 +88,8 @@ class wrapper : public wrapper_base<T> {
 template <class T>
 class wrapper<T>::handle : public wrapper_base<T> {
  public:
+  ~handle() override;
+
   std::string name() const override;
   std::string help() const override;
   metric::type type() const override;
@@ -248,6 +250,12 @@ template <class T>
 wrapper<T>::handle::handle(wrapper_common::ptr parent, const detail::metrics::labels& labels)
     : m_impl(std::make_shared<child>(parent, labels))
 {
+}
+
+template <class T>
+wrapper<T>::handle::~handle()
+{
+  m_impl->deinit();
 }
 
 template <class T>

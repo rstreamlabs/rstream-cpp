@@ -393,6 +393,22 @@ jobs:
     runs-on: ubuntu-latest
     environment: stable-release
     steps:
+      - name: Checkout trusted WebTTY certification policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rstreamlabs/rstream-engine
+          ref: main
+          token: ${{ secrets.WEBTTY_REPOSITORIES_TOKEN }}
+          path: .webtty-policy
+          persist-credentials: false
+      - uses: ./.webtty-policy/.github/actions/verify-webtty-release
+        with:
+          component: cpp
+          candidate-sha: ${{ github.sha }}
+          assembly: ${{ vars.WEBTTY_RELEASE_ASSEMBLY }}
+          run-id: ${{ vars.WEBTTY_CERTIFICATION_RUN_ID }}
+          allowed-actor: ${{ vars.CI_ALLOWED_ACTOR }}
+          token: ${{ secrets.WEBTTY_REPOSITORIES_TOKEN }}
       - run: printf 'Approved C++ package candidates for %s\n' "${GITHUB_SHA}"
 
   publish-linux-windows:

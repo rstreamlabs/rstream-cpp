@@ -1,6 +1,12 @@
 // See LICENSE file in the project root for license information.
 
-#include "client.hpp"
+#ifdef _MSC_VER
+// MSVC can flag Asio's buffer conversion as unreachable after inlining.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#include <boost/asio/buffer.hpp>
+#pragma warning(pop)
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -19,6 +25,8 @@
 #include <boost/asio/steady_timer.hpp>
 
 #include <openssl/sha.h>
+
+#include "client.hpp"
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
 #endif
@@ -58,6 +66,11 @@
 #include <rstream/webtty/protobuf/messages.pb.h>
 
 #include "detail/convert.hpp"
+#ifdef __APPLE__
+#include <sys/stat.h>
+
+#include "detail/fifo_reader.hpp"
+#endif
 #include "error.hpp"
 #include "terminal.hpp"
 
@@ -472,6 +485,10 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   stream_type m_stream_std_in;
 
+#ifdef __APPLE__
+  std::unique_ptr<detail::fifo_reader> m_fifo_reader;
+#endif
+
   stream_type m_stream_std_out;
 
   stream_type m_stream_std_err;
@@ -535,7 +552,7 @@ client::impl::impl(const executor_type& executor, const config& config, const se
       m_settings(settings),
       m_state(state::null),
       m_resolver(executor),
-      m_socket(executor),
+      m_socket(m_strand),
 #ifdef _WIN32
       m_stream_std_in(executor),
       m_stream_std_out(executor),
@@ -560,10 +577,10 @@ client::impl::impl(const executor_type& executor, const config& config, const se
     m_payloader = std::make_shared<payloader_type::element_type>(m_socket);
   }
   if (m_websocket) {
-    m_queue = std::make_shared<rstream::io::queue<websocket_type::element_type&>>(*m_websocket);
+    m_queue = std::make_shared<rstream::io::queue<websocket_type::element_type&>>(*m_websocket, boost::asio::strand<websocket_type::element_type::executor_type>(m_strand));
   }
   else {
-    m_queue = std::make_shared<rstream::io::queue<payloader_type::element_type&>>(*m_payloader);
+    m_queue = std::make_shared<rstream::io::queue<payloader_type::element_type&>>(*m_payloader, boost::asio::strand<payloader_type::element_type::executor_type>(m_strand));
   }
   if (m_config.m_protocol_config.m_options.m_allocate_tty) {
 #ifdef _WIN32
@@ -583,6 +600,18 @@ client::impl::impl(const executor_type& executor, const config& config, const se
   }
   if (error_code) {
     throw boost::system::system_error(error_code);
+  }
+#endif
+#ifdef __APPLE__
+  if (m_config.m_protocol_config.m_options.m_interactive) {
+    struct stat info;
+    if (::fstat(m_stream_std_in.native_handle(), &info) == -1) {
+      throw boost::system::system_error(boost::system::error_code(errno, boost::system::system_category()));
+    }
+    if (S_ISFIFO(info.st_mode)) {
+      m_stream_std_in.native_non_blocking(true);
+      m_fifo_reader = std::make_unique<detail::fifo_reader>(m_strand, m_stream_std_in.native_handle());
+    }
   }
 #endif
 }
@@ -929,6 +958,13 @@ void client::impl::close_resources()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  if (m_websocket) {
+    m_websocket->set_option(boost::beast::websocket::stream_base::timeout{
+        .handshake_timeout = boost::beast::websocket::stream_base::none(),
+        .idle_timeout      = boost::beast::websocket::stream_base::none(),
+        .keep_alive_pings  = false,
+    });
+  }
   {
     boost::system::error_code tmp;
     m_resolver.cancel();
@@ -938,6 +974,11 @@ void client::impl::close_resources()
     m_stream_std_out.close();
     m_stream_std_err.close();
 #else
+#ifdef __APPLE__
+    if (m_fifo_reader) {
+      m_fifo_reader->close();
+    }
+#endif
     m_stream_std_in.close(tmp);
     m_stream_std_out.close(tmp);
     m_stream_std_err.close(tmp);
@@ -1045,6 +1086,12 @@ void client::impl::do_read_std_in()
     return;
   }
   auto completion_handler = std::bind(&impl::on_read_std_in, shared_from_this(), std::placeholders::_1, std::placeholders::_2);
+#ifdef __APPLE__
+  if (m_fifo_reader) {
+    m_fifo_reader->async_read_some(boost::asio::mutable_buffer(m_buffer_std_in.map().get_data(), m_buffer_std_in.get_size()), boost::asio::bind_executor(m_strand, completion_handler));
+    return;
+  }
+#endif
   m_stream_std_in.async_read_some(boost::asio::mutable_buffer(m_buffer_std_in.map().get_data(), m_buffer_std_in.get_size()), boost::asio::bind_executor(m_strand, completion_handler));
 }
 

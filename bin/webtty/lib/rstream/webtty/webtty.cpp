@@ -668,6 +668,9 @@ void parse_type(type& dst, const std::string& src)
   else if (src == "plain") {
     dst = type::plain;
   }
+  else if (src == "webtransport") {
+    throw std::runtime_error("WebTransport is not implemented by the C++ WebTTY runtime; use the Go runtime");
+  }
   else {
     throw std::runtime_error("invalid --transport \"" + src + "\" (valid: plain, websocket)");
   }
@@ -831,10 +834,12 @@ std::map<std::string, std::string> build_webtty_labels(const webtty_uri_options&
     }
   };
   set_label("application-protocol", "rstream.webtty");
+  set_label("rstream.webtty.transport", options.m_transport == protocol::type::plain ? "plain" : "websocket");
   set_label("rstream.webtty.capabilities", "exec");
   set_label("rstream.webtty.execution.mode", options.m_execution_mode == execution_mode::login ? "login" : "spawn");
   set_label("rstream.webtty.exec.path", "/");
   set_label("rstream.webtty.server_id", options.m_server_id);
+  set_label("rstream.webtty.server_name", options.m_server_name);
   set_label("rstream.webtty.host_key_id", options.m_host_key_id);
   set_label("rstream.webtty.encryption_policy", options.m_encryption_policy);
   if (!options.m_host_key_id.empty()) {
@@ -864,15 +869,21 @@ std::map<std::string, std::string> build_webtty_labels(const webtty_uri_options&
 
 std::string build_webtty_uri(const webtty_uri_options& options)
 {
+  const bool publish = options.m_publish && (options.m_managed || options.m_transport != protocol::type::plain);
   std::string uri = "rstrm://";
   if (options.m_managed && !options.m_server_id.empty()) {
     uri.append(pct_encode(options.m_server_id));
   }
   uri.append("?rstrm.publish=");
-  uri.append(options.m_publish ? "true" : "false");
-  uri.append("&rstrm.protocol=");
-  uri.append(options.m_managed ? "webtty&rstrm.type=bytestream" : "http");
-  if (options.m_publish) {
+  uri.append(publish ? "true" : "false");
+  uri.append("&rstrm.type=bytestream");
+  if (options.m_managed) {
+    uri.append("&rstrm.protocol=webtty");
+  }
+  else if (options.m_transport == protocol::type::websocket) {
+    uri.append("&rstrm.protocol=http");
+  }
+  if (publish) {
     uri.append("&rstrm.token_auth=true");
   }
   auto labels       = build_webtty_labels(options);

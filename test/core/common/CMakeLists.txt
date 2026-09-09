@@ -6,7 +6,21 @@ add_test_target(${PROJECT_NAME}-test-core-executor-binder test_core_executor_bin
 add_test_target(${PROJECT_NAME}-test-core-error test_core_error.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-log test_core_log.cpp ${PROJECT_NAME}::core)
 if(WIN32)
+  add_test_target(${PROJECT_NAME}-test-core-windows-cancel-io test_core_windows_cancel_io.cpp ${PROJECT_NAME}::core)
   add_test_target(${PROJECT_NAME}-test-core-windows-blocking-handle test_core_windows_blocking_handle.cpp ${PROJECT_NAME}::core)
+  if(RSTREAM_TEST_WINDOWS_PIPE_ASAN)
+    if(NOT MSVC OR NOT CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$")
+      message(FATAL_ERROR "Windows pipe ASan tests require a native MSVC Release or RelWithDebInfo build.")
+    endif()
+    add_test_target(
+      ${PROJECT_NAME}-test-core-windows-blocking-handle-asan
+      "test_core_windows_blocking_handle.cpp;${PROJECT_SOURCE_DIR}/lib/rstream/core/windows/blocking_handle.cpp"
+      ws2_32 mswsock)
+    target_include_directories(${PROJECT_NAME}-test-core-windows-blocking-handle-asan PRIVATE ${PROJECT_SOURCE_DIR}/lib)
+    target_compile_features(${PROJECT_NAME}-test-core-windows-blocking-handle-asan PRIVATE cxx_std_20)
+    target_compile_options(${PROJECT_NAME}-test-core-windows-blocking-handle-asan PRIVATE /fsanitize=address /Zi)
+    target_link_options(${PROJECT_NAME}-test-core-windows-blocking-handle-asan PRIVATE /INFERASANLIBS /DEBUG /INCREMENTAL:NO)
+  endif()
 endif()
 add_test_target(${PROJECT_NAME}-test-core-memory-buffer test_core_memory_buffer.cpp ${PROJECT_NAME}::core)
 add_test_target(${PROJECT_NAME}-test-core-protobuf test_core_protobuf.cpp ${PROJECT_NAME}::core)

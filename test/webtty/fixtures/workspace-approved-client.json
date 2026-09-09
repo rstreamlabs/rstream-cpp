@@ -1,0 +1,49 @@
+{
+  "description": "Public test vector from an isolated Chrome workspace device approval and Go credential signer. Contains no private keys or authentication tokens.",
+  "enrollment": {
+    "serverId": "cmtorml5b001zf4s70sfh5zuh",
+    "workspaceId": "cmtork5qx0001dis78xp33uh3",
+    "projectId": "cmtork5ra0005dis7w0m3omzc",
+    "workspaceTrustKeysetId": "cmtorkj0w0001f4s7ibymzn7r",
+    "workspaceTrustKeysetFingerprint": "sha256:rhasPtv4mM7bGHoMHnkvZ3aLsGMjpLPYFz9cwmoyqNE",
+    "workspaceTrustPublicSigningKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqnyUNNjrBJlT3IeiR5_dFnTqaURvuKr2l4uPxHv2NzV3hwriJEbNFRMPlwfRIvAls3J4hYTEdLGLHldtCwddKg"
+  },
+  "credential": {
+    "payload": {
+      "client_signing_key_id": "Dc-2FleBB8UtwXwol4lnrn4UG7XHbDIlXt4f9R3Mv54",
+      "client_signing_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfyoJ8mkp7UIh88xxmuULgqDD11diVcieAgk0kBUoVHq6NR1p0eq5YUuWg7G4A_7OpEDa1qA6_sj9uNBeN43CnQ",
+      "device_fingerprint": "sha256:iASw-c5tVOVkDrqoiYTgJlbWZVSD7ttp2GsyS2Q03nQ",
+      "device_key_id": "cmtorkkon0006f4s7b7k18f5k",
+      "device_kind": "cli",
+      "device_public_encryption_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtLfGX25FV2Rxvc52BlCsIJ_6eDzGmMbjtH6PRw2gFf22lJVTQyresVtx6SPBOa8IrUPrwKfNUSEIuEznez2H9g",
+      "device_public_signing_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfyoJ8mkp7UIh88xxmuULgqDD11diVcieAgk0kBUoVHq6NR1p0eq5YUuWg7G4A_7OpEDa1qA6_sj9uNBeN43CnQ",
+      "project_id": "cmtork5ra0005dis7w0m3omzc",
+      "server_id": "cmtorml5b001zf4s70sfh5zuh",
+      "signed_at": "2026-09-05T19:18:09.755Z",
+      "trust_actor_signature": "kD3aCcj1pXvf_7IqadVJgrSUU0hkDxOhPonEzWfgTyic3K9B4r1yxo9YddpBNfi3v1Wcp2TTPFKvs4DfhQWo7A",
+      "trust_keyset_id": "cmtorkj0w0001f4s7ibymzn7r",
+      "trust_keyset_signature": "XdspZHqxzF0E7cVIHvrS7XFBr3GGpsQ95AGrRYSyulF-LfKnqy5cWy-qo1I09vqvXqdmzf7nReqlyciMdq-2OQ",
+      "trust_payload": {
+        "approver_device_key_id": "cmtorkj0t0000f4s7fqmc5t52",
+        "envelope_hash": "M3EEK-w5UrBeL0XyopWCaWCIeRnQGNHZon8dMmJGFcU",
+        "keyset_id": "cmtorkj0w0001f4s7ibymzn7r",
+        "target_device_key_id": "cmtorkkon0006f4s7b7k18f5k",
+        "target_fingerprint": "sha256:iASw-c5tVOVkDrqoiYTgJlbWZVSD7ttp2GsyS2Q03nQ",
+        "type": "workspace.device.approve",
+        "v": 1,
+        "workspace_id": "cmtork5qx0001dis78xp33uh3"
+      },
+      "trust_payload_hash": "CYYs2UQRcdLHY-vme9NNJulXWBNEkr2VPbx0bOHvfio",
+      "trust_signed_at": "2026-09-05T19:16:38.690Z",
+      "trust_source": "approval",
+      "type": "workspace.webtty.client.credential",
+      "v": 1,
+      "webtty_key_algorithm": "webtty-x25519-hpke-v1",
+      "webtty_key_id": "vHsIiWoQQC0T1lyDK6nUtg",
+      "webtty_public_key": "E12cH3L9VECKlhJbzoblEL0jJMHUxWPNDBp8-cmjCgQ",
+      "workspace_id": "cmtork5qx0001dis78xp33uh3"
+    },
+    "signature": "MEUCIAxeyWmc14GcMSnN_IuPJItY-vUDjkzF-IGLsVZ9b5eZAiEAmtSJGt3zojMy_t5bTYi-68FucYv0gbfW1Ar1C7Noq_I",
+    "v": 1
+  }
+}

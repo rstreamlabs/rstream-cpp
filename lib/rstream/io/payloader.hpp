@@ -19,6 +19,7 @@
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/operation_allocator.hpp>
 #include <rstream/core/exception.hpp>
 #include <rstream/core/helpers/asio.hpp>
 
@@ -128,10 +129,9 @@ auto payloader<stream>::async_recv(const core::buffer& buffer, BOOST_ASIO_MOVE_A
 {
   return boost::asio::async_initiate<recv_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler, const core::buffer& buffer) {
-        using operation_type     = async_recv_operation<std::decay_t<decltype(handler)>>;
-        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        using operation_type = async_recv_operation<std::decay_t<decltype(handler)>>;
         std::allocate_shared<operation_type>(
-            operation_allocator,
+            core::shared_operation_allocator(handler, m_allocator),
             m_next_layer, buffer, std::forward<decltype(handler)>(handler), m_control_cb)
             ->run();
       },

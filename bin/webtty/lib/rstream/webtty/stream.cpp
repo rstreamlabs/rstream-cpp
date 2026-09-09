@@ -8,6 +8,9 @@
 #include <limits>
 
 #include <rstream/config.hpp>
+#ifdef _WIN32
+#include <rstream/core/windows/detail/cancel_io.hpp>
+#endif
 
 #include "error.hpp"
 #include "terminal.hpp"
@@ -96,15 +99,6 @@ void close_handle(HANDLE& handle)
   if (handle != nullptr) {
     ::CloseHandle(handle);
     handle = nullptr;
-  }
-}
-
-void cancel_thread_io(const std::shared_ptr<std::thread>& thread)
-{
-  if (thread != nullptr && thread->joinable()) {
-    if (!::CancelSynchronousIo(thread->native_handle()) && ::GetLastError() != ERROR_NOT_FOUND) {
-      // Closing the associated pipe below remains the final cancellation path.
-    }
   }
 }
 
@@ -318,18 +312,16 @@ void pty_windows::stop()
   }
   m_cv_read_op.notify_one();
   m_cv_write_op.notify_one();
-  cancel_thread_io(reading_thread);
-  cancel_thread_io(writing_thread);
+  if (reading_thread != nullptr) {
+    rstream::core::windows::detail::cancel_and_join(*reading_thread);
+  }
+  if (writing_thread != nullptr) {
+    rstream::core::windows::detail::cancel_and_join(*writing_thread);
+  }
   close_handle(in_write);
   close_handle(out_read);
   if (console != nullptr) {
     ::ClosePseudoConsole(console);
-  }
-  if (reading_thread != nullptr && reading_thread->joinable()) {
-    reading_thread->join();
-  }
-  if (writing_thread != nullptr && writing_thread->joinable()) {
-    writing_thread->join();
   }
 }
 
@@ -474,7 +466,8 @@ void pty_posix::allocate(std::error_code& error_code)
 void pty_posix::set_window_size(const terminal_size& terminal_size, std::error_code& error_code)
 {
   try {
-    terminal(m_master_fd).resize(terminal_size);
+    auto fd = m_std_in_out.is_open() ? m_std_in_out.native_handle() : m_master_fd;
+    terminal(fd).resize(terminal_size);
   }
   catch (const std::system_error& system_error) {
     error_code = system_error.code();

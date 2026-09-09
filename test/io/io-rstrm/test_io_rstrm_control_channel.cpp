@@ -15,6 +15,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -33,6 +34,9 @@
 #include <boost/filesystem.hpp>
 #include <boost/system/system_error.hpp>
 
+#include <spdlog/sinks/base_sink.h>
+
+#include <rstream/core/log.hpp>
 #include <rstream/io-rstrm/acceptor.hpp>
 #include <rstream/io-rstrm/client.hpp>
 #include <rstream/io-rstrm/detail/stable_domain.hpp>
@@ -59,6 +63,25 @@ static void check(bool condition, const std::string& message)
     fail(message);
   }
 }
+
+class control_payload_sink : public spdlog::sinks::base_sink<std::mutex> {
+ public:
+  std::atomic_bool m_exposed  = false;
+  std::atomic_uint m_messages = 0;
+
+ private:
+  void sink_it_(const spdlog::details::log_msg& message) override
+  {
+    const std::string_view payload(message.payload.data(), message.payload.size());
+    if (payload.find("control-channel-private-marker") != std::string_view::npos) {
+      m_exposed.store(true);
+    }
+    if (payload.find("message_type=") != std::string_view::npos) {
+      m_messages.fetch_add(1);
+    }
+  }
+  void flush_() override {}
+};
 
 static tcp::socket accept_connection(tcp::acceptor& acceptor)
 {
@@ -414,6 +437,8 @@ static void check_client_snapshots_configuration_at_construction()
 
 static void check_client_can_create_and_close_tunnel()
 {
+  auto log_sink = std::make_shared<control_payload_sink>();
+  rstream::core::log::subscribe(log_sink);
   fake_engine engine;
   engine.start([](tcp::socket& socket) {
     auto open_request = read_message(socket);
@@ -482,6 +507,7 @@ static void check_client_can_create_and_close_tunnel()
     properties.m_name     = "api";
     properties.m_type     = "bytestream";
     properties.m_publish  = true;
+    properties.m_labels["private-marker"] = "control-channel-private-marker";
     auto create_operation = client.async_create_tunnel(properties, boost::asio::deferred);
     std::move(create_operation)([&](const boost::system::error_code& create_error, rstream::io_rstrm::tunnel tunnel) {
       assert(!create_error);
@@ -510,6 +536,11 @@ static void check_client_can_create_and_close_tunnel()
   assert(saw_tunnel);
   assert(saw_disconnected);
   assert(saw_server_status);
+  check(!log_sink->m_exposed.load(), "control-channel trace exposed a protocol payload");
+#ifdef DEBUG_BUILD
+  check(log_sink->m_messages.load() >= 8, "control-channel trace omitted bounded message types");
+#endif
+  log_sink->set_level(spdlog::level::off);
 }
 
 static void check_client_rejects_operations_before_connection()
@@ -1936,6 +1967,8 @@ static void check_acceptor_honors_pending_accept_cancellation()
 
 static void check_generated_stable_domain()
 {
+  assert(!rstream::io_rstrm::detail::generate_stable_domain(rstream::io::make_address("tcp://127.0.0.1:443")));
+  assert(!rstream::io_rstrm::detail::generate_stable_domain(rstream::io::make_address("tcp://[::1]:443")));
   const auto hostname = rstream::io_rstrm::detail::generate_stable_domain(
       rstream::io::make_address("tcp://project.cluster.example:443"));
   assert(hostname);

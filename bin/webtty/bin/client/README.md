@@ -18,3 +18,22 @@ Use `--known-server <name>` when the local known-server file contains several se
 Use `--identity`, `--identity-file`, `RSTREAM_WEBTTY_IDENTITY`, or `RSTREAM_WEBTTY_IDENTITY_FILE` when the server requires a signed client proof. The client also reads target-scoped `client_identity` associations from `~/.rstream/webtty/known_servers.json` and loads the matching local identity from `~/.rstream/webtty/identities/<name>.identity.json`. Explicit identity flags and environment variables override the known-server association. If authenticated E2E is required and no client identity can be resolved, the client fails before opening the terminal.
 
 The C++ client supports explicit-key WebTTY E2E and the protocol-level client credential field used by workspace-managed sessions. The standalone C++ CLI does not call the control plane; workspace-managed resolution is performed by the rstream CLI and `rstream ui`, which load trusted workspace devices from `~/.rstream/workspaces/<workspace-id>/devices/`. When a credential is produced by another trusted workflow, pass it with `--client-credential-file` or `RSTREAM_WEBTTY_CLIENT_CREDENTIAL_FILE` together with the matching client endpoint identity.
+
+### Transport discovery
+
+For `rstrm://` URLs the CLI reads `/api/tunnels` on the configured engine and
+selects `rstream.webtty.transport` before starting WebTTY. Discovery has a
+bounded deadline and response size and is cancelled by SIGINT/SIGTERM. It does
+not contact the control plane. Explicit transport overrides must match an
+advertised label; unlabeled datagram WebTTY tunnels are recognized as legacy
+WebTransport servers. This C++ runtime supports `plain` and `websocket`;
+WebTransport targets fail with a capability error.
+
+For an engine-only device using a stream-only token, pass `--no-discovery` and
+`--transport`. Configure server trust, client identity and, for workspace E2E,
+a signed `--client-credential-file` locally. No security downgrade or automatic
+transport retry occurs when a proof fails. The server still validates the
+credential and the engine still enforces the token's permissions.
+
+`RSTREAM_DATA_DIR` overrides the absolute local WebTTY/workspace state directory
+(default `~/.rstream`), independently of `RSTREAM_CONFIG`.

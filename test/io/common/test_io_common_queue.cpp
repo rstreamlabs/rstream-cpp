@@ -31,9 +31,10 @@ class controlled_transport {
   using executor_type      = boost::asio::io_context::executor_type;
   using completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&)>;
 
-  explicit controlled_transport(const executor_type& executor, bool auto_complete = false)
+  explicit controlled_transport(const executor_type& executor, bool auto_complete = false, std::function<void()> on_start = {})
       : m_executor(executor),
-        m_auto_complete(auto_complete)
+        m_auto_complete(auto_complete),
+        m_on_start(std::move(on_start))
   {
   }
 
@@ -47,6 +48,9 @@ class controlled_transport {
   {
     return boost::asio::async_initiate<SendHandler, void(const boost::system::error_code&)>(
         [this](auto&& handler, const rstream::core::buffer buffer) {
+          if (m_on_start) {
+            m_on_start();
+          }
           auto operation     = pending_operation::create(m_executor, completion_handler(std::forward<decltype(handler)>(handler)), [this] {
             std::lock_guard<std::mutex> lock(m_mutex);
             --m_active;
@@ -157,6 +161,7 @@ class controlled_transport {
 
   executor_type m_executor;
   bool m_auto_complete;
+  std::function<void()> m_on_start;
   mutable std::mutex m_mutex;
   std::size_t m_active         = 0;
   std::size_t m_maximum_active = 0;
@@ -446,6 +451,30 @@ static void check_deferred_operations_are_lazy()
   assert(cancel_calls == 1);
 }
 
+static void check_shared_transport_strand()
+{
+  boost::asio::io_context io_context;
+  auto strand = boost::asio::make_strand(io_context);
+  controlled_transport transport(io_context.get_executor(), true, [&] { assert(strand.running_in_this_thread()); });
+  rstream::io::queue<controlled_transport&> queue(transport, strand);
+  std::atomic_size_t completed = 0;
+  for (std::size_t i = 0; i < 128; ++i) {
+    queue.async_send(make_buffer(static_cast<std::uint8_t>(i)), [&](const boost::system::error_code& error_code) {
+      assert(!error_code);
+      ++completed;
+    });
+  }
+  std::vector<std::thread> workers;
+  for (std::size_t i = 0; i < 4; ++i) {
+    workers.emplace_back([&] { io_context.run(); });
+  }
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  assert(completed == 128);
+  assert(transport.maximum_active() == 1);
+}
+
 int main()
 {
   check_owned_move_only_transport();
@@ -457,5 +486,6 @@ int main()
   check_async_cancel_waits_for_active_send();
   check_async_cancel_supports_multiple_waiters();
   check_deferred_operations_are_lazy();
+  check_shared_transport_strand();
   return 0;
 }

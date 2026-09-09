@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -22,7 +23,6 @@
 #include <rstream/io/stream.hpp>
 #endif
 #include <docopt.h>
-#include <unistd.h>
 
 #include <rstream/config.hpp>
 #include <rstream/core/exception.hpp>
@@ -50,7 +50,7 @@ options:
 
 const auto version = std::string("rstream-example-io-http-client ") + RSTREAM_VERSION;
 
-boost::asio::awaitable<void> run(const rstream::io::address &address)
+boost::asio::awaitable<void> run(rstream::io::address address)
 {
   // resolve the hostname
   auto executor = co_await boost::asio::this_coro::executor;

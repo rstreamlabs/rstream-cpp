@@ -3,7 +3,10 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 
 #include <boost/system/system_error.hpp>
 
@@ -18,17 +21,24 @@ namespace rstream {
 namespace stun {
 namespace helpers {
 
+inline std::uint16_t checked_length(std::size_t size, std::uint16_t previous = 0)
+{
+  if (size > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) - previous) {
+    throw std::length_error("STUN length exceeds its 16-bit field");
+  }
+  return static_cast<std::uint16_t>(size + previous);
+}
+
 template <typename T>
 void parse_value(T& dst, const rstream::core::memory memory, std::size_t& offset)
 {
   auto diff = sizeof(T);
-  auto data = &((const std::uint8_t*)memory.get_const_data())[offset];
-  if ((offset + diff) > memory.get_size()) {
+  if (offset > memory.get_size() || diff > memory.get_size() - offset) {
     throw rstream::core::system_error(rstream::io::error::code::deserialization_error, "data has invalid size");
   }
-  auto value = *((const T*)data);
+  auto data = static_cast<const std::uint8_t*>(memory.get_const_data()) + offset;
+  std::memcpy(&dst, data, sizeof(T));
   offset += diff;
-  dst = value;
 }
 
 template <typename T>

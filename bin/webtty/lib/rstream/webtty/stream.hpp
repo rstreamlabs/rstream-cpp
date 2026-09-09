@@ -279,8 +279,10 @@ void pty_windows::on_setup(boost::process::extend::windows_executor<Char, Sequen
         ::HeapFree(::GetProcessHeap(), 0, attrlist);
       }
       else {
-        executor.inherit_handles  = false;
-        si.lpAttributeList        = attrlist;
+        executor.inherit_handles = false;
+        si.lpAttributeList       = attrlist;
+        // Null standard handles select ConPTY instead of duplicating redirected parent handles.
+        si.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
         si.StartupInfo.hStdError  = nullptr;
         si.StartupInfo.hStdInput  = nullptr;
         si.StartupInfo.hStdOutput = nullptr;

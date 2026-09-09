@@ -16,6 +16,7 @@
 
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/operation_allocator.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/io/error.hpp>
 
@@ -207,10 +208,9 @@ auto upgrade<stream>::async_handshake(const std::string& host, const std::string
 {
   return boost::asio::async_initiate<handshake_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler, const std::string& host, const std::string& target) {
-        using operation_type     = async_handshake_operation<std::decay_t<decltype(handler)>>;
-        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        using operation_type = async_handshake_operation<std::decay_t<decltype(handler)>>;
         std::allocate_shared<operation_type>(
-            operation_allocator,
+            core::shared_operation_allocator(handler, m_allocator),
             m_next_layer,
             m_allocator,
             host,
@@ -227,10 +227,9 @@ auto upgrade<stream>::async_accept(BOOST_ASIO_MOVE_ARG(accept_handler) handler)
 {
   return boost::asio::async_initiate<accept_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler) {
-        using operation_type     = async_accept_operation<std::decay_t<decltype(handler)>>;
-        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        using operation_type = async_accept_operation<std::decay_t<decltype(handler)>>;
         std::allocate_shared<operation_type>(
-            operation_allocator,
+            core::shared_operation_allocator(handler, m_allocator),
             m_next_layer,
             m_allocator,
             m_response_decorator)

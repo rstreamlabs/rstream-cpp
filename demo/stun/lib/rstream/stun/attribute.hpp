@@ -102,7 +102,7 @@ class attribute_value : public helpers::message_base<T> {
  public:
   attribute_type get_attribute_type() const
   {
-    return get_attribute_type<T>();
+    return stun::get_attribute_type<T>();
   }
 };
 
@@ -112,7 +112,7 @@ attribute attribute::make(const T& value)
   class attribute attribute;
   attribute.m_data_type           = data_type::parsed;
   attribute.m_header.get_type()   = get_attribute_msg_type(get_attribute_type<T>());
-  attribute.m_header.get_length() = helpers::byte_size_long_value(value);
+  attribute.m_header.get_length() = helpers::checked_length(helpers::byte_size_long_value(value));
   attribute.m_data                = std::make_shared<T>(value);
   return attribute;
 }

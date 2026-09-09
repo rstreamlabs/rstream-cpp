@@ -46,8 +46,8 @@ static const boost::bimap<stun_method, std::string> m_stun_methods_str = boost::
 std::string to_string(msg_transaction_id msg_transaction_id)
 {
   std::stringstream str;
-  for (auto i = 0; i != msg_transaction_id.size(); ++i) {
-    str << (boost::format("%02x") % (int)msg_transaction_id.data()[i]);
+  for (auto value : msg_transaction_id) {
+    str << (boost::format("%02x") % static_cast<int>(value));
   }
   return str.str();
 }
@@ -435,7 +435,7 @@ const attributes& message_builder::get_attributes() const
 
 const message& message_builder::build()
 {
-  m_message.get_header().get_payload_length() = byte_size_long_value(get_attributes());
+  m_message.get_header().get_payload_length() = helpers::checked_length(byte_size_long_value(get_attributes()));
 
   return m_message;
 }
@@ -581,7 +581,7 @@ void serialize_value<attributes>(void* dst, const attributes& src, std::size_t& 
 {
   std::uint16_t payload_length = 0;
   for (const auto& attribute : src) {
-    payload_length += byte_size_long_value(attribute);
+    payload_length = checked_length(byte_size_long_value(attribute), payload_length);
     set_message_header_payload_length(dst, payload_length);
     serialize_value(dst, attribute, offset);
   }
@@ -639,7 +639,7 @@ void parse_value<header>(header& dst, const rstream::core::memory memory, std::s
   if (dst.get_payload_length() & 0x03) {
     throw rstream::core::system_error(rstream::io::error::code::deserialization_error, "invalid payload size");
   }
-  if (size != STUN_HEADER_SIZE + dst.get_payload_length()) {
+  if (size != static_cast<std::size_t>(STUN_HEADER_SIZE) + dst.get_payload_length()) {
     throw rstream::core::system_error(rstream::io::error::code::deserialization_error, "invalid message size");
   }
   ::memcpy(&dst.get_transaction_id(), &((const std::uint8_t*)memory.get_const_data())[offset], STUN_TRANSACTION_ID_SIZE);
@@ -669,7 +669,7 @@ void parse_value<attribute_header>(attribute_header& dst, const rstream::core::m
   parse_value(dst.get_length(), memory, offset);
   dst.get_type()   = ntohs(dst.get_type());
   dst.get_length() = ntohs(dst.get_length());
-  if (size < STUN_ATTRIBUTE_HEADER_SIZE + dst.get_length()) {
+  if (size < static_cast<std::size_t>(STUN_ATTRIBUTE_HEADER_SIZE) + dst.get_length()) {
     throw rstream::core::system_error(rstream::io::error::code::deserialization_error, "invalid attribute size");
   }
 }

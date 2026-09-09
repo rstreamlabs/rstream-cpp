@@ -12,6 +12,8 @@ else()
   set(BIN_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test")
 endif()
 
+option(RSTREAM_TEST_WINDOWS_PIPE_ASAN "Instrument native Windows pipe tests with MSVC AddressSanitizer" OFF)
+
 set(RSTREAM_TEST_TIMEOUT_SCALE "1" CACHE STRING "Timeout scale for instrumented tests")
 set(RSTREAM_TEST_TIMEOUT_SECONDS "120" CACHE STRING "Maximum duration of one CTest test")
 

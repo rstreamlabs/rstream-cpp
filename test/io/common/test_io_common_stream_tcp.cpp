@@ -70,6 +70,26 @@ static rstream::io::stream::resolver::results_type make_results(const std::vecto
   return results;
 }
 
+static void check_numeric_resolver_hosts()
+{
+  for (const auto& host : {std::string("127.0.0.1"), std::string("[::1]")}) {
+    for (const auto& options : {std::string(), std::string("?tcp.no_resolve")}) {
+      boost::asio::io_context io_context;
+      rstream::io::stream::resolver resolver(io_context.get_executor());
+      bool completed = false;
+      resolver.async_resolve("tcp://" + host + ":8443" + options, [&](const boost::system::error_code& error, const auto& results) {
+        assert(!error);
+        assert(!results.empty());
+        assert(results.front().url().host() == host);
+        assert(results.front().url().port() == "8443");
+        completed = true;
+      });
+      io_context.run_for(std::chrono::seconds(5));
+      assert(completed);
+    }
+  }
+}
+
 static void check_async_resolve_owns_uri_components()
 {
   boost::asio::io_context io_context;
@@ -358,7 +378,7 @@ static void check_tcp_accept_connect_and_transfer()
     assert(std::string(server_buffer.data(), server_buffer.size()) == "ping");
     server_read = true;
   });
-  boost::asio::async_write(client, boost::asio::buffer(std::string("ping")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(client, boost::asio::buffer("ping", 4), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 4);
     client_sent = true;
@@ -377,7 +397,7 @@ static void check_tcp_accept_connect_and_transfer()
     assert(std::string(client_buffer.data(), client_buffer.size()) == "pong");
     client_read = true;
   });
-  boost::asio::async_write(server_peer, boost::asio::buffer(std::string("pong")), [&](const boost::system::error_code& error, std::size_t size) {
+  boost::asio::async_write(server_peer, boost::asio::buffer("pong", 4), [&](const boost::system::error_code& error, std::size_t size) {
     assert(!error);
     assert(size == 4);
     server_sent = true;
@@ -753,6 +773,7 @@ int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  check_numeric_resolver_hosts();
   check_async_resolve_owns_uri_components();
   check_uninitialized_socket_operations_fail();
   check_socket_move_preserves_moved_from_invariants();

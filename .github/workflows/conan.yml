@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -226,7 +226,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -258,7 +258,7 @@ jobs:
   windows:
     name: Windows ${{ matrix.linkage }} libraries
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
-    runs-on: windows-latest
+    runs-on: windows-2022
     env:
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
@@ -317,11 +317,14 @@ jobs:
           ccache --set-config=max_size=1G
           ccache --set-config=compression=true
           ccache --zero-stats
+      - name: Check required Windows test configuration
+        shell: pwsh
+        run: python test/test_conan_windows_asan.py
       - name: Build and test Conan package
         shell: pwsh
         run: |
           foreach ($staticPlugins in @("True", "False")) {
-            conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
+            conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
               -s:b compiler.cppstd=20 `
               -s:h compiler.cppstd=20 `
               -o "rstream/*:shared=${{ matrix.shared }}" `
@@ -329,6 +332,7 @@ jobs:
               -o "rstream/*:enable_testing=True" `
               -o "rstream/*:enable_strict_warnings=True" `
               -o "rstream/*:warnings_as_errors=True" `
+              -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': {'value': True, 'cache': True, 'type': 'BOOL'}}" `
               .
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE

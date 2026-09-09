@@ -56,6 +56,7 @@ constexpr const int key_file_version                 = 1;
 struct server_enrollment {
   int m_version = 0;
   std::string m_server_id;
+  std::string m_server_name;
   std::string m_workspace_id;
   std::string m_project_id;
   std::string m_api_url;
@@ -214,6 +215,14 @@ inline byte_vector read_client_credential(const std::string& raw_file)
 
 inline std::filesystem::path rstream_home()
 {
+  const auto root = getenv_trimmed("RSTREAM_DATA_DIR");
+  if (!root.empty()) {
+    const std::filesystem::path path(root);
+    if (!path.is_absolute()) {
+      throw std::runtime_error("RSTREAM_DATA_DIR must be an absolute path");
+    }
+    return path.lexically_normal();
+  }
   return std::filesystem::path(home_dir()) / ".rstream";
 }
 
@@ -877,6 +886,7 @@ inline server_enrollment load_server_enrollment(const std::string& raw_path)
     throw std::runtime_error("unsupported WebTTY server enrollment version");
   }
   enrollment.m_server_id                          = root["serverId"].as<std::string>();
+  enrollment.m_server_name                        = root["serverName"] ? root["serverName"].as<std::string>() : "";
   enrollment.m_workspace_id                       = root["workspaceId"] ? root["workspaceId"].as<std::string>() : "";
   enrollment.m_project_id                         = root["projectId"].as<std::string>();
   enrollment.m_api_url                            = root["apiUrl"] ? root["apiUrl"].as<std::string>() : "";

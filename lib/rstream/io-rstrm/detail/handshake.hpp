@@ -12,8 +12,8 @@
 #include <rstream/core/buffer.hpp>
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/core/detail/protobuf.hpp>
-#include <rstream/core/helpers/protobuf.hpp>
 #include <rstream/core/log.hpp>
+#include <rstream/core/operation_allocator.hpp>
 #include <rstream/io-rstrm/error.hpp>
 #include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io-rstrm/protobuf/messages.pb.h>
@@ -150,10 +150,9 @@ auto handshake<stream>::async_run(type type, const std::string& id_name, const b
 {
   return boost::asio::async_initiate<run_handler, void(const boost::system::error_code&)>(
       [this](auto&& handler, enum type type, const std::string& id_name, const boost::optional<std::string>& token) {
-        using operation_type     = async_run_operation<std::decay_t<decltype(handler)>>;
-        auto operation_allocator = boost::asio::get_associated_allocator(handler);
+        using operation_type = async_run_operation<std::decay_t<decltype(handler)>>;
         std::allocate_shared<operation_type>(
-            operation_allocator,
+            core::shared_operation_allocator(handler, m_allocator),
             m_next_layer,
             m_server_address,
             m_config,
@@ -256,7 +255,7 @@ void handshake<stream>::async_run_operation<T>::do_write_request(handler_type ha
   }
   else {
 #ifdef DEBUG_BUILD
-    m_logger->trace("sending message to peer\n{}", core::helpers::to_json_string(message));
+    m_logger->trace("sending message to peer [message_type={}]", static_cast<int>(message.payload_case()));
 #endif
     core::buffer buffer;
     if (!core::detail::serialize_protobuf_message(message, buffer, m_allocator)) {
@@ -328,7 +327,7 @@ void handshake<stream>::async_run_operation<T>::on_read_incoming_protobuf_messag
 {
   boost::system::error_code error_code;
 #ifdef DEBUG_BUILD
-  m_logger->trace("received message from peer\n{}", core::helpers::to_json_string(message));
+  m_logger->trace("received message from peer [message_type={}]", static_cast<int>(message.payload_case()));
 #endif
   if (m_type == type::stream_req && message.has_stream_rsp()) {
     const auto& rsp = message.stream_rsp();

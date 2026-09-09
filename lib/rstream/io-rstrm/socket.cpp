@@ -422,7 +422,7 @@ void socket::impl::async_connect(type type, const endpoint& endpoint, async_conn
     return;
   }
   auto allocator = boost::asio::get_associated_allocator(handler);
-  const auto op  = std::allocate_shared<connect_op>(allocator, std::move(handler));
+  const auto op  = std::allocate_shared<connect_op>(core::allocator::wrapper<connect_op>(m_allocator), std::move(handler));
   {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_is_state_non_null) {
@@ -471,7 +471,7 @@ void socket::impl::async_write_some(const boost::asio::const_buffer& buffer, asy
     return;
   }
   auto allocator = boost::asio::get_associated_allocator(handler);
-  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  const auto op  = std::allocate_shared<transfer_op>(core::allocator::wrapper<transfer_op>(m_allocator), std::move(handler));
   install_transfer_cancellation(op);
   boost::asio::dispatch(
       m_strand,
@@ -486,7 +486,7 @@ void socket::impl::async_write_some(const const_buffer_sequence_type& buffer, as
     return;
   }
   auto allocator = boost::asio::get_associated_allocator(handler);
-  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  const auto op  = std::allocate_shared<transfer_op>(core::allocator::wrapper<transfer_op>(m_allocator), std::move(handler));
   install_transfer_cancellation(op);
   boost::asio::dispatch(
       m_strand,
@@ -501,7 +501,7 @@ void socket::impl::async_read_some(const boost::asio::mutable_buffer& buffer, as
     return;
   }
   auto allocator = boost::asio::get_associated_allocator(handler);
-  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  const auto op  = std::allocate_shared<transfer_op>(core::allocator::wrapper<transfer_op>(m_allocator), std::move(handler));
   install_transfer_cancellation(op);
   boost::asio::dispatch(
       m_strand,
@@ -516,7 +516,7 @@ void socket::impl::async_read_some(const mutable_buffer_sequence_type& buffer, a
     return;
   }
   auto allocator = boost::asio::get_associated_allocator(handler);
-  const auto op  = std::allocate_shared<transfer_op>(allocator, std::move(handler));
+  const auto op  = std::allocate_shared<transfer_op>(core::allocator::wrapper<transfer_op>(m_allocator), std::move(handler));
   install_transfer_cancellation(op);
   boost::asio::dispatch(
       m_strand,
@@ -782,7 +782,7 @@ void socket::impl::do_resolve_host()
 #ifdef RSTREAM_WITH_IO_STREAMS
   m_resolver.async_resolve(m_endpoint.m_server_address.m_url, std::move(internal_handler));
 #else
-  m_resolver.async_resolve(m_endpoint.m_server_address.host(), m_endpoint.m_server_address.port(), std::move(internal_handler));
+  m_resolver.async_resolve(m_endpoint.m_server_address.m_url.host_address(), m_endpoint.m_server_address.port(), std::move(internal_handler));
 #endif
 }
 

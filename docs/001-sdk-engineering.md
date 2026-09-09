@@ -19,6 +19,18 @@ The supported platform contract includes:
 - glibc Linux packages built against the configured Yocto SDK baseline;
 - musl Linux packages for standalone, broadly portable binaries.
 
+The required native Windows package matrix uses the Visual Studio 2022 runner
+baseline (`windows-2022`) for all library and plugin combinations, with strict
+warnings and warnings as errors. A runner upgrade is a toolchain change to
+qualify explicitly. The external Conan consumer can select Boost 1.83 within
+the supported range and rebuild the SDK, even when the initial package used
+Boost 1.89. Optimized MSVC builds can report C4702 in Boost 1.83's
+`const_buffer` conversion. Affected application and test translation units
+suppress only that diagnostic while defining the external Asio buffer header,
+then restore the warning state before any SDK definitions. No runtime code or
+optimization settings change. Windows 11 ConPTY runtime checks remain part of
+the cross-language WebTTY matrix.
+
 Library linkage and plugin loading are independent choices:
 
 | SDK libraries | Plugins | Required |
@@ -78,6 +90,45 @@ Tests must cover overlapping operations, cancellation before and during I/O,
 partial I/O, peer failure, reconnect, close, destruction, and handler
 reentrancy where applicable. ThreadSanitizer and repeated lifecycle tests are
 acceptance gates for changes to shared state.
+
+An `any_completion_handler` allocator borrows storage owned by the handler.
+It cannot allocate a shared operation control block that can outlive completion,
+including blocks retained by cancellation weak pointers or a pending timer.
+Those operations use the object's owning allocator. Templated operations use
+`core::shared_operation_allocator`: ordinary custom allocator associations are
+preserved, while an erased allocator uses the owning fallback. Intermediate I/O
+and completion still preserve executor, allocator and cancellation associations.
+This does not add an allocation, thread or lock; it changes ownership of the
+existing control block. Tests must also exercise completion followed by late
+cancellation and concurrent completion on another executor.
+
+Windows synchronous pipe workers stop accepting operations before shutdown.
+Cancellation is retried while waiting for the dedicated worker to exit, because
+an initial `CancelSynchronousIo` can arrive before `ReadFile` or `WriteFile`.
+Pipe handles stay open until the worker is joined; `CloseHandle` with a pending
+synchronous read can block. The retry is confined to shutdown and waits on the
+thread handle, so completion wakes it immediately; active I/O gains no polling,
+thread, allocation or lock. Deterministic tests hold each read/write behind an
+event until the first cancellation has missed, then require cancellation and
+preservation of both pipe handles. This applies to ConPTY and the common Windows
+console/pipe adapter.
+
+The native Windows package matrix also enables `RSTREAM_TEST_WINDOWS_PIPE_ASAN`.
+This MSVC Release/RelWithDebInfo target compiles the pipe adapter and its tests
+with AddressSanitizer, including their Boost headers, without linking an
+uninstrumented SDK copy. A stateful allocator and late cancellation exercise
+control-block lifetime after the erased completion handler has been destroyed.
+The option is off for ordinary consumers and requires the MSVC ASan component
+when enabled; both consumer-selected Boost versions are exercised in CI.
+The workflow passes a typed CMake cache boolean so legacy `option()` policies
+cannot reset the request. Conan builds the required target before the full SDK
+and checks its fresh JUnit result after the suite runs. A missing, skipped or
+failed required test cannot qualify the package. The workflow configuration
+and report checks have a regression test in `test/test_conan_windows_asan.py`.
+All native package jobs force the SDK build while reusing cached dependencies.
+`--build=missing` alone can reuse the SDK binary and bypass its internal tests
+on a repeated CI run. The regression suite checks the actual Conan cache
+behavior and requires execution even when that binary is already cached.
 
 ## rstream runtime contract
 
@@ -159,9 +210,11 @@ limited to generated or third-party code and must not hide project warnings.
 ### Sanitizers and concurrency
 
 ```bash
-cmake --preset asan
-cmake --build --preset asan
-ctest --preset asan
+# Linux: ASan, UBSan and LSan with static libraries/plugins.
+python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3
+
+# macOS: ASan and UBSan with shared SDK libraries/dynamic plugins.
+python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3 --shared --dynamic-plugins
 
 cmake --preset tsan
 cmake --build --preset tsan
@@ -171,6 +224,16 @@ ctest --test-dir out/build/quality --repeat until-fail:20 \
   --output-on-failure \
   -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'
 ```
+
+Memory checks require Conan 2.31.2, Ninja and GNU coreutils (`timeout` on
+Linux, `gtimeout` on macOS). The runner instruments the dependency graph and
+includes instrumentation flags in Conan package identities, so cached release
+libraries cannot be substituted. Protobuf's generated code and runtime must
+use compatible instrumentation; mixing an ASan application with a prebuilt
+Homebrew runtime can fail inside parsing or descriptor access. Use the `asan`
+preset only with an already compatible dependency toolchain. Leak detection
+is required on Linux; macOS does not provide that runtime. Both platforms keep
+ASan and UBSan failures fatal and preserve JUnit and dependency provenance.
 
 Run static analysis and the coverage preset for changes that affect public
 operations, ownership, state machines, or shared runtime code. Coverage is a
@@ -273,3 +336,23 @@ A dependency update is complete only when:
 Do not solve a dependency update by disabling a topology, weakening warnings,
 removing a test, replacing a public dependency with a private one, or silently
 changing runtime behavior.
+
+### Darwin WebTTY stdin FIFOs
+
+WebTTY reads FIFO stdin through a single-request `select` worker on Darwin.
+Regression tests reproduce missed `kqueue` read notifications and missed `poll`
+EOF notifications for named FIFOs. A concurrent writer close can also leave
+`select` waiting without an EOF notification. Its idle wait is bounded to one
+second so the next nonblocking read observes EOF even if readiness is lost.
+Data and cancellation still wake immediately; this adds at most one idle check
+per second and no extra worker or payload queue. One borrowed buffer stays alive
+through completion, and the next read follows network write completion. A wakeup
+pipe cancels a pending wait before the input descriptor is closed. Closing joins the worker; it never waits for stdin EOF. The network
+reactor, ordinary files and interactive terminals retain their existing paths.
+This fallback consumes one worker and two wakeup descriptors per FIFO client;
+select descriptor bounds are checked before use. Associated completion execution
+is preserved on the client strand. Native, ASan/UBSan and TSan tests cover bulk
+transfer, pending destruction, EOF, repeated close and descriptor bounds.
+A deterministic fault-injection test suppresses FIFO readiness while preserving
+the real cancellation descriptor, and requires EOF without the test deadline
+having to cancel the reader.

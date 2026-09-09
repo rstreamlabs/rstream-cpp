@@ -261,8 +261,7 @@ void acceptor_ssl::impl::async_accept_internal(stream_socket& peer, endpoint& en
       it = m_async_accept_upstream_ops.erase(it);
     }
     else {
-      const auto allocator         = boost::asio::get_associated_allocator(handler);
-      m_async_accept_downstream_op = std::allocate_shared<async_accept_downstream_op_type>(allocator, peer, endpoint, std::move(handler));
+      m_async_accept_downstream_op = std::allocate_shared<async_accept_downstream_op_type>(core::allocator::wrapper<async_accept_downstream_op_type>(m_allocator), peer, endpoint, std::move(handler));
       do_accept();
     }
   }

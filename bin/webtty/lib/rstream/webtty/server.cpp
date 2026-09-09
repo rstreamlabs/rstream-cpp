@@ -1,5 +1,13 @@
 // See LICENSE file in the project root for license information.
 
+#ifdef _MSC_VER
+// MSVC can flag Asio's buffer conversion as unreachable after inlining.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#include <boost/asio/buffer.hpp>
+#pragma warning(pop)
+#endif
+
 #include "server.hpp"
 
 #ifndef BOOST_PROCESS_VERSION
@@ -1103,10 +1111,10 @@ server::impl::session::session(const executor_type& executor, socket_type&& sock
     m_payloader = std::make_shared<payloader_type::element_type>(m_socket);
   }
   if (m_websocket) {
-    m_queue = std::make_shared<rstream::io::queue<websocket_type::element_type&>>(*m_websocket);
+    m_queue = std::make_shared<rstream::io::queue<websocket_type::element_type&>>(*m_websocket, boost::asio::strand<websocket_type::element_type::executor_type>(m_strand));
   }
   else {
-    m_queue = std::make_shared<rstream::io::queue<payloader_type::element_type&>>(*m_payloader);
+    m_queue = std::make_shared<rstream::io::queue<payloader_type::element_type&>>(*m_payloader, boost::asio::strand<payloader_type::element_type::executor_type>(m_strand));
   }
 }
 

@@ -5,6 +5,7 @@
 """
 
 import os
+import xml.etree.ElementTree as ET
 
 from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
@@ -184,6 +185,9 @@ class ConanPackage(ConanFile):
         # component pruning belongs to the root build profile so this recipe remains
         # composable when an application also has a direct Boost requirement.
         self.options["boost"].without_url = False
+        if self.settings.os == "Windows":
+            self.options["docopt.cpp"].boost_regex = True
+            self.options["boost"].without_regex = False
         protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
         if protobuf_ref and protobuf_ref != "none":
             shared_runtime = self.option_enabled(self.options.shared) or not self.option_enabled(
@@ -222,6 +226,9 @@ class ConanPackage(ConanFile):
                 "boost/[>=1.81.0 <1.90.0]",
                 transitive_headers=True,
                 transitive_libs=True,
+                # The Windows docopt Boost.Regex variant pins an older Boost.
+                # Keep it on the same supported Boost version as the SDK.
+                force=self.settings.os == "Windows",
             )
         self.requires("nlohmann_json/[>=3.11.2]", transitive_headers=True, transitive_libs=True)
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
@@ -244,6 +251,13 @@ class ConanPackage(ConanFile):
 
     def validate(self):
         self.validate_dependency_overrides()
+        if self.settings.os == "Windows" and not self.option_enabled(
+            self.dependencies["docopt.cpp"].options.get_safe("boost_regex", default=False)
+        ):
+            raise ConanInvalidConfiguration(
+                "Windows CLI tools require docopt.cpp with boost_regex=True to avoid "
+                "MSVC std::regex stack overflow while parsing the command help."
+            )
         if self.option_enabled(self.options.static_libstdcxx) and not self.option_enabled(
             self.options.static_plugins
         ):
@@ -276,15 +290,64 @@ class ConanPackage(ConanFile):
     def layout(self):
         conan.tools.cmake.cmake_layout(self)
 
+    def windows_pipe_asan_requested(self):
+        extra_variables = self.conf.get(
+            "tools.cmake.cmaketoolchain:extra_variables", default={}, check_type=dict
+        )
+        requested = extra_variables.get("RSTREAM_TEST_WINDOWS_PIPE_ASAN", False)
+        if isinstance(requested, dict):
+            requested = requested.get("value", False)
+        return self.option_enabled(requested)
+
+    @staticmethod
+    def verify_windows_pipe_asan_result(path):
+        expected = "rstream-test-core-windows-blocking-handle-asan"
+        tests = [
+            test for test in ET.parse(path).iter("testcase")
+            if test.get("name") == expected
+        ]
+        if len(tests) != 1 or any(
+            tests[0].find(status) is not None
+            for status in ("failure", "error", "skipped")
+        ):
+            raise ConanInvalidConfiguration(
+                "The required Windows pipe AddressSanitizer test did not run successfully."
+            )
+
     def build(self):
+        require_pipe_asan = self.windows_pipe_asan_requested()
+        if require_pipe_asan and (
+            self.settings.os != "Windows"
+            or not self.option_enabled(self.options.enable_testing)
+            or self.conf.get("tools.build:skip_test", default=False, check_type=bool)
+        ):
+            raise ConanInvalidConfiguration(
+                "Windows pipe AddressSanitizer qualification requires native Windows tests without skips."
+            )
         cmake = conan.tools.cmake.CMake(self)
         cmake.configure()
+        if require_pipe_asan:
+            # Fail immediately if CMake ignored the requested test configuration.
+            cmake.build(target="rstream-test-core-windows-blocking-handle-asan")
         cmake.build()
         if self.option_enabled(self.options.enable_testing):
             test_environment = conan.tools.env.Environment()
             test_environment.define("CTEST_OUTPUT_ON_FAILURE", "1")
             with test_environment.vars(self).apply():
-                cmake.test()
+                if require_pipe_asan:
+                    report = "windows-pipe-tests.xml"
+                    report_path = os.path.join(self.build_folder, report)
+                    if os.path.exists(report_path):
+                        os.remove(report_path)
+                    # Keep the package suite's existing serial execution.
+                    cmake.ctest(cli_args=[
+                        "--parallel", "1", "--output-on-failure", "--no-tests=error",
+                        "--output-junit", report,
+                    ])
+                    self.verify_windows_pipe_asan_result(report_path)
+                    self.output.info("Required Windows pipe AddressSanitizer runtime test passed.")
+                else:
+                    cmake.test()
 
     def package(self):
         cmake = conan.tools.cmake.CMake(self)

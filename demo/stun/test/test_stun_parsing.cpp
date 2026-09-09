@@ -1,7 +1,9 @@
 // See LICENSE file in the project root for license information.
 
 #include <iostream>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 
 #include <rstream/config.hpp>
 #include <rstream/stun/attribute.hpp>
@@ -145,7 +147,7 @@ void test_2()
       0xae,
   };
   const std::string software      = "test vector";
-  const auto address              = std::make_pair("192.0.2.1", 32853);
+  const auto address              = std::make_pair("192.0.2.1", std::uint16_t{32853});
   const std::string integrity_key = "VOkJxbRl1RmTxUk/WvJxBt";
   // create buffer
   auto memory = rstream::core::make_memory_wrapped(test_message, sizeof(test_message));
@@ -212,7 +214,7 @@ void test_3()
       0xae,
   };
   const std::string software      = "test vector";
-  const auto address              = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", 32853);
+  const auto address              = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", std::uint16_t{32853});
   const std::string integrity_key = "VOkJxbRl1RmTxUk/WvJxBt";
   // create buffer
   auto memory = rstream::core::make_memory_wrapped(test_message, sizeof(test_message));
@@ -319,7 +321,7 @@ void test_5()
 void test_6()
 {
   std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
-  const auto address = std::make_pair("192.0.2.1", 32853);
+  const auto address = std::make_pair("192.0.2.1", std::uint16_t{32853});
   auto builder       = rstream::stun::message_builder(rstream::stun::stun_class::request, rstream::stun::stun_method::binding);
   {
     attribute_value_mapped_address attribute;
@@ -356,7 +358,7 @@ void test_6()
 void test_7()
 {
   std::cout << "running '" << RSTREAM_STRFUNC << "'" << std::endl;
-  const auto address = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", 32853);
+  const auto address = std::make_pair("2001:db8:1234:5678:11:2233:4455:6677", std::uint16_t{32853});
   auto builder       = rstream::stun::message_builder(rstream::stun::stun_class::request, rstream::stun::stun_method::binding);
   {
     attribute_value_mapped_address attribute;
@@ -478,6 +480,73 @@ void test_11()
   compare(attribute.get_length(), static_cast<std::uint16_t>(0));
 }
 
+void test_attribute_value_type()
+{
+  const attribute_value_software software{};
+  const attribute_value_username username{};
+  const attribute_value_priority priority{};
+  compare(software.get_attribute_type() == attribute_type::software, true);
+  compare(username.get_attribute_type() == attribute_type::username, true);
+  compare(priority.get_attribute_type() == attribute_type::priority, true);
+}
+
+void test_length_limits()
+{
+  auto reject = [](auto operation) {
+    auto rejected = false;
+    try {
+      operation();
+    }
+    catch (const std::length_error&) {
+      rejected = true;
+    }
+    compare(rejected, true);
+  };
+  attribute_value_software software;
+  software.get_value().resize(65535, 'a');
+  compare(attribute::make(software).get_header().get_length(), std::uint16_t(65535));
+  software.get_value().push_back('a');
+  reject([&] { attribute::make(software); });
+  software.get_value().resize(65528);
+  message_builder maximum(stun_class::request, stun_method::binding);
+  maximum.add_attribute(software);
+  compare(maximum.build().get_header().get_payload_length(), std::uint16_t(65532));
+  software.get_value().resize(32764);
+  message_builder overflow(stun_class::request, stun_method::binding);
+  overflow.add_attribute(software);
+  overflow.add_attribute(software);
+  reject([&] { overflow.build(); });
+  message unbuilt;
+  unbuilt.get_attributes() = overflow.get_attributes();
+  reject([&] { unbuilt.serialize_to_memory(); });
+}
+
+void test_unaligned_scalar_and_invalid_offsets()
+{
+  alignas(std::uint64_t) const std::uint8_t input[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+  const rstream::core::memory memory(input, sizeof(input), 0, nullptr);
+  std::uint64_t expected = 0;
+  std::memcpy(&expected, input + 1, sizeof(expected));
+  std::uint64_t actual = 0;
+  std::size_t offset   = 1;
+  helpers::parse_value(actual, memory, offset);
+  compare(actual, expected);
+  compare(offset, sizeof(input));
+  for (auto invalid : {std::size_t(2), sizeof(input), std::numeric_limits<std::size_t>::max()}) {
+    offset        = invalid;
+    auto rejected = false;
+    try {
+      helpers::parse_value(actual, memory, offset);
+    }
+    catch (const rstream::core::system_error&) {
+      rejected = true;
+    }
+    compare(rejected, true);
+    compare(offset, invalid);
+    compare(actual, expected);
+  }
+}
+
 void run()
 {
   test_1();
@@ -491,6 +560,9 @@ void run()
   test_9();
   test_10();
   test_11();
+  test_attribute_value_type();
+  test_length_limits();
+  test_unaligned_scalar_and_invalid_offsets();
 }
 
 int main(int argc, char** argv)

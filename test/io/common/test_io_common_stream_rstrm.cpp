@@ -3,6 +3,8 @@
 #include <cassert>
 #include <string>
 
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/io_context.hpp>
 
 #include <rstream/io/detail/stream/error.hpp>
@@ -111,6 +113,30 @@ static void check_acceptor_rejects_endpoint_from_another_plugin()
   assert_stream_invalid_argument(error_code);
 }
 
+static void check_completed_transfer_releases_cancellation_storage()
+{
+  boost::asio::io_context io_context;
+  auto endpoint = resolve_one(io_context, "rstrm://viewer?server=tcp%3A%2F%2F127.0.0.1%3A9&rstream.no_token=true");
+  rstream::io::stream::stream_socket socket(io_context.get_executor());
+  boost::system::error_code error_code;
+  socket.open(endpoint, error_code);
+  assert(!error_code);
+  boost::asio::cancellation_signal cancellation;
+  char buffer          = 0;
+  unsigned completions = 0;
+  socket.async_read_some(boost::asio::buffer(&buffer, 1), boost::asio::bind_cancellation_slot(cancellation.slot(), [&](const boost::system::error_code& error, std::size_t size) {
+                           assert(error);
+                           assert(size == 0);
+                           ++completions;
+                         }));
+  io_context.run();
+  assert(completions == 1);
+  cancellation.emit(boost::asio::cancellation_type::all);
+  io_context.restart();
+  io_context.run();
+  assert(completions == 1);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -120,5 +146,6 @@ int main(int argc, char** argv)
   check_rstrm_acceptor_rejects_invalid_retry_parameter_before_network_io();
   check_socket_rejects_endpoint_from_another_plugin();
   check_acceptor_rejects_endpoint_from_another_plugin();
+  check_completed_transfer_releases_cancellation_storage();
   return 0;
 }

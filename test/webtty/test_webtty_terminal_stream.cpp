@@ -5,11 +5,16 @@
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <future>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 #include <thread>
 #include <vector>
 
+#include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
 #if __has_include(<boost/process/v1/args.hpp>)
 #include <boost/process/v1/args.hpp>
@@ -39,6 +44,114 @@
 namespace stream = rstream::webtty::stream;
 
 #ifdef _WIN32
+static int windows_pty_console_child()
+{
+  for (const auto channel : {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE}) {
+    DWORD mode = 0;
+    if (!::GetConsoleMode(::GetStdHandle(channel), &mode)) {
+      return 10;
+    }
+  }
+  DWORD count        = 0;
+  const char ready[] = "CONPTY_READY\n";
+  if (!::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &count, nullptr)) {
+    return 11;
+  }
+  char input[128] = {};
+  if (!::ReadFile(::GetStdHandle(STD_INPUT_HANDLE), input, sizeof(input), &count, nullptr)
+      || std::string(input, count) != "conpty-input\r\n") {
+    return 12;
+  }
+  const char output[] = "CONPTY_STDIN_OK\n";
+  const char error[]  = "CONPTY_STDERR_OK\n";
+  if (!::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), output, sizeof(output) - 1, &count, nullptr)
+      || !::WriteFile(::GetStdHandle(STD_ERROR_HANDLE), error, sizeof(error) - 1, &count, nullptr)) {
+    return 13;
+  }
+  return 0;
+}
+
+static void check_windows_pty_console_io(const char* executable)
+{
+  boost::asio::io_context io_context;
+  auto work       = boost::asio::make_work_guard(io_context);
+  auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::tty);
+  auto child      = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe(executable),
+      boost::process::args(std::vector<std::string>{"--conpty-console-child"}));
+  char buffer[4096]  = {};
+  const char input[] = "conpty-input\r";
+  std::string output;
+  std::promise<void> output_complete;
+  auto output_ready    = output_complete.get_future();
+  bool output_reported = false;
+  bool input_sent      = false;
+  bool input_written   = false;
+  std::function<void()> read;
+  read = [&] {
+    stream::base::async_read_some_completion_handler handler =
+        [&](const std::error_code& error_code, std::size_t count) {
+          if (error_code || output.size() + count > 16384) {
+            return;
+          }
+          output.append(buffer, count);
+          if (!input_sent && output.find("CONPTY_READY") != std::string::npos) {
+            input_sent = true;
+            stream::base::async_write_completion_handler write_handler =
+                [&](const std::error_code& write_error, std::size_t written) {
+                  input_written = !write_error && written == sizeof(input) - 1;
+                };
+            stream_ptr->async_write(boost::asio::buffer(input, sizeof(input) - 1), stream::type::std_in, std::move(write_handler));
+          }
+          if (!output_reported && output.find("CONPTY_STDIN_OK") != std::string::npos
+              && output.find("CONPTY_STDERR_OK") != std::string::npos) {
+            output_reported = true;
+            output_complete.set_value();
+          }
+          read();
+        };
+    stream_ptr->async_read_some(boost::asio::buffer(buffer), stream::type::std_out, std::move(handler));
+  };
+  read();
+  std::thread runner([&] { io_context.run(); });
+  const auto exited = ::WaitForSingleObject(child->native_handle(), 10000) == WAIT_OBJECT_0;
+  boost::system::error_code ignored;
+  if (!exited) {
+    child->terminate(ignored);
+  }
+  child->wait(ignored);
+  const auto drained = exited && child->exit_code() == 0
+                       && output_ready.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  stream_ptr->close();
+  work.reset();
+  runner.join();
+  assert(exited);
+  assert(child->exit_code() == 0);
+  assert(drained);
+  assert(input_written);
+  assert(output.find("CONPTY_STDIN_OK") != std::string::npos);
+  assert(output.find("CONPTY_STDERR_OK") != std::string::npos);
+}
+
+static void check_windows_pty_with_redirected_parent(const char* executable)
+{
+  boost::process::child parent(
+      boost::process::exe(executable),
+      boost::process::args(std::vector<std::string>{"--conpty-redirected-parent"}),
+      boost::process::std_in<boost::process::null,
+                             boost::process::std_out>
+          boost::process::null);
+  const auto exited = ::WaitForSingleObject(parent.native_handle(), 20000) == WAIT_OBJECT_0;
+  boost::system::error_code ignored;
+  if (!exited) {
+    parent.terminate(ignored);
+  }
+  parent.wait(ignored);
+  assert(exited);
+  assert(parent.exit_code() == 0);
+}
+
 static void check_windows_pty_rejects_overlapping_writes()
 {
   boost::asio::io_context io_context;
@@ -221,13 +334,21 @@ static void check_pty_stream_lifecycle_and_window_size()
   pty->set_window_size({.m_row = 40, .m_col = 120, .m_xpixel = 0, .m_ypixel = 0}, error_code);
   assert(!error_code);
 
-  auto pty_posix = std::dynamic_pointer_cast<stream::pty_posix>(stream_ptr);
-  assert(pty_posix);
-  pty_posix->on_success(error_code);
+  stream_ptr->close();
+  auto child = rstream::webtty::detail::process::make_child(
+      stream_ptr,
+      boost::process::exe("/bin/sleep"),
+      boost::process::args(std::vector<std::string>{"30"}));
+  pty->set_window_size({.m_row = 50, .m_col = 150, .m_xpixel = 0, .m_ypixel = 0}, error_code);
   assert(!error_code);
+  child->terminate();
+  child->wait();
   stream_ptr->close();
   stream_ptr->close();
+  pty->set_window_size({.m_row = 24, .m_col = 80, .m_xpixel = 0, .m_ypixel = 0}, error_code);
+  assert(error_code);
 
+  error_code.clear();
   pty->allocate(error_code);
   assert(!error_code);
   stream_ptr->close();
@@ -247,8 +368,22 @@ static void check_pipe_stream_lifecycle()
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+  if (argc == 2 && std::strcmp(argv[1], "--conpty-console-child") == 0) {
+    return windows_pty_console_child();
+  }
+  if (argc == 2 && std::strcmp(argv[1], "--conpty-redirected-parent") == 0) {
+    DWORD mode = 0;
+    assert(!::GetConsoleMode(::GetStdHandle(STD_INPUT_HANDLE), &mode));
+    assert(!::GetConsoleMode(::GetStdHandle(STD_OUTPUT_HANDLE), &mode));
+    check_windows_pty_console_io(argv[0]);
+    return 0;
+  }
+  check_windows_pty_with_redirected_parent(argv[0]);
+#else
   (void)argc;
   (void)argv;
+#endif
   check_pipe_stream_lifecycle();
 #ifdef _WIN32
   check_windows_pty_rejects_overlapping_writes();

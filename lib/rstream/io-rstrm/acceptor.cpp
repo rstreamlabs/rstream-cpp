@@ -342,7 +342,7 @@ void acceptor::impl::async_accept(socket& peer, endpoint& endpoint, async_accept
     return;
   }
   auto allocator = boost::asio::get_associated_allocator(handler);
-  const auto op  = std::allocate_shared<accept_op>(allocator, peer, endpoint, std::move(handler));
+  const auto op  = std::allocate_shared<accept_op>(core::allocator::wrapper<accept_op>(m_allocator), peer, endpoint, std::move(handler));
   {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_start_pending) {

@@ -29,6 +29,7 @@
 
 #include <rstream/test/time.hpp>
 #include <rstream/webtty/client.hpp>
+#include <rstream/webtty/error.hpp>
 #include <rstream/webtty/protobuf/messages.pb.h>
 #include <rstream/webtty/webtty.hpp>
 
@@ -980,10 +981,40 @@ static void check_websocket_client_sends_terminal_size_when_tty_allocated()
   assert(return_code == 22);
 }
 
+static void check_websocket_handshake_obeys_open_deadline()
+{
+  boost::asio::io_context io_context;
+  tcp::acceptor acceptor(io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
+  tcp::socket peer(io_context);
+  acceptor.async_accept(peer, [](const boost::system::error_code& error) { assert(!error); });
+  rstream::webtty::client::config config{};
+  config.m_address                         = rstream::io::address("127.0.0.1:" + std::to_string(acceptor.local_endpoint().port()));
+  config.m_protocol_config.m_protocol_type = rstream::webtty::protocol::type::websocket;
+  rstream::webtty::settings_client settings{};
+  settings.m_common.m_mtu                 = 1024 * 1024;
+  settings.m_common.m_timeouts_ms.m_open  = rstream::test::timeout_ms(100);
+  settings.m_common.m_timeouts_ms.m_close = rstream::test::timeout_ms(100);
+  settings.m_std_in_buffer_size           = 1024;
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  unsigned completions = 0;
+  client.async_run([&](const std::error_code& error, int code) {
+    assert(error == rstream::webtty::error::code::operation_timeout);
+    assert(code == -1);
+    ++completions;
+    boost::system::error_code ignored;
+    peer.close(ignored);
+    acceptor.close(ignored);
+  });
+  io_context.run_for(rstream::test::timeout(std::chrono::seconds(2)));
+  assert(completions == 1);
+  assert(io_context.stopped());
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  check_websocket_handshake_obeys_open_deadline();
   check_websocket_client_sends_open_stdin_eos_and_heartbeat();
   check_websocket_client_e2e_sends_encrypted_stdin();
   check_websocket_client_accepts_remote_exit_during_stdin_shutdown(true);

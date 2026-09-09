@@ -303,10 +303,12 @@ void get_user_info(user_info& user_info, const username& username, std::error_co
 }  // namespace protocol
 
 struct webtty_uri_options {
+  protocol::type m_transport      = protocol::type::websocket;
   bool m_managed                  = false;
   bool m_publish                  = true;
   execution_mode m_execution_mode = execution_mode::spawn;
   std::string m_server_id;
+  std::string m_server_name;
   std::string m_host_key_id;
   std::string m_encryption_policy;
   std::string m_server_admission_label;

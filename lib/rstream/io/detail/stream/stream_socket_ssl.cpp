@@ -496,8 +496,7 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  std::allocate_shared<async_shutdown_operation>(operation_allocator, shared_from_this(), std::forward<decltype(handler)>(handler))->run();
+  std::allocate_shared<async_shutdown_operation>(core::allocator::wrapper<async_shutdown_operation>(m_allocator), shared_from_this(), std::move(handler))->run();
 }
 
 void stream_socket_ssl::impl::
@@ -513,8 +512,7 @@ void stream_socket_ssl::impl::
   assert(m_strand.running_in_this_thread());
 #endif
 #endif
-  auto operation_allocator = boost::asio::get_associated_allocator(handler);
-  std::allocate_shared<async_connect_operation>(operation_allocator, shared_from_this(), endpoint, std::forward<decltype(handler)>(handler))->run();
+  std::allocate_shared<async_connect_operation>(core::allocator::wrapper<async_connect_operation>(m_allocator), shared_from_this(), endpoint, std::move(handler))->run();
 }
 
 void stream_socket_ssl::impl::
