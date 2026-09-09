@@ -47,6 +47,26 @@ core_binary=out/'blocking-handle.exe'
 subprocess.run(['link','/OUT:'+str(core_binary),*core_objects,'ws2_32.lib','mswsock.lib'],check=True,timeout=90)
 for attempt in range(20):subprocess.run([str(core_binary)],check=True,timeout=15)
 (out/'unit-results.json').write_text(json.dumps({'deterministic_cancel_io':20,'blocking_handle_runtime':20,'passed':True},indent=2))
+# Qualify late cancellation with every application/Boost-header translation unit instrumented.
+asan_flags=[*flags,'/fsanitize=address','/Zi']
+asan_objects=[]
+for index,file in enumerate([root/'lib/rstream/core/windows/blocking_handle.cpp',root/'test/core/common/test_core_windows_blocking_handle.cpp']):
+    obj=out/f'asan-{index}.obj';asan_objects.append(str(obj))
+    subprocess.run(['cl',*asan_flags,'/Fo'+str(obj),'/Fd'+str(out/f'asan-{index}.pdb'),str(file)],check=True,timeout=90)
+asan_binary=out/'blocking-handle-asan.exe'
+subprocess.run(['link','/OUT:'+str(asan_binary),'/INFERASANLIBS','/DEBUG',*asan_objects,'ws2_32.lib','mswsock.lib'],check=True,timeout=90)
+for attempt in range(20):subprocess.run([str(asan_binary)],check=True,timeout=15)
+old_source=out/'old-blocking-handle.cpp'
+old= (root/'lib/rstream/core/windows/blocking_handle.cpp').read_text().replace('std::make_shared<operation>(', 'std::allocate_shared<operation>(boost::asio::get_associated_allocator(handler), ')
+old_source.write_text(old)
+old_obj=out/'old-allocator.obj'
+subprocess.run(['cl',*asan_flags,'/I'+str(root/'lib/rstream/core/windows'),'/Fo'+str(old_obj),'/Fd'+str(out/'old-allocator.pdb'),str(old_source)],check=True,timeout=90)
+old_binary=out/'old-allocator-asan.exe'
+subprocess.run(['link','/OUT:'+str(old_binary),'/INFERASANLIBS','/DEBUG',str(old_obj),asan_objects[1],'ws2_32.lib','mswsock.lib'],check=True,timeout=90)
+before=subprocess.run([str(old_binary)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=15)
+(out/'old-allocator-asan.log').write_text(before.stdout)
+assert before.returncode != 0 and 'AddressSanitizer' in before.stdout, before.stdout
+(out/'asan-results.json').write_text(json.dumps({'before_exit':before.returncode,'after_repetitions':20,'passed':True},indent=2))
 rows=[]
 for attempt in range(1,2001):
     started=time.monotonic()

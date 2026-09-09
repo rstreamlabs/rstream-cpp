@@ -158,6 +158,48 @@ static void check_cancellation_completes_once()
   assert(calls == 1);
 }
 
+static void check_late_cancellation_releases_completed_operation()
+{
+  HANDLE input  = nullptr;
+  HANDLE output = nullptr;
+  assert(::CreatePipe(&input, &output, nullptr, 0));
+  handle_guard read(input);
+  handle_guard write(output);
+  boost::asio::io_context io_context;
+  rstream::core::windows::blocking_handle stream(io_context.get_executor());
+  boost::system::error_code open_error;
+  stream.open(read.get(), rstream::core::windows::blocking_handle::access::read, open_error);
+  assert(!open_error);
+  boost::asio::cancellation_signal cancellation;
+  std::array<char, 1> buffer{};
+  std::size_t completed = 0;
+  auto handler          = [&](const boost::system::error_code& error, std::size_t size) {
+    assert(!error && size == 1 && buffer[0] == 'x');
+    ++completed;
+  };
+  stream.async_read_some(boost::asio::buffer(buffer), boost::asio::bind_cancellation_slot(cancellation.slot(), handler));
+  const char data = 'x';
+  DWORD written   = 0;
+  assert(::WriteFile(write.get(), &data, 1, &written, nullptr));
+  io_context.run();
+  assert(completed == 1);
+
+  // A second completed read guarantees the worker released the first operation.
+  // Only the cancellation slot's weak pointer may still retain its control block.
+  io_context.restart();
+  stream.async_read_some(boost::asio::buffer(buffer), handler);
+  assert(::WriteFile(write.get(), &data, 1, &written, nullptr));
+  io_context.run();
+  assert(completed == 2);
+  cancellation.emit(boost::asio::cancellation_type::terminal);
+  cancellation.slot().clear();
+  assert(stream.is_open());
+  stream.close();
+  io_context.restart();
+  io_context.run();
+  assert(completed == 2);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -165,6 +207,7 @@ int main(int argc, char** argv)
   check_read_from_non_overlapped_pipe();
   check_write_to_non_overlapped_pipe();
   check_cancellation_completes_once();
+  check_late_cancellation_releases_completed_operation();
   return 0;
 }
 
