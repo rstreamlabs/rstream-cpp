@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.14.4](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.3...1.14.4) (2026-09-09)
+
+
+### Bug Fixes
+
+* **build:** make examples and fixtures portable to Windows ([355ea8e](https://github.com/rstreamlabs/rstream-cpp/commit/355ea8e9319662a70ef509b241bf2ff758bfee59))
+* **cpp:** qualify optimized Boost 1.83 consumers on Windows ([909e5a8](https://github.com/rstreamlabs/rstream-cpp/commit/909e5a8ebde0e204650b64fed0a358283120941c))
+* **cpp:** stage HTTP example plugins and clarify FIFO completion ownership ([bf72b3e](https://github.com/rstreamlabs/rstream-cpp/commit/bf72b3ebd7d372e440adbb9100fee31c571326fa))
+* **examples:** retain HTTP coroutine address arguments ([92910ed](https://github.com/rstreamlabs/rstream-cpp/commit/92910ed2ab41ee90fff57d61d400663975cfd5e1))
+* **stun:** qualify attribute type lookup for MSVC ([18faccd](https://github.com/rstreamlabs/rstream-cpp/commit/18faccdfb515194bf34ab8962efb3051096d0d6a))
+* **stun:** reject lengths that exceed wire fields ([15b7b1e](https://github.com/rstreamlabs/rstream-cpp/commit/15b7b1ea082217f7f3e17ee00b666630aff9d086))
+* **webtty:** discover transports and harden asynchronous and Windows lifecycles ([e823805](https://github.com/rstreamlabs/rstream-cpp/commit/e823805889fc705844fa4877db4bb899e56021a0))
+* **webtty:** discover transports and harden asynchronous ownership ([cfc72bd](https://github.com/rstreamlabs/rstream-cpp/commit/cfc72bdd63e0adf3a2fb5cbf553ca43c05b8a640))
+* **webtty:** recover missed Darwin FIFO EOF notifications ([09c0d38](https://github.com/rstreamlabs/rstream-cpp/commit/09c0d3818ef3e9af0272461a7a34ac5a84d3cd0a))
+* **windows:** complete synchronous I/O cancellation before closing handles ([fa29e14](https://github.com/rstreamlabs/rstream-cpp/commit/fa29e149fbaad0a3e5da4b99255ecc90add0127a))
+
 ## [1.14.3](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.2...1.14.3) (2026-08-13)
 
 
