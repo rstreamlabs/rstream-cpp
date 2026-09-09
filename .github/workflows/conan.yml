@@ -329,6 +329,7 @@ jobs:
               -o "rstream/*:enable_testing=True" `
               -o "rstream/*:enable_strict_warnings=True" `
               -o "rstream/*:warnings_as_errors=True" `
+              -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': True}" `
               .
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE

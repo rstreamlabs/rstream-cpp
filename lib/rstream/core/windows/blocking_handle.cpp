@@ -15,6 +15,8 @@
 #include <boost/asio/error.hpp>
 #include <boost/asio/executor_work_guard.hpp>
 
+#include "detail/cancel_io.hpp"
+
 // clang-format off
 // To be included after boost headers.
 #include <windows.h>
@@ -95,14 +97,13 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
 
   void async_read_some(const boost::asio::mutable_buffer& buffer, completion_handler&& handler)
   {
-    auto operation_allocator = boost::asio::get_associated_allocator(handler);
-    submit(std::allocate_shared<operation>(operation_allocator, operation::type::read, buffer, m_executor, std::move(handler)));
+    // Cancellation weak pointers can outlive the erased handler and its allocator.
+    submit(std::make_shared<operation>(operation::type::read, buffer, m_executor, std::move(handler)));
   }
 
   void async_write(const boost::asio::const_buffer& buffer, completion_handler&& handler)
   {
-    auto operation_allocator = boost::asio::get_associated_allocator(handler);
-    submit(std::allocate_shared<operation>(operation_allocator, operation::type::write, buffer, m_executor, std::move(handler)));
+    submit(std::make_shared<operation>(operation::type::write, buffer, m_executor, std::move(handler)));
   }
 
   void cancel()
@@ -115,29 +116,22 @@ class blocking_handle::impl : public std::enable_shared_from_this<impl> {
     std::lock_guard<std::mutex> close_lock(m_close_mutex);
     HANDLE handle = nullptr;
     std::shared_ptr<operation> pending;
-    bool cancel_active = false;
     {
       std::lock_guard<std::mutex> lock(m_mutex);
       if (!m_running && m_handle == nullptr && !m_thread.joinable()) {
         return;
       }
-      m_running     = false;
-      handle        = m_handle;
-      m_handle      = nullptr;
-      pending       = std::move(m_pending);
-      cancel_active = m_active != nullptr;
+      m_running = false;
+      handle    = m_handle;
+      m_handle  = nullptr;
+      pending   = std::move(m_pending);
     }
     m_cv.notify_one();
-    if (cancel_active && m_thread.joinable()) {
-      ::CancelSynchronousIo(m_thread.native_handle());
-    }
+    detail::cancel_and_join(m_thread);
     if (handle != nullptr) {
       ::CloseHandle(handle);
     }
     complete(pending, operation_aborted_error(), 0);
-    if (m_thread.joinable()) {
-      m_thread.join();
-    }
   }
 
  private:

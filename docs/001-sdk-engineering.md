@@ -102,6 +102,25 @@ This does not add an allocation, thread or lock; it changes ownership of the
 existing control block. Tests must also exercise completion followed by late
 cancellation and concurrent completion on another executor.
 
+Windows synchronous pipe workers stop accepting operations before shutdown.
+Cancellation is retried while waiting for the dedicated worker to exit, because
+an initial `CancelSynchronousIo` can arrive before `ReadFile` or `WriteFile`.
+Pipe handles stay open until the worker is joined; `CloseHandle` with a pending
+synchronous read can block. The retry is confined to shutdown and waits on the
+thread handle, so completion wakes it immediately; active I/O gains no polling,
+thread, allocation or lock. Deterministic tests hold each read/write behind an
+event until the first cancellation has missed, then require cancellation and
+preservation of both pipe handles. This applies to ConPTY and the common Windows
+console/pipe adapter.
+
+The native Windows package matrix also enables `RSTREAM_TEST_WINDOWS_PIPE_ASAN`.
+This MSVC Release/RelWithDebInfo target compiles the pipe adapter and its tests
+with AddressSanitizer, including their Boost headers, without linking an
+uninstrumented SDK copy. A stateful allocator and late cancellation exercise
+control-block lifetime after the erased completion handler has been destroyed.
+The option is off for ordinary consumers and requires the MSVC ASan component
+when enabled; both consumer-selected Boost versions are exercised in CI.
+
 ## rstream runtime contract
 
 The SDK must preserve the rstream contract from configuration input to runtime
