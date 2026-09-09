@@ -6,9 +6,11 @@
 #include <cassert>
 #include <chrono>
 #include <future>
+#include <memory_resource>
 #include <string>
 #include <thread>
 
+#include <boost/asio/bind_allocator.hpp>
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/io_context.hpp>
@@ -177,7 +179,9 @@ static void check_late_cancellation_releases_completed_operation()
     assert(!error && size == 1 && buffer[0] == 'x');
     ++completed;
   };
-  stream.async_read_some(boost::asio::buffer(buffer), boost::asio::bind_cancellation_slot(cancellation.slot(), handler));
+  // A stateful allocator makes borrowing the destroyed erased handler observable.
+  std::pmr::polymorphic_allocator<std::byte> allocator;
+  stream.async_read_some(boost::asio::buffer(buffer), boost::asio::bind_allocator(allocator, boost::asio::bind_cancellation_slot(cancellation.slot(), handler)));
   const char data = 'x';
   DWORD written   = 0;
   assert(::WriteFile(write.get(), &data, 1, &written, nullptr));
