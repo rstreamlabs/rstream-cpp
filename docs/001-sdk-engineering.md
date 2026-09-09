@@ -125,6 +125,10 @@ cannot reset the request. Conan builds the required target before the full SDK
 and checks its fresh JUnit result after the suite runs. A missing, skipped or
 failed required test cannot qualify the package. The workflow configuration
 and report checks have a regression test in `test/test_conan_windows_asan.py`.
+All native package jobs force the SDK build while reusing cached dependencies.
+`--build=missing` alone can reuse the SDK binary and bypass its internal tests
+on a repeated CI run. The regression suite checks the actual Conan cache
+behavior and requires execution even when that binary is already cached.
 
 ## rstream runtime contract
 

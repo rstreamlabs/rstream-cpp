@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -226,7 +226,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -324,7 +324,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($staticPlugins in @("True", "False")) {
-            conan create --build=missing --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
+            conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
               -s:b compiler.cppstd=20 `
               -s:h compiler.cppstd=20 `
               -o "rstream/*:shared=${{ matrix.shared }}" `
