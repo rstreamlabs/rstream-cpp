@@ -120,6 +120,11 @@ uninstrumented SDK copy. A stateful allocator and late cancellation exercise
 control-block lifetime after the erased completion handler has been destroyed.
 The option is off for ordinary consumers and requires the MSVC ASan component
 when enabled; both consumer-selected Boost versions are exercised in CI.
+The workflow passes a typed CMake cache boolean so legacy `option()` policies
+cannot reset the request. Conan builds the required target before the full SDK
+and checks its fresh JUnit result after the suite runs. A missing, skipped or
+failed required test cannot qualify the package. The workflow configuration
+and report checks have a regression test in `test/test_conan_windows_asan.py`.
 
 ## rstream runtime contract
 
