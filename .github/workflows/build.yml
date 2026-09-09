@@ -23,7 +23,7 @@ permissions:
 jobs:
   release-workflow:
     name: Release workflow
-    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && github.ref_name != 'codex/diagnose-conpty-windows' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,7 +32,7 @@ jobs:
       - run: python3 test/test_release_workflow.py
   build:
     name: Conan package
-    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
+    if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && github.ref_name != 'codex/diagnose-conpty-windows' }}
     uses: ./.github/workflows/conan.yml
     with:
       channel: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (github.ref_name == 'main' && 'stable' || 'dev') }}

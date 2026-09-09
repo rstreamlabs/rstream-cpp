@@ -1,0 +1,36 @@
+name: Temporary ConPTY diagnosis
+on:
+  push:
+    branches: [codex/diagnose-conpty-windows]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compile and diagnose only the ConPTY path
+        shell: pwsh
+        run: |
+          $vcvars = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat'
+          $compilerEnvironment = & cmd.exe /d /s /c "`"$vcvars`" x64 >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw 'Visual C++ environment setup failed' }
+          foreach ($line in $compilerEnvironment) {
+            $parts = $line -split '=', 2
+            if ($parts.Length -eq 2 -and $parts[0] -in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH')) {
+              [Environment]::SetEnvironmentVariable($parts[0], $parts[1], 'Process')
+            }
+          }
+          python -u .github/diagnostics/run-conpty.py
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conpty-diagnostic
+          path: |
+            conpty-diagnostic/*.log
+            conpty-diagnostic/*.json
+            conpty-diagnostic/*.cpp
