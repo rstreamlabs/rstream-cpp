@@ -46,7 +46,7 @@ results = {}
 for name, value in [('before', True), ('after', requested)]:
     variable = parse_extra_variable('tools.cmake.cmaketoolchain:extra_variables', 'RSTREAM_TEST_WINDOWS_PIPE_ASAN', value)
     toolchain = out / (name + '.cmake')
-    toolchain.write_text('set(RSTREAM_TEST_WINDOWS_PIPE_ASAN ' + variable + ')\n')
+    toolchain.write_text('set(RSTREAM_TEST_WINDOWS_PIPE_ASAN ' + str(variable) + ')\n')
     build = out / name
     configured = subprocess.run(['cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_TOOLCHAIN_FILE=' + toolchain.as_posix()], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (out / (name + '-configure.log')).write_text(configured.stdout)
