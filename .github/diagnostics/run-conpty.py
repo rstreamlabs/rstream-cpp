@@ -42,7 +42,7 @@ for file in ['path.cpp','path_traits.cpp','codecvt_error_category.cpp','windows_
 binary=out/'conpty.exe'
 subprocess.run(['link','/OUT:'+str(binary),'/OPT:REF',*objects,'ws2_32.lib','mswsock.lib','advapi32.lib','userenv.lib','shell32.lib','DbgHelp.lib'],check=True,timeout=90)
 rows=[]
-for attempt in range(1,101):
+for attempt in range(1,2001):
     started=time.monotonic()
     log=out/f'{attempt}.log'
     with log.open('w') as dst:
@@ -58,3 +58,5 @@ for attempt in range(1,101):
     if code:
         print(log.read_text(),flush=True)
         raise SystemExit(1)
+    for pattern in ['trace-*.log','stream-*.log']:
+        for path in out.glob(pattern):path.unlink()
