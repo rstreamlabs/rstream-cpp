@@ -332,6 +332,15 @@ static protobuf::Message data_message(protobuf::Data::Type type, const std::stri
   return message;
 }
 
+static protobuf::Message eos_message(protobuf::Data::Type type)
+{
+  protobuf::Message message;
+  auto* data = message.mutable_data();
+  data->set_type(type);
+  data->mutable_eos();
+  return message;
+}
+
 static protobuf::Message encrypted_data_message(protobuf::Data::Type type, const rstream::webtty::encrypted_payload& encrypted)
 {
   protobuf::Message message;
@@ -448,8 +457,12 @@ class fake_plain_server {
         protobuf::Message ack;
         ack.mutable_ack();
         write_message(socket, ack);
-        write_message(socket, data_message(protobuf::Data::TYPE_STDOUT, "client-stdout"));
-        write_message(socket, data_message(protobuf::Data::TYPE_STDERR, "client-stderr"));
+        write_message(socket, data_message(protobuf::Data::TYPE_STDOUT, "o"));
+        write_message(socket, data_message(protobuf::Data::TYPE_STDERR, "e"));
+        // Output streams are independent. Exercise the reverse termination
+        // order before the process result so the client has to drain both.
+        write_message(socket, eos_message(protobuf::Data::TYPE_STDERR));
+        write_message(socket, eos_message(protobuf::Data::TYPE_STDOUT));
         protobuf::Message close;
         close.mutable_close()->set_return_code(13);
         write_message(socket, close);
@@ -924,8 +937,8 @@ static void check_plain_client_processes_server_messages()
 
   assert(!result);
   assert(return_code == 13);
-  assert(stdout_capture.read_all().find("client-stdout") != std::string::npos);
-  assert(stderr_capture.read_all().find("client-stderr") != std::string::npos);
+  assert(stdout_capture.read_all() == "o");
+  assert(stderr_capture.read_all() == "e");
 }
 
 static void check_plain_client_e2e_sends_stdin_and_processes_server_messages()
