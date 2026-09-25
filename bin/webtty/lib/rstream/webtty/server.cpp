@@ -719,6 +719,10 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   int m_child_exit_code = 0;
 
+  bool m_final_message_sent = false;
+
+  bool m_read_in_progress = false;
+
   std::string m_server_signing_key_id;
 
   std::string m_client_principal_id;
@@ -1319,6 +1323,12 @@ void server::impl::session::cancel_internal(const std::error_code& error_code)
   }
   else if (m_state == state::connecting) {
     on_error(cause);
+  }
+  else if (m_state == state::disconnecting) {
+    // A plain session can remain disconnecting while it waits for the peer to
+    // acknowledge the terminal frame by closing the transport. Server
+    // shutdown must always interrupt that bounded delivery wait.
+    on_close(cause);
   }
 }
 
@@ -1950,6 +1960,7 @@ void server::impl::session::do_send_error(const std::error_code& error_code)
   }
   log_session_rejected(error_code);
   set_state(state::disconnecting);
+  arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   rstream::webtty::protobuf::Message message;
   error::code code;
   if (error_code.category() == std::error_code(error::code{}).category()) {
@@ -1983,6 +1994,7 @@ void server::impl::session::do_send_close(int code)
   }
   if (m_active_streams.empty()) {
     set_state(state::disconnecting);
+    arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
     rstream::webtty::protobuf::Message message;
     message.mutable_close()->set_return_code(code);
     do_send_message(message, loop::exit);
@@ -2044,7 +2056,11 @@ void server::impl::session::on_send_message(const std::error_code& error_code, e
           do_close_websocket();
         }
         else {
-          on_close(error_code);
+          // A successful write only transfers the terminal frame to the local
+          // transport. Keep the plain stream alive until the peer closes it so
+          // relayed transports cannot discard that frame during teardown.
+          m_final_message_sent = true;
+          do_read_incoming_message();
         }
         break;
       case loop::null: {
@@ -2071,9 +2087,10 @@ void server::impl::session::do_read_incoming_message()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state == state::null || m_state == state::disconnected || m_read_in_progress) {
     return;
   }
+  m_read_in_progress = true;
   m_buffer_socket.reset_size();
   auto self               = shared_from_this();
   auto completion_handler = std::bind(&session::on_read_incoming_data, self, std::placeholders::_1);
@@ -2095,10 +2112,21 @@ void server::impl::session::on_read_incoming_data(const std::error_code& error_c
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  m_read_in_progress = false;
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  if (error_code) {
+  if (m_state == state::disconnecting) {
+    if (error_code) {
+      on_close(m_final_message_sent ? std::error_code() : error_code);
+    }
+    else {
+      // Ignore data sent after a terminal frame was queued and continue
+      // waiting for transport shutdown. The close deadline remains armed.
+      do_read_incoming_message();
+    }
+  }
+  else if (error_code) {
     on_error(error_code);
   }
   else {
