@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -371,20 +372,27 @@ class plain_webtty_server {
     return m_port;
   }
 
-  void start()
+  void start(std::size_t jobs = 1)
   {
+    assert(jobs > 0);
     m_server->async_run([this](const std::error_code& error_code) {
       m_result = error_code;
       m_done   = true;
     });
-    m_thread = std::thread([this] {
-      try {
-        m_io_context.run();
-      }
-      catch (...) {
-        m_exception = std::current_exception();
-      }
-    });
+    m_threads.reserve(jobs);
+    for (std::size_t i = 0; i < jobs; ++i) {
+      m_threads.emplace_back([this] {
+        try {
+          m_io_context.run();
+        }
+        catch (...) {
+          std::lock_guard<std::mutex> lock(m_exception_mutex);
+          if (!m_exception) {
+            m_exception = std::current_exception();
+          }
+        }
+      });
+    }
   }
 
   std::error_code run_until_start_failure()
@@ -401,11 +409,14 @@ class plain_webtty_server {
 
   void stop()
   {
-    if (!m_thread.joinable()) {
+    if (m_threads.empty()) {
       return;
     }
     m_server->cancel();
-    m_thread.join();
+    for (auto& thread : m_threads) {
+      thread.join();
+    }
+    m_threads.clear();
     if (m_exception) {
       std::rethrow_exception(m_exception);
     }
@@ -419,7 +430,8 @@ class plain_webtty_server {
   rstream::webtty::settings_server m_settings;
   boost::asio::io_context m_io_context;
   std::shared_ptr<rstream::webtty::server> m_server;
-  std::thread m_thread;
+  std::vector<std::thread> m_threads;
+  std::mutex m_exception_mutex;
   std::exception_ptr m_exception;
   bool m_done = false;
   std::error_code m_result;
@@ -978,6 +990,88 @@ static void check_plain_server_cancel_keeps_active_child_resources_alive()
   }
 }
 
+static void check_plain_server_completes_rapid_multithreaded_child_exits()
+{
+  constexpr std::size_t client_count          = 16;
+  constexpr std::size_t iterations_per_client = 128 / (RSTREAM_TEST_TIMEOUT_SCALE * RSTREAM_TEST_TIMEOUT_SCALE);
+  static_assert(iterations_per_client > 0);
+  plain_webtty_server server;
+  server.start(4);
+  std::mutex exception_mutex;
+  std::exception_ptr client_exception;
+  std::vector<std::thread> clients;
+  clients.reserve(client_count);
+  for (std::size_t client = 0; client < client_count; ++client) {
+    clients.emplace_back([&] {
+      try {
+        for (std::size_t iteration = 0; iteration < iterations_per_client; ++iteration) {
+          boost::asio::io_context io_context;
+          auto socket = connect_with_retry(io_context, server.port());
+          write_message(socket, open_message({
+                                    "/bin/sh",
+                                    "-c",
+                                    "printf child-stdout; printf child-stderr >&2",
+                                }));
+          write_message(socket, eos_message(protobuf::Data::TYPE_STDIN));
+
+          bool saw_ack        = false;
+          bool saw_stdout_eos = false;
+          bool saw_stderr_eos = false;
+          bool saw_close      = false;
+          std::string stdout_data;
+          std::string stderr_data;
+          while (!saw_close) {
+            auto message = read_message(socket);
+            if (message.payload_case() == protobuf::Message::PayloadCase::kAck) {
+              saw_ack = true;
+            }
+            else if (message.payload_case() == protobuf::Message::PayloadCase::kData) {
+              if (message.data().type() == protobuf::Data::TYPE_STDOUT) {
+                if (message.data().has_eos()) {
+                  saw_stdout_eos = true;
+                }
+                else {
+                  stdout_data.append(message.data().data());
+                }
+              }
+              else if (message.data().type() == protobuf::Data::TYPE_STDERR) {
+                if (message.data().has_eos()) {
+                  saw_stderr_eos = true;
+                }
+                else {
+                  stderr_data.append(message.data().data());
+                }
+              }
+            }
+            else if (message.payload_case() == protobuf::Message::PayloadCase::kClose) {
+              assert(message.close().return_code() == 0);
+              saw_close = true;
+            }
+          }
+          assert(saw_ack);
+          assert(stdout_data == "child-stdout");
+          assert(stderr_data == "child-stderr");
+          assert(saw_stdout_eos);
+          assert(saw_stderr_eos);
+        }
+      }
+      catch (...) {
+        std::lock_guard<std::mutex> lock(exception_mutex);
+        if (!client_exception) {
+          client_exception = std::current_exception();
+        }
+      }
+    });
+  }
+  for (auto& client : clients) {
+    client.join();
+  }
+  server.stop();
+  if (client_exception) {
+    std::rethrow_exception(client_exception);
+  }
+}
+
 template <typename check_type>
 static void run_check(const char* name, check_type&& check)
 {
@@ -1013,5 +1107,6 @@ int main(int argc, char** argv)
   run_check("login mode rejects unknown user before listen", check_login_execution_mode_rejects_unknown_user_before_listen);
   run_check("login mode configured user", check_login_execution_mode_runs_as_configured_user);
   run_check("cancellation with active child", check_plain_server_cancel_keeps_active_child_resources_alive);
+  run_check("rapid multithreaded child exits", check_plain_server_completes_rapid_multithreaded_child_exits);
   return 0;
 }
