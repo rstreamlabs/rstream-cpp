@@ -98,6 +98,9 @@ static void parse_environment(boost::process::environment& dst, const protocol::
 
 namespace {
 
+constexpr auto child_exit_poll_interval     = std::chrono::milliseconds(100);
+constexpr auto child_exit_watchdog_interval = std::chrono::seconds(1);
+
 byte_vector bytes_from_string(const std::string& value)
 {
   return byte_vector(value.begin(), value.end());
@@ -602,6 +605,12 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   void on_read_stdfd(const std::error_code& error_code, std::size_t size, stream::type type);
 
+  void arm_child_exit_timer();
+
+  void recover_child_exit();
+
+  void on_recover_child_exit(const std::error_code& error_code);
+
   void do_send_error(const std::error_code& error_code);
 
   void do_send_close(int code);
@@ -679,6 +688,8 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
   stream::ptr m_stream_ptr;
 
   child_ptr_type m_child;
+
+  boost::asio::steady_timer m_child_exit_timer;
 
   boost::beast::http::request<boost::beast::http::string_body> m_http_request;
 
@@ -1101,6 +1112,7 @@ server::impl::session::session(const executor_type& executor, socket_type&& sock
       m_buffer_std_out(rstream::core::make_buffer_allocated(m_settings.m_std_out_buffer_size)),
       m_buffer_std_err(rstream::core::make_buffer_allocated(m_settings.m_std_err_buffer_size)),
       m_http_buffers_adaptor(core::helpers::mutable_memory_sequence(m_buffer_socket)),
+      m_child_exit_timer(executor),
       m_protocol_type(protocol_type),
       m_accepted_at(std::chrono::steady_clock::now())
 {
@@ -1399,10 +1411,15 @@ void server::impl::session::close_resources()
   if (m_stream_ptr) {
     m_stream_ptr->close();
   }
+  m_child_exit_timer.cancel();
   if (m_child) {
-    boost::system::error_code tmp;
-    m_child->terminate(tmp);
-    m_child->wait(tmp);
+    if (!m_child_done) {
+      boost::system::error_code tmp;
+      m_child->terminate(tmp);
+      tmp.clear();
+      m_child->wait(tmp);
+    }
+    m_child->detach();
   }
 }
 
@@ -1677,9 +1694,11 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
     auto env_vars_copy = protocol_config.m_env_vars;
     protocol::add_execution_environment(env_vars_copy, m_settings.m_execution_mode, user_info);
     parse_environment(environment, env_vars_copy);
+#ifdef _WIN32
     auto completion_handler = [ptr = shared_from_this()](int code, const std::error_code& error_code) {
       boost::asio::post(ptr->m_strand, std::bind_front(&session::on_child_exit, ptr, error_code, code));
     };
+#endif
     auto backend    = protocol_config.m_options.m_allocate_tty ? stream::backend::tty : stream::backend::pipe;
     const auto exe  = protocol_config.m_cmd_args.size() > 0 ? protocol_config.m_cmd_args.front() : user_info.m_shell;
     const auto args = protocol_config.m_cmd_args.size() > 1 ? protocol::cmd_args(std::next(protocol_config.m_cmd_args.begin()), protocol_config.m_cmd_args.end()) : protocol::cmd_args();
@@ -1711,16 +1730,22 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
 #endif
           throw std::system_error(error::code::server_error);
         }
+#ifdef _WIN32
         m_child = detail::process::make_child(m_stream_ptr,
                                               boost::process::exe(exe_path),
                                               boost::process::args(args),
                                               environment,
-#ifndef _WIN32
-                                              detail::process::uid::handler(user_info),
-#endif
                                               boost::process::start_dir(boost::filesystem::path(workdir)),
                                               boost::process::on_exit = completion_handler,
                                               m_executor.context());
+#else
+        m_child = detail::process::make_child(m_stream_ptr,
+                                              boost::process::exe(exe_path),
+                                              boost::process::args(args),
+                                              environment,
+                                              detail::process::uid::handler(user_info),
+                                              boost::process::start_dir(boost::filesystem::path(workdir)));
+#endif
       }
       catch (...) {
         exception_ptr = std::current_exception();
@@ -1771,6 +1796,9 @@ void server::impl::session::run_loop()
   read_stdfd_loop();
   process_incoming_messages_loop();
   send_heartbeat();
+#ifndef _WIN32
+  arm_child_exit_timer();
+#endif
 }
 
 void server::impl::session::read_stdfd_loop()
@@ -1858,6 +1886,57 @@ void server::impl::session::on_read_stdfd(const std::error_code& error_code, std
       data->set_data(buffer.map().get_const_data(), size);
     }
     do_send_message(message, eos ? loop::null : (type == stream::type::std_out ? loop::read_std_out : loop::read_std_err));
+    if (eos && m_active_streams.empty()) {
+      recover_child_exit();
+    }
+  }
+}
+
+void server::impl::session::arm_child_exit_timer()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::connected || m_child_done || !m_child) {
+    return;
+  }
+  // Boost.Process v1's POSIX SIGCHLD service is not safe when children are
+  // registered from concurrent session strands. A slow watchdog preserves the
+  // parent-exit semantics when descendants inherit its pipes; EOF switches to the
+  // short interval and normally observes the exit immediately.
+  m_child_exit_timer.expires_after(m_active_streams.empty() ? child_exit_poll_interval : child_exit_watchdog_interval);
+  auto completion_handler = std::bind(&session::on_recover_child_exit, shared_from_this(), std::placeholders::_1);
+  m_child_exit_timer.async_wait(boost::asio::bind_executor(m_strand, std::move(completion_handler)));
+}
+
+void server::impl::session::recover_child_exit()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::connected || m_child_done || !m_child) {
+    return;
+  }
+  std::error_code error_code;
+  const auto running = m_child->running(error_code);
+  if (error_code) {
+    on_child_exit(error_code, 0);
+  }
+  else if (!running) {
+    on_child_exit({}, m_child->exit_code());
+  }
+  else {
+    arm_child_exit_timer();
+  }
+}
+
+void server::impl::session::on_recover_child_exit(const std::error_code& error_code)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (!error_code) {
+    recover_child_exit();
   }
 }
 
@@ -2324,11 +2403,12 @@ void server::impl::session::on_child_exit(const std::error_code& error_code, int
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state == state::null || m_state == state::disconnected || m_child_done) {
     return;
   }
   m_child_done      = true;
   m_child_exit_code = code;
+  m_child_exit_timer.cancel();
   m_logger->info("child exited [exit_code: {}, error_code: {}]", code, error_code ? error_code.message() : "none");
   if (error_code) {
     do_send_error(error_code);
