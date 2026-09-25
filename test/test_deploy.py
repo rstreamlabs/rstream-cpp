@@ -63,5 +63,84 @@ class WindowsRuntimeDependenciesTest(unittest.TestCase):
                 )
 
 
+class MacosRuntimeDependenciesTest(unittest.TestCase):
+    def test_parse_macos_imports(self):
+        output = """
+/tmp/rstream-webtty-client:
+    @rpath/libyaml-cpp.0.9.dylib (compatibility version 0.9.0, current version 0.9.0)
+    /usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+        """
+        self.assertEqual(
+            DEPLOY.parse_macos_imports(output),
+            ["@rpath/libyaml-cpp.0.9.dylib", "/usr/lib/libc++.1.dylib"],
+        )
+
+    def test_copy_transitive_runtime_dependencies_and_modules(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            deploy_dir = os.path.join(temp_dir, "deploy")
+            candidate_dir = os.path.join(temp_dir, "candidates")
+            os.makedirs(os.path.join(deploy_dir, "bin"))
+            os.makedirs(candidate_dir)
+            application = os.path.join(deploy_dir, "bin", "rstream-webtty-client")
+            yaml = os.path.join(candidate_dir, "libyaml-cpp.0.9.dylib")
+            abseil = os.path.join(candidate_dir, "libabsl_status.dylib")
+            module = os.path.join(candidate_dir, "legacy.dylib")
+            crypto = os.path.join(candidate_dir, "libcrypto.3.dylib")
+            for file_path in (application, yaml, abseil, module, crypto):
+                with open(file_path, "wb") as fp:
+                    fp.write(os.path.basename(file_path).encode("ascii"))
+            imports = {
+                "rstream-webtty-client": [
+                    "/usr/lib/libc++.1.dylib",
+                    "@rpath/libyaml-cpp.0.9.dylib",
+                ],
+                "libyaml-cpp.0.9.dylib": ["@rpath/libabsl_status.dylib"],
+                "libabsl_status.dylib": [
+                    "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+                ],
+                "legacy.dylib": ["@rpath/libcrypto.3.dylib"],
+                "libcrypto.3.dylib": ["/usr/lib/libSystem.B.dylib"],
+            }
+            DEPLOY.copy_macos_runtime_dependencies(
+                deploy_dir,
+                {
+                    "libyaml-cpp.0.9.dylib": yaml,
+                    "libabsl_status.dylib": abseil,
+                    "libcrypto.3.dylib": crypto,
+                },
+                [module],
+                lambda file_path: imports[os.path.basename(file_path)],
+            )
+            self.assertTrue(
+                os.path.isfile(os.path.join(deploy_dir, "lib", "libyaml-cpp.0.9.dylib"))
+            )
+            self.assertTrue(
+                os.path.isfile(os.path.join(deploy_dir, "lib", "libabsl_status.dylib"))
+            )
+            self.assertTrue(
+                os.path.isfile(os.path.join(deploy_dir, "lib", "ossl-modules", "legacy.dylib"))
+            )
+            self.assertTrue(
+                os.path.isfile(os.path.join(deploy_dir, "lib", "libcrypto.3.dylib"))
+            )
+
+    def test_missing_runtime_dependency_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            deploy_dir = os.path.join(temp_dir, "deploy")
+            os.makedirs(os.path.join(deploy_dir, "bin"))
+            application = os.path.join(deploy_dir, "bin", "rstream-webtty-client")
+            with open(application, "wb") as fp:
+                fp.write(b"application")
+            with self.assertRaisesRegex(
+                Exception, "missing macOS runtime libraries: @rpath/missing.dylib"
+            ):
+                DEPLOY.copy_macos_runtime_dependencies(
+                    deploy_dir,
+                    { },
+                    [],
+                    lambda _: ["@rpath/missing.dylib"],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
