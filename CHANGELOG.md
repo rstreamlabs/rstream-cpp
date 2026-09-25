@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.5](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.4...1.14.5) (2026-09-25)
+
+
+### Bug Fixes
+
+* **webtty:** make child exit tracking concurrent-safe ([61171a9](https://github.com/rstreamlabs/rstream-cpp/commit/61171a9d0cf721c4ad0b0436c6b19ed0dd2652ee))
+
 ## [1.14.4](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.3...1.14.4) (2026-09-09)
 
 
