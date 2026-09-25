@@ -145,7 +145,8 @@ def add_macos_runtime_candidate(candidates, file_path):
 
 def get_macos_runtime_candidates(conan_dependencies):
     candidates = { }
-    modules = []
+    modules = { }
+    openssl_found = False
     for dependency in conan_dependencies:
         if not dependency.package_folder:
             continue
@@ -154,9 +155,12 @@ def get_macos_runtime_candidates(conan_dependencies):
             if os.path.isfile(file_path):
                 add_macos_runtime_candidate(candidates, file_path)
         if dependency.ref.name == "openssl":
+            openssl_found = True
             for file_path in glob.glob(os.path.join(lib_dir, "ossl-modules", "*")):
                 if os.path.isfile(file_path):
-                    modules.append(file_path)
+                    add_macos_runtime_candidate(modules, file_path)
+    if openssl_found and not modules:
+        raise Exception("missing macOS OpenSSL runtime modules")
     return candidates, modules
 
 def parse_macos_imports(output):
@@ -189,10 +193,13 @@ def copy_macos_runtime_dependencies(deploy_dir, candidates, modules, inspect_imp
     if modules:
         module_dir = os.path.join(lib_dir, "ossl-modules")
         os.makedirs(module_dir, exist_ok = True)
-        for file_path in modules:
+        for file_path in modules.values():
             name = os.path.basename(file_path)
             destination = os.path.join(module_dir, name)
             shutil.copy2(file_path, destination)
+            existing = deployed.get(name)
+            if existing and file_checksum(existing) != file_checksum(destination):
+                raise Exception("conflicting macOS runtime libraries named '" + name + "'")
             deployed[name] = destination
             pending.append(destination)
     while pending:

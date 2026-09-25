@@ -3,6 +3,7 @@
 import importlib.util
 import os
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 
@@ -108,7 +109,7 @@ class MacosRuntimeDependenciesTest(unittest.TestCase):
                     "libabsl_status.dylib": abseil,
                     "libcrypto.3.dylib": crypto,
                 },
-                [module],
+                {"legacy.dylib": module},
                 lambda file_path: imports[os.path.basename(file_path)],
             )
             self.assertTrue(
@@ -137,9 +138,21 @@ class MacosRuntimeDependenciesTest(unittest.TestCase):
                 DEPLOY.copy_macos_runtime_dependencies(
                     deploy_dir,
                     { },
-                    [],
+                    { },
                     lambda _: ["@rpath/missing.dylib"],
                 )
+
+    def test_missing_openssl_modules_fail_packaging(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.makedirs(os.path.join(temp_dir, "lib"))
+            dependency = SimpleNamespace(
+                package_folder=temp_dir,
+                ref=SimpleNamespace(name="openssl"),
+            )
+            with self.assertRaisesRegex(
+                Exception, "missing macOS OpenSSL runtime modules"
+            ):
+                DEPLOY.get_macos_runtime_candidates([dependency])
 
 
 if __name__ == "__main__":
