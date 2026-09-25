@@ -111,6 +111,26 @@ static void assert_server_waits_for_peer_shutdown(tcp::socket& socket)
   socket.non_blocking(false);
 }
 
+static void assert_peer_is_closed(tcp::socket& socket, const char* context)
+{
+  socket.non_blocking(true);
+  const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(2));
+  while (std::chrono::steady_clock::now() < deadline) {
+    char buffer[4096];
+    boost::system::error_code error_code;
+    const auto bytes = socket.read_some(boost::asio::buffer(buffer), error_code);
+    if (error_code == boost::asio::error::eof || error_code == boost::asio::error::connection_reset) {
+      return;
+    }
+    assert(!error_code || error_code == boost::asio::error::would_block || error_code == boost::asio::error::try_again);
+    if (bytes == 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  }
+  std::cerr << context << ": peer transport remained open after server shutdown completed" << std::endl;
+  assert(false && "peer transport remained open after server shutdown completed");
+}
+
 static bool read_error_or_eof(tcp::socket& socket)
 {
   try {
@@ -625,6 +645,47 @@ static void check_plain_server_bounds_final_frame_wait()
   assert(error_code == boost::asio::error::eof || error_code == boost::asio::error::connection_reset);
 }
 
+static void check_plain_server_cancel_closes_partial_open()
+{
+  for (std::size_t iteration = 0; iteration < 16; ++iteration) {
+    std::error_code error_code;
+    rstream::webtty::endpoint_identity server_identity;
+    rstream::webtty::generate_endpoint_identity(server_identity, error_code);
+    assert(!error_code);
+    plain_webtty_server server(rstream::webtty::execution_mode::spawn, nullptr, boost::none, false, server_identity);
+    server.start();
+    boost::asio::io_context io_context;
+    auto socket = connect_with_retry(io_context, server.port());
+    auto hello  = read_message(socket);
+    assert(hello.payload_case() == protobuf::Message::PayloadCase::kServerHello);
+    const std::uint8_t partial_frame = 0;
+    boost::asio::write(socket, boost::asio::buffer(&partial_frame, sizeof(partial_frame)));
+    const auto stop_started = std::chrono::steady_clock::now();
+    server.stop();
+    assert(std::chrono::steady_clock::now() - stop_started < rstream::test::timeout(std::chrono::seconds(2)));
+    assert_peer_is_closed(socket, "partial open cancellation");
+  }
+}
+
+static void check_plain_server_handles_simultaneous_peer_and_server_shutdown()
+{
+  for (std::size_t iteration = 0; iteration < 16; ++iteration) {
+    plain_webtty_server server;
+    server.start();
+    boost::asio::io_context io_context;
+    auto socket = connect_with_retry(io_context, server.port());
+    write_message(socket, open_message({"/bin/sh", "-c", "exit 0"}));
+    while (read_message(socket).payload_case() != protobuf::Message::PayloadCase::kClose) {
+    }
+
+    std::thread stopper([&server] { server.stop(); });
+    boost::system::error_code ignored;
+    socket.shutdown(tcp::socket::shutdown_both, ignored);
+    socket.close(ignored);
+    stopper.join();
+  }
+}
+
 static void check_plain_server_applies_tty_environment_and_workdir(unsigned short port)
 {
   boost::asio::io_context io_context;
@@ -1069,7 +1130,10 @@ static void check_plain_server_cancel_keeps_active_child_resources_alive()
     assert(out.payload_case() == protobuf::Message::PayloadCase::kData);
     assert(out.data().type() == protobuf::Data::TYPE_STDOUT);
     assert(out.data().data() == "active");
+    const auto stop_started = std::chrono::steady_clock::now();
     server.stop();
+    assert(std::chrono::steady_clock::now() - stop_started < rstream::test::timeout(std::chrono::seconds(2)));
+    assert_peer_is_closed(socket, "active child cancellation");
     boost::system::error_code ignored;
     socket.close(ignored);
   }
@@ -1180,6 +1244,8 @@ int main(int argc, char** argv)
   run_check("stdout and stderr streaming", [&server] { check_plain_server_runs_child_and_streams_stdout_stderr(server.port()); });
   run_check("cancellation during final frame delivery", check_plain_server_cancel_interrupts_final_frame_wait);
   run_check("bounded final frame delivery", check_plain_server_bounds_final_frame_wait);
+  run_check("cancellation during partial open", check_plain_server_cancel_closes_partial_open);
+  run_check("simultaneous peer and server shutdown", check_plain_server_handles_simultaneous_peer_and_server_shutdown);
   run_check("tty environment and workdir", [&server] { check_plain_server_applies_tty_environment_and_workdir(server.port()); });
   run_check("stdin forwarding", [&server] { check_plain_server_forwards_stdin_to_child_process(server.port()); });
   run_check("child exit before stdin EOS", [&server] { check_plain_server_reports_child_exit_without_stdin_eos(server.port()); });
