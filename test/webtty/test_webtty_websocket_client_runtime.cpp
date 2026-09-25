@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
@@ -72,6 +73,58 @@ class fd_guard {
 
  private:
   int m_fd;
+};
+
+class fd_capture {
+ public:
+  explicit fd_capture(int target)
+      : m_target(target)
+  {
+    int fds[2] = {-1, -1};
+    require_posix(pipe(fds) == 0, "pipe failed");
+    m_read.reset(fds[0]);
+    fd_guard write(fds[1]);
+    m_saved.reset(dup(target));
+    require_posix(m_saved.get() != -1, "dup failed");
+    require_posix(dup2(write.get(), target) != -1, "dup2 failed");
+  }
+
+  ~fd_capture()
+  {
+    restore();
+  }
+
+  void restore()
+  {
+    if (m_saved.get() == -1) {
+      return;
+    }
+    if (dup2(m_saved.get(), m_target) == -1) {
+      std::abort();
+    }
+    m_saved.reset();
+  }
+
+  std::string read_all()
+  {
+    restore();
+    std::string out;
+    std::array<char, 1024> buffer{};
+    while (true) {
+      auto n = read(m_read.get(), buffer.data(), buffer.size());
+      if (n == 0) {
+        break;
+      }
+      assert(n > 0);
+      out.append(buffer.data(), static_cast<std::size_t>(n));
+    }
+    return out;
+  }
+
+ private:
+  int m_target;
+  fd_guard m_saved;
+  fd_guard m_read;
 };
 
 class stdin_data {
@@ -195,6 +248,24 @@ static void write_message(websocket::stream<tcp::socket>& ws, const protobuf::Me
   ws.binary(true);
   auto payload = serialize(message);
   ws.write(boost::asio::buffer(payload));
+}
+
+static protobuf::Message data_message(protobuf::Data::Type type, const std::string& data)
+{
+  protobuf::Message message;
+  auto* payload = message.mutable_data();
+  payload->set_type(type);
+  payload->set_data(data);
+  return message;
+}
+
+static protobuf::Message eos_message(protobuf::Data::Type type)
+{
+  protobuf::Message message;
+  auto* payload = message.mutable_data();
+  payload->set_type(type);
+  payload->mutable_eos();
+  return message;
 }
 
 static rstream::webtty::byte_vector bytes_from_string(const std::string& value)
@@ -417,6 +488,13 @@ class fake_websocket_server {
             assert(false);
           }
         }
+
+        write_message(ws, data_message(protobuf::Data::TYPE_STDOUT, "o"));
+        write_message(ws, data_message(protobuf::Data::TYPE_STDERR, "e"));
+        // Output streams may terminate in either order. Close is emitted only
+        // after both EOS messages, as required by the WebTTY contract.
+        write_message(ws, eos_message(protobuf::Data::TYPE_STDERR));
+        write_message(ws, eos_message(protobuf::Data::TYPE_STDOUT));
 
         protobuf::Message close;
         close.mutable_close()->set_return_code(21);
@@ -712,6 +790,8 @@ static void check_websocket_client_sends_open_stdin_eos_and_heartbeat()
   server.start();
 
   stdin_data input("client-input");
+  fd_capture stdout_capture(STDOUT_FILENO);
+  fd_capture stderr_capture(STDERR_FILENO);
   boost::asio::io_context io_context;
   rstream::webtty::client::config config = {
       .m_address          = rstream::io::address(std::string("127.0.0.1:") + std::to_string(server.port())),
@@ -769,6 +849,8 @@ static void check_websocket_client_sends_open_stdin_eos_and_heartbeat()
   server.join();
   assert(!result);
   assert(return_code == 21);
+  assert(stdout_capture.read_all() == "o");
+  assert(stderr_capture.read_all() == "e");
 }
 
 static void check_websocket_client_e2e_sends_encrypted_stdin()
