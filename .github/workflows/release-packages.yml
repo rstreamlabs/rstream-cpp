@@ -51,6 +51,7 @@ env:
   PATCHED_BOOST_VERSION: "1.85.0"
   PATCHED_CONAN_CHANNEL: conan/stable
   PATCHED_NCURSES_VERSION: "6.5"
+  PYYAML_VERSION: "6.0.3"
   RSTREAM_URL: "${{ inputs.rstream_url || (github.ref_type == 'tag' && 'https://rstream.io' || 'https://dev.rstream.io') }}"
   USE_PATCHED_CONAN_DEPS: "on"
   VERSION: "${{ github.ref_name }}"
@@ -178,7 +179,7 @@ jobs:
             tar \
             xz-utils
           pipx install "conan==${CONAN_VERSION}"
-          python3 -m pip install --user PyYAML
+          python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Free runner disk space
         shell: bash
@@ -311,7 +312,7 @@ jobs:
           brew list jq >/dev/null 2>&1 || brew install jq
           echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
           python3 -m pip install --user "conan==${CONAN_VERSION}"
-          python3 -m pip install --user PyYAML
+          python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"
           echo "$(python3 -m site --user-base)/bin" >> "${GITHUB_PATH}"
       - name: Install apple-codesign
         if: ${{ env.MACOS_CODESIGN_MODE != '' }}
@@ -494,6 +495,7 @@ jobs:
           sudo apt update
           sudo apt-get install -y jq libdigest-sha-perl pipx
           pipx install "conan==${CONAN_VERSION}"
+          python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
       - name: Resolve package version
         run: echo "VERSION=$(tr -d '[:space:]' < version.txt)" >> "${GITHUB_ENV}"
@@ -554,6 +556,7 @@ jobs:
           brew list jq >/dev/null 2>&1 || brew install jq
           echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
           python3 -m pip install --user "conan==${CONAN_VERSION}"
+          python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"
           echo "$(python3 -m site --user-base)/bin" >> "${GITHUB_PATH}"
       - name: Resolve package version
         run: echo "VERSION=$(tr -d '[:space:]' < version.txt)" >> "${GITHUB_ENV}"

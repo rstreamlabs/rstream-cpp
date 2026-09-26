@@ -30,6 +30,15 @@ class ReleaseWorkflowTest(unittest.TestCase):
             'gh release edit "${GITHUB_REF_NAME}" --draft=false', self.workflow
         )
 
+    def test_every_release_job_installs_pinned_recipe_dependencies(self) -> None:
+        self.assertIn('PYYAML_VERSION: "6.0.3"', self.workflow)
+        self.assertEqual(
+            self.workflow.count(
+                'python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"'
+            ),
+            4,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
