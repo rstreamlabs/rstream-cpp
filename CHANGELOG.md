@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.14.6](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.5...1.14.6) (2026-09-26)
+
+
+### Bug Fixes
+
+* **packaging:** bundle macOS runtime dependencies ([4c745cb](https://github.com/rstreamlabs/rstream-cpp/commit/4c745cb573b81fbb8525678afabf7cc0ba006615))
+* **webtty:** make terminal shutdown lifecycle deterministic ([92f274e](https://github.com/rstreamlabs/rstream-cpp/commit/92f274ed15c65937cbe24f80e55166f3ce0c81f4))
+* **webtty:** order session shutdown safely ([c68d435](https://github.com/rstreamlabs/rstream-cpp/commit/c68d43535c2d5caa9e46f575973926e8d418f0f6))
+* **webtty:** preserve final frame during plain shutdown ([6494bf8](https://github.com/rstreamlabs/rstream-cpp/commit/6494bf88ceee95f9bdb2707e7fd5e3d7efa09527))
+
 ## [1.14.5](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.4...1.14.5) (2026-09-25)
 
 
