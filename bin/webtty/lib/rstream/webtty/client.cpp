@@ -518,6 +518,12 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   std::size_t m_pending_messages = 0;
 
   boost::optional<int> m_remote_return_code;
+
+  std::error_code m_close_cause;
+
+  int m_close_code = 0;
+
+  bool m_resources_closed = false;
 };
 
 client::client(const executor_type& executor, const config& config, const settings_client& settings)
@@ -889,6 +895,11 @@ void client::impl::cancel_internal()
   else if (m_state == state::connecting) {
     on_error(cause);
   }
+  else if (m_state == state::disconnecting) {
+    // A second cancellation is a forced shutdown request. It must not leave a
+    // graceful close waiting for a peer or timeout after its owner is gone.
+    on_close(cause);
+  }
 }
 
 void client::impl::on_error(const std::error_code& error_code)
@@ -937,9 +948,10 @@ void client::impl::on_close(const std::error_code& error_code, int code)
   if (cause && m_error_code) {
     cause = m_error_code;
   }
-  if (m_handler) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), cause, cause ? -1 : code);
-  }
+  m_close_cause = cause;
+  m_close_code  = cause ? -1 : code;
+  // Queue cancellation can dereference transport reactor state. Keep the
+  // socket alive until the queue confirms that its active write is gone.
   auto completion_handler = std::bind(&client::impl::on_queue_cancelled, shared_from_this(), std::placeholders::_1);
   m_queue->async_cancel(boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
@@ -951,6 +963,10 @@ void client::impl::on_queue_cancelled(const boost::system::error_code& error_cod
 #endif
   (void)error_code;
   close_resources();
+  if (m_handler) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), m_close_cause, m_close_code);
+  }
+  m_handler = nullptr;
 }
 
 void client::impl::close_resources()
@@ -958,6 +974,10 @@ void client::impl::close_resources()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  if (m_resources_closed) {
+    return;
+  }
+  m_resources_closed = true;
   if (m_websocket) {
     m_websocket->set_option(boost::beast::websocket::stream_base::timeout{
         .handshake_timeout = boost::beast::websocket::stream_base::none(),

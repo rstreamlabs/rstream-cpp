@@ -854,6 +854,95 @@ class fake_cancel_server {
   std::exception_ptr m_exception;
 };
 
+class fake_hanging_cancel_server {
+ public:
+  fake_hanging_cancel_server()
+      : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), unused_tcp_port())),
+        m_ack_sent(m_ack_promise.get_future()),
+        m_error_received(m_error_promise.get_future())
+  {
+  }
+
+  ~fake_hanging_cancel_server()
+  {
+    join();
+  }
+
+  unsigned short port() const
+  {
+    return m_acceptor.local_endpoint().port();
+  }
+
+  void start()
+  {
+    m_thread = std::thread([this] {
+      try {
+        tcp::socket socket(m_io_context);
+        m_acceptor.accept(socket);
+        auto open = read_message(socket);
+        assert(open.payload_case() == protobuf::Message::PayloadCase::kOpen);
+        protobuf::Message ack;
+        ack.mutable_ack();
+        write_message(socket, ack);
+        m_ack_promise.set_value();
+        auto error = read_message(socket);
+        assert(error.payload_case() == protobuf::Message::PayloadCase::kError);
+        m_error_promise.set_value();
+        socket.non_blocking(true);
+        const auto deadline = std::chrono::steady_clock::now() + rstream::test::timeout(std::chrono::seconds(5));
+        while (std::chrono::steady_clock::now() < deadline) {
+          char byte = 0;
+          boost::system::error_code error_code;
+          const auto bytes = socket.read_some(boost::asio::buffer(&byte, sizeof(byte)), error_code);
+          if (error_code == boost::asio::error::eof || error_code == boost::asio::error::connection_reset) {
+            return;
+          }
+          if (error_code && error_code != boost::asio::error::would_block && error_code != boost::asio::error::try_again) {
+            throw boost::system::system_error(error_code);
+          }
+          if (bytes == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+          }
+        }
+        throw std::runtime_error("client transport remained open after repeated cancellation");
+      }
+      catch (...) {
+        m_exception = std::current_exception();
+      }
+    });
+  }
+
+  bool wait_for_ack()
+  {
+    return m_ack_sent.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready;
+  }
+
+  bool wait_for_error()
+  {
+    return m_error_received.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready;
+  }
+
+  void join()
+  {
+    if (m_thread.joinable()) {
+      m_thread.join();
+    }
+    if (m_exception) {
+      std::rethrow_exception(m_exception);
+    }
+  }
+
+ private:
+  boost::asio::io_context m_io_context;
+  tcp::acceptor m_acceptor;
+  std::promise<void> m_ack_promise;
+  std::future<void> m_ack_sent;
+  std::promise<void> m_error_promise;
+  std::future<void> m_error_received;
+  std::thread m_thread;
+  std::exception_ptr m_exception;
+};
+
 static rstream::webtty::client::config plain_client_config(unsigned short port)
 {
   return {
@@ -1125,6 +1214,39 @@ static void check_plain_client_cancel_after_open_sends_error()
   assert(return_code == -1);
 }
 
+static void check_plain_client_repeated_cancel_forces_pending_close()
+{
+  fake_hanging_cancel_server server;
+  server.start();
+
+  boost::asio::io_context io_context;
+  auto config   = plain_client_config(server.port());
+  auto settings = plain_client_settings();
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  std::error_code result;
+  int return_code = 0;
+  bool done       = false;
+  client.async_run([&](const std::error_code& error_code, int code) {
+    result      = error_code;
+    return_code = code;
+    done        = true;
+  });
+  std::thread io_thread([&] { io_context.run(); });
+  assert(server.wait_for_ack());
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  client.cancel();
+  assert(server.wait_for_error());
+  const auto forced_close_started = std::chrono::steady_clock::now();
+  client.cancel();
+  io_thread.join();
+  assert(std::chrono::steady_clock::now() - forced_close_started < rstream::test::timeout(std::chrono::seconds(2)));
+  server.join();
+
+  assert(done);
+  assert(result == rstream::webtty::error::make_error_code(rstream::webtty::error::code::operation_aborted));
+  assert(return_code == -1);
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -1137,5 +1259,6 @@ int main(int argc, char** argv)
   check_plain_client_rejects_invalid_payload_after_open();
   check_plain_client_rejects_stdin_from_server();
   check_plain_client_cancel_after_open_sends_error();
+  check_plain_client_repeated_cancel_forces_pending_close();
   return 0;
 }

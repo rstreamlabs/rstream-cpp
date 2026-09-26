@@ -136,6 +136,92 @@ def copy_windows_runtime_dependencies(deploy_dir, candidates, inspect_imports = 
     if unresolved:
         raise Exception("missing Windows runtime libraries: " + ", ".join(sorted(unresolved)))
 
+def add_macos_runtime_candidate(candidates, file_path):
+    name = os.path.basename(file_path)
+    existing = candidates.get(name)
+    if existing and file_checksum(existing) != file_checksum(file_path):
+        raise Exception("conflicting macOS runtime libraries named '" + name + "'")
+    candidates[name] = file_path
+
+def get_macos_runtime_candidates(conan_dependencies):
+    candidates = { }
+    modules = { }
+    openssl_found = False
+    for dependency in conan_dependencies:
+        if not dependency.package_folder:
+            continue
+        lib_dir = os.path.join(dependency.package_folder, "lib")
+        for file_path in glob.glob(os.path.join(lib_dir, "**", "*.dylib*"), recursive = True):
+            if os.path.isfile(file_path):
+                add_macos_runtime_candidate(candidates, file_path)
+        if dependency.ref.name == "openssl":
+            openssl_found = True
+            for file_path in glob.glob(os.path.join(lib_dir, "ossl-modules", "*")):
+                if os.path.isfile(file_path):
+                    add_macos_runtime_candidate(modules, file_path)
+    if openssl_found and not modules:
+        raise Exception("missing macOS OpenSSL runtime modules")
+    return candidates, modules
+
+def parse_macos_imports(output):
+    result = []
+    for line in output.splitlines()[1:]:
+        line = line.strip()
+        marker = " (compatibility version "
+        if marker in line:
+            result.append(line.split(marker, 1)[0])
+    return result
+
+def inspect_macos_imports(file_path):
+    result = subprocess.run(["otool", "-L", file_path], check = True, capture_output = True, text = True)
+    return parse_macos_imports(result.stdout)
+
+def is_macos_system_library(name):
+    return name.startswith("/System/Library/") or name.startswith("/usr/lib/")
+
+def copy_macos_runtime_dependencies(deploy_dir, candidates, modules, inspect_imports = inspect_macos_imports):
+    deployed = { }
+    pending = []
+    for root, _, filenames in os.walk(deploy_dir):
+        for filename in filenames:
+            file_path = os.path.join(root, filename)
+            if root == os.path.join(deploy_dir, "bin") or ".dylib" in filename or filename.endswith(".so"):
+                deployed[filename] = file_path
+                pending.append(file_path)
+    unresolved = set()
+    lib_dir = os.path.join(deploy_dir, "lib")
+    if modules:
+        module_dir = os.path.join(lib_dir, "ossl-modules")
+        os.makedirs(module_dir, exist_ok = True)
+        for file_path in modules.values():
+            name = os.path.basename(file_path)
+            destination = os.path.join(module_dir, name)
+            shutil.copy2(file_path, destination)
+            existing = deployed.get(name)
+            if existing and file_checksum(existing) != file_checksum(destination):
+                raise Exception("conflicting macOS runtime libraries named '" + name + "'")
+            deployed[name] = destination
+            pending.append(destination)
+    while pending:
+        file_path = pending.pop()
+        for imported_path in inspect_imports(file_path):
+            if is_macos_system_library(imported_path):
+                continue
+            name = os.path.basename(imported_path)
+            if name in deployed:
+                continue
+            candidate = candidates.get(name)
+            if not candidate:
+                unresolved.add(imported_path)
+                continue
+            os.makedirs(lib_dir, exist_ok = True)
+            destination = os.path.join(lib_dir, name)
+            shutil.copy2(candidate, destination)
+            deployed[name] = destination
+            pending.append(destination)
+    if unresolved:
+        raise Exception("missing macOS runtime libraries: " + ", ".join(sorted(unresolved)))
+
 def run_command_with_retries(command, attempts = 3, delay = 5):
     for attempt in range(1, attempts + 1):
         try:
@@ -282,6 +368,8 @@ def generate_package(conanfile, package, conan_dependencies, output_folder):
             shutil.copy(terminfo, datadir)
     if str(conanfile.settings.os) == "Windows":
         copy_windows_runtime_dependencies(deploy_dir, get_windows_runtime_candidates(conan_dependencies))
+    elif str(conanfile.settings.os) == "Macos":
+        copy_macos_runtime_dependencies(deploy_dir, *get_macos_runtime_candidates(conan_dependencies))
     sign_macos_payload(conanfile, deploy_dir)
     if package[1] == ".zip":
         with zipfile.ZipFile(package_name, "w", zipfile.ZIP_DEFLATED) as zipf:

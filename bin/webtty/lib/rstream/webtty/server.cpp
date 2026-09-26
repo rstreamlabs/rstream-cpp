@@ -575,6 +575,8 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   void on_queue_cancelled(const boost::system::error_code& error_code);
 
+  void cancel_resources();
+
   void close_resources();
 
   void do_read_http_request();
@@ -718,6 +720,18 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
   bool m_child_done = false;
 
   int m_child_exit_code = 0;
+
+  bool m_final_message_sent = false;
+
+  bool m_read_in_progress = false;
+
+  bool m_cancel_requested = false;
+
+  bool m_resources_cancelled = false;
+
+  bool m_resources_closed = false;
+
+  std::error_code m_close_cause;
 
   std::string m_server_signing_key_id;
 
@@ -965,6 +979,9 @@ void server::impl::do_accept()
   assert(m_strand.running_in_this_thread());
 #endif
   if (m_state != state::started) {
+    // Never start or retain an accept target after admission has stopped.
+    boost::system::error_code ignored;
+    m_socket.close(ignored);
     return;
   }
   auto completion_handler = std::bind(&impl::on_accept, shared_from_this(), std::placeholders::_1);
@@ -977,6 +994,11 @@ void server::impl::on_accept(const std::error_code& error_code)
   assert(m_strand.running_in_this_thread());
 #endif
   if (m_state != state::started) {
+    // The kernel may complete an accept just before shutdown while its handler
+    // is queued behind cancel_internal on the strand. Explicitly close that
+    // late accepted socket instead of relying on the earlier admission close.
+    boost::system::error_code ignored;
+    m_socket.close(ignored);
     return;
   }
   if (error_code) {
@@ -1028,7 +1050,12 @@ void server::impl::on_error(const std::error_code& error_code)
   if (!error_code) {
     return;
   }
-  on_close(error_code);
+  if (m_state == state::started) {
+    do_close(error_code);
+  }
+  else {
+    on_close(error_code);
+  }
 }
 
 void server::impl::do_close(const std::error_code& error_code)
@@ -1039,15 +1066,24 @@ void server::impl::do_close(const std::error_code& error_code)
   if (m_state != state::started) {
     return;
   }
+  if (error_code && !m_error_code) {
+    m_error_code = error_code;
+  }
+  set_state(state::stopping);
+  {
+    // Stop admission before asking existing sessions to shut down. The
+    // sessions remain owned by m_sessions until their resource teardown has
+    // completed and their completion handler runs.
+    boost::system::error_code ignored;
+    m_acceptor.close(ignored);
+    m_socket.close(ignored);
+    m_resolver.cancel();
+  }
   if (m_sessions.empty()) {
     on_close(error_code);
   }
   else {
     m_logger->debug("stopping pending sessions...");
-    if (error_code && !m_error_code) {
-      m_error_code = error_code;
-    }
-    set_state(state::stopping);
     for (const auto& session : m_sessions) {
       session.second->cancel();
     }
@@ -1062,16 +1098,25 @@ void server::impl::on_close(const std::error_code& error_code)
   if (m_state == state::null || m_state == state::stopped) {
     return;
   }
-  set_state(state::stopped);
   auto cause = m_error_code ? m_error_code : error_code;
-  m_logger->debug("server stopped [error_code: {}]", (cause ? cause.message() : "none"));
-  for (const auto& session : m_sessions) {
-    session.second->cancel();
+  if (!m_sessions.empty()) {
+    if (cause && !m_error_code) {
+      m_error_code = cause;
+    }
+    if (m_state != state::stopping) {
+      set_state(state::stopping);
+    }
+    for (const auto& session : m_sessions) {
+      session.second->cancel();
+    }
+    return;
   }
-  m_sessions.clear();
+  set_state(state::stopped);
+  m_logger->debug("server stopped [error_code: {}]", (cause ? cause.message() : "none"));
   {
     boost::system::error_code tmp;
     m_acceptor.close(tmp);
+    m_socket.close(tmp);
     m_resolver.cancel();
   }
   if (m_handler) {
@@ -1314,11 +1359,21 @@ void server::impl::session::cancel_internal(const std::error_code& error_code)
     return;
   }
   auto cause = error_code ? error_code : error::code::operation_aborted;
+  m_cancel_requested = true;
+  if (!m_error_code) {
+    m_error_code = cause;
+  }
   if (m_state == state::connected) {
     do_close(cause);
   }
   else if (m_state == state::connecting) {
     on_error(cause);
+  }
+  else if (m_state == state::disconnecting) {
+    // A plain session can remain disconnecting while it waits for the peer to
+    // acknowledge the terminal frame by closing the transport. Server
+    // shutdown must always interrupt that bounded delivery wait.
+    on_close(cause);
   }
 }
 
@@ -1380,12 +1435,11 @@ void server::impl::session::on_close(const std::error_code& error_code)
     return;
   }
   auto cause = m_error_code ? m_error_code : error_code;
+  m_close_cause = cause;
   set_state(state::disconnected);
-  log_session_closed(cause);
-  if (m_handler) {
-    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), cause);
-  }
-  m_handler               = nullptr;
+  // The queue's active cancellation slot refers to the transport's reactor
+  // state. Drain it while the transport object is still alive; only the
+  // completion handler may release the socket and process resources.
   auto completion_handler = std::bind(&session::on_queue_cancelled, shared_from_this(), std::placeholders::_1);
   m_queue->async_cancel(boost::asio::bind_executor(m_strand, std::move(completion_handler)));
 }
@@ -1397,13 +1451,22 @@ void server::impl::session::on_queue_cancelled(const boost::system::error_code& 
 #endif
   (void)error_code;
   close_resources();
+  log_session_closed(m_close_cause);
+  if (m_handler) {
+    rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), m_close_cause);
+  }
+  m_handler = nullptr;
 }
 
-void server::impl::session::close_resources()
+void server::impl::session::cancel_resources()
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  if (m_resources_cancelled) {
+    return;
+  }
+  m_resources_cancelled = true;
   {
     boost::system::error_code tmp;
     m_socket.close(tmp);
@@ -1416,11 +1479,27 @@ void server::impl::session::close_resources()
     if (!m_child_done) {
       boost::system::error_code tmp;
       m_child->terminate(tmp);
-      tmp.clear();
-      m_child->wait(tmp);
+    }
+  }
+}
+
+void server::impl::session::close_resources()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_resources_closed) {
+    return;
+  }
+  cancel_resources();
+  if (m_child) {
+    if (!m_child_done) {
+      boost::system::error_code ignored;
+      m_child->wait(ignored);
     }
     m_child->detach();
   }
+  m_resources_closed = true;
 }
 
 void server::impl::session::do_read_http_request()
@@ -1950,6 +2029,7 @@ void server::impl::session::do_send_error(const std::error_code& error_code)
   }
   log_session_rejected(error_code);
   set_state(state::disconnecting);
+  arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   rstream::webtty::protobuf::Message message;
   error::code code;
   if (error_code.category() == std::error_code(error::code{}).category()) {
@@ -1983,6 +2063,7 @@ void server::impl::session::do_send_close(int code)
   }
   if (m_active_streams.empty()) {
     set_state(state::disconnecting);
+    arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
     rstream::webtty::protobuf::Message message;
     message.mutable_close()->set_return_code(code);
     do_send_message(message, loop::exit);
@@ -2040,11 +2121,22 @@ void server::impl::session::on_send_message(const std::error_code& error_code, e
         do_send_heartbeat();
         break;
       case loop::exit:
-        if (m_websocket) {
+        if (m_cancel_requested) {
+          // Server shutdown is a persistent session intent. Once the terminal
+          // frame has reached the local transport, do not enter the normal
+          // peer-close acknowledgement wait: the peer may itself be waiting
+          // for server shutdown to complete.
+          on_close(m_error_code);
+        }
+        else if (m_websocket) {
           do_close_websocket();
         }
         else {
-          on_close(error_code);
+          // A successful write only transfers the terminal frame to the local
+          // transport. Keep the plain stream alive until the peer closes it so
+          // relayed transports cannot discard that frame during teardown.
+          m_final_message_sent = true;
+          do_read_incoming_message();
         }
         break;
       case loop::null: {
@@ -2071,9 +2163,10 @@ void server::impl::session::do_read_incoming_message()
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
-  if (m_state == state::null || m_state == state::disconnected) {
+  if (m_state == state::null || m_state == state::disconnected || m_read_in_progress) {
     return;
   }
+  m_read_in_progress = true;
   m_buffer_socket.reset_size();
   auto self               = shared_from_this();
   auto completion_handler = std::bind(&session::on_read_incoming_data, self, std::placeholders::_1);
@@ -2095,10 +2188,21 @@ void server::impl::session::on_read_incoming_data(const std::error_code& error_c
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
+  m_read_in_progress = false;
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  if (error_code) {
+  if (m_state == state::disconnecting) {
+    if (error_code) {
+      on_close(m_final_message_sent ? std::error_code() : error_code);
+    }
+    else {
+      // Ignore data sent after a terminal frame was queued and continue
+      // waiting for transport shutdown. The close deadline remains armed.
+      do_read_incoming_message();
+    }
+  }
+  else if (error_code) {
     on_error(error_code);
   }
   else {
