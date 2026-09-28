@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.14.7](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.6...1.14.7) (2026-09-28)
+
+
+### Bug Fixes
+
+* **packaging:** serialize runtime plugin copies ([7bff131](https://github.com/rstreamlabs/rstream-cpp/commit/7bff13139d2a84edc78403d7f53792f29a73251b))
+* **packaging:** serialize runtime plugin copies ([71ee489](https://github.com/rstreamlabs/rstream-cpp/commit/71ee48964c42de8f03e4ffac36d6e81c5801d22b))
+* **webtty:** align interactive shutdown semantics ([fe7011f](https://github.com/rstreamlabs/rstream-cpp/commit/fe7011f707026892d36eca37b2b32a3403069dd9))
+* **webtty:** align interactive shutdown semantics ([bfc7798](https://github.com/rstreamlabs/rstream-cpp/commit/bfc77982dc693be04a31356b3b8a55d134c53cc2))
+
 ## [1.14.6](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.5...1.14.6) (2026-09-26)
 
 
