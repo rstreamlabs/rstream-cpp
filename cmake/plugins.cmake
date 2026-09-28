@@ -1,5 +1,7 @@
 # See LICENSE file in the project root for license information.
 
+set(_RSTREAM_COPY_RUNTIME_PLUGIN_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/copy-runtime-plugin.cmake")
+
 function(rstream_enable_runtime_plugins target)
   set(runtime_plugins)
   foreach(plugin IN LISTS ARGN)
@@ -27,6 +29,11 @@ function(rstream_enable_runtime_plugins target)
     add_custom_command(
       TARGET ${target}
       POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${plugin}>" "${plugin_directory}/")
+      COMMAND ${CMAKE_COMMAND}
+        "-DRSTREAM_RUNTIME_PLUGIN_SOURCE=$<TARGET_FILE:${plugin}>"
+        "-DRSTREAM_RUNTIME_PLUGIN_DIRECTORY=${plugin_directory}"
+        "-DRSTREAM_RUNTIME_PLUGIN_LOCK_DIRECTORY=${CMAKE_BINARY_DIR}/CMakeFiles/rstream-runtime-plugin-locks"
+        -P "${_RSTREAM_COPY_RUNTIME_PLUGIN_SCRIPT}"
+      VERBATIM)
   endforeach()
 endfunction()

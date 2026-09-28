@@ -104,6 +104,10 @@ configure_file(
   ${PROJECT_SOURCE_DIR}/cmake/plugins.cmake
   ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}Plugins.cmake
   COPYONLY)
+configure_file(
+  ${PROJECT_SOURCE_DIR}/cmake/copy-runtime-plugin.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/copy-runtime-plugin.cmake
+  COPYONLY)
 
 install(EXPORT ${CMAKE_PACKAGE_TARGETS}
   FILE ${CMAKE_PACKAGE_TARGETS}.cmake
@@ -117,5 +121,6 @@ install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}Config.cmake
   ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}ConfigVersion.cmake
   ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PACKAGE_NAME}Plugins.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/copy-runtime-plugin.cmake
   DESTINATION ${INSTALL_PATH_CMAKE_CONFIG}
   COMPONENT Devel)
