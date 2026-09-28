@@ -1414,12 +1414,14 @@ void server::impl::session::do_close(const std::error_code& error_code)
   };
 #endif
   arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
-  m_logger->debug("sending SIGINT to child");
   std::error_code ec;
 #ifdef _WIN32
+  m_logger->debug("terminating child during session shutdown");
   do_kill(CTRL_C_EVENT, ec);
 #else
-  do_kill(SIGINT, ec);
+  const auto signal = m_stream_ptr && m_stream_ptr->backend() == stream::backend::tty ? SIGHUP : SIGINT;
+  m_logger->debug("sending {} to child", signal == SIGHUP ? "SIGHUP" : "SIGINT");
+  do_kill(signal, ec);
 #endif
   if (ec) {
     on_error(ec);

@@ -1139,6 +1139,39 @@ static void check_plain_server_cancel_keeps_active_child_resources_alive()
   }
 }
 
+static void check_plain_server_cancel_gracefully_closes_tty()
+{
+  plain_webtty_server server;
+  server.start();
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, server.port());
+  auto open   = open_message({"/bin/sh", "-c", "trap '' INT; printf ready; while :; do sleep 1; done"}, true);
+  open.mutable_open()->mutable_config()->mutable_options()->set_allocate_tty(true);
+  write_message(socket, open);
+
+  bool saw_ack   = false;
+  bool saw_ready = false;
+  while (!saw_ack || !saw_ready) {
+    auto message = read_message(socket);
+    if (message.payload_case() == protobuf::Message::PayloadCase::kAck) {
+      saw_ack = true;
+    }
+    else if (message.payload_case() == protobuf::Message::PayloadCase::kData && message.data().type() == protobuf::Data::TYPE_STDOUT && message.data().data().find("ready") != std::string::npos) {
+      saw_ready = true;
+    }
+  }
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  std::thread stopper([&server] { server.stop(); });
+  bool saw_close = false;
+  while (!saw_close) {
+    auto message = read_message(socket);
+    saw_close    = message.payload_case() == protobuf::Message::PayloadCase::kClose;
+  }
+  stopper.join();
+  assert(std::chrono::steady_clock::now() - stop_started < rstream::test::timeout(std::chrono::seconds(2)));
+}
+
 static void check_plain_server_completes_rapid_multithreaded_child_exits()
 {
   constexpr std::size_t client_count          = 16;
@@ -1260,6 +1293,7 @@ int main(int argc, char** argv)
   run_check("login mode rejects unknown user before listen", check_login_execution_mode_rejects_unknown_user_before_listen);
   run_check("login mode configured user", check_login_execution_mode_runs_as_configured_user);
   run_check("cancellation with active child", check_plain_server_cancel_keeps_active_child_resources_alive);
+  run_check("graceful tty cancellation", check_plain_server_cancel_gracefully_closes_tty);
   run_check("rapid multithreaded child exits", check_plain_server_completes_rapid_multithreaded_child_exits);
   return 0;
 }

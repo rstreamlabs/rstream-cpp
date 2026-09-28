@@ -638,6 +638,41 @@ static void check_websocket_server_reports_child_exit_without_stdin_eos(unsigned
   }
 }
 
+static void check_websocket_server_cancel_gracefully_closes_tty()
+{
+  websocket_webtty_server server;
+  server.start();
+  boost::asio::io_context io_context;
+  auto websocket = connect_with_retry(io_context, server.port());
+  auto open      = open_message({"/bin/sh", "-c", "trap '' INT; printf ready; while :; do sleep 1; done"}, true);
+  open.mutable_open()->mutable_config()->mutable_options()->set_allocate_tty(true);
+  write_message(websocket, open);
+
+  bool saw_ack   = false;
+  bool saw_ready = false;
+  while (!saw_ack || !saw_ready) {
+    auto message = read_message(websocket);
+    assert(message);
+    if (message->payload_case() == protobuf::Message::PayloadCase::kAck) {
+      saw_ack = true;
+    }
+    else if (message->payload_case() == protobuf::Message::PayloadCase::kData && message->data().type() == protobuf::Data::TYPE_STDOUT && message->data().data().find("ready") != std::string::npos) {
+      saw_ready = true;
+    }
+  }
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  std::thread stopper([&server] { server.stop(); });
+  bool saw_close = false;
+  while (!saw_close) {
+    auto message = read_message(websocket);
+    assert(message);
+    saw_close = message->payload_case() == protobuf::Message::PayloadCase::kClose;
+  }
+  stopper.join();
+  assert(std::chrono::steady_clock::now() - stop_started < rstream::test::timeout(std::chrono::seconds(2)));
+}
+
 static void check_websocket_server_e2e_forwards_stdin_and_closes_normally()
 {
   std::error_code error_code;
@@ -930,6 +965,7 @@ int main(int argc, char** argv)
   server.start();
   check_websocket_server_runs_child_and_closes_normally(server.port());
   check_websocket_server_reports_child_exit_without_stdin_eos(server.port());
+  check_websocket_server_cancel_gracefully_closes_tty();
   check_websocket_server_e2e_forwards_stdin_and_closes_normally();
   check_websocket_server_e2e_accepts_client_credential_verifier();
   check_websocket_server_logs_audit_fields_for_authenticated_e2e_session();
