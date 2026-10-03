@@ -231,12 +231,16 @@ qualify that upstream component separately. Linux's unrestricted baseline passed
 
 ## Completed local matrix and remaining gates
 
-At source revision `681af3c`, the four regenerated SDKs passed C++20 and direct
+Final C++ qualification uses source revision `61b9425` and the four regenerated
+SDKs built from toolchain revision `17d5e9a`. The SDKs passed C++20 and direct
 Perl execution. The OpenSSL 4 cross matrix passed 51 tests on each musl target,
 52 on each glibc target, and an external consumer in every cell. Native Linux
 also passed 52 tests plus a consumer for OpenSSL 4, OpenSSL 3, public Boost 1.83,
 and LibreSSL. Exact references, locks, timings and package sizes are recorded
-in `../.yocto-pilot/qualification/final/summary.json`.
+in `../.yocto-pilot/qualification/provider-init/summary.json`. The dependency sets
+are unchanged from the prior full run, and regular package-file totals differ
+by at most 296 bytes. Build times are recorded observations with cached
+dependencies, not controlled performance benchmarks.
 
 Both archive types were produced locally for all four targets. Every shipped
 executable passed help/version with the relevant native/SDK/QEMU runner.
@@ -259,7 +263,8 @@ on OpenSSL 3.2+, before provider initialization. No provider or public Conan
 dependency source was patched. The first native rebuild passed 52 tests and its external consumer. The local
 fixture passed EC/TLS 1.2 and 1.3 plus RSA/TLS 1.3 with this provider, and retained
 libp11 EC/TLS 1.2 and RSA/TLS 1.3 support; every case also rejected an invalid PIN.
-The remaining cross/CI matrix must be repeated for the changed source.
+The complete cross/native matrix and all matching archives/runtime checks
+subsequently passed on `61b9425`; CI remains a separate acceptance gate.
 
 A disposable CE engine pinned to image digest
 `sha256:40b6c8e56b3be11ed6e15e02699378e975738d58991d86253e2ce65c55bc498d`
@@ -268,7 +273,9 @@ extracted distribution packages. Each run passed passthrough creation plus
 seven runtime cases: two invalid-option checks, terminated TLS, TLS upstream,
 TLS passthrough, HTTP/1.1 and published TCP. ARM64 used QEMU; glibc used the
 SDK runtime. Evidence and the exact adapted script are in
-`../.yocto-pilot/local-engine-e2e/<cell>/`.
+`../.yocto-pilot/local-engine-e2e-provider-init/<cell>/`. The final archive and
+runtime queues both completed successfully; all 18 runtime checks passed
+(eight terminfo probes, five CE cells and five PKCS#11 provider cases).
 
 The runtime script uses CE-compatible settings: it omits custom edge ALPN
 policy and the hosted cross-region routing flag. The original hosted script
@@ -303,3 +310,24 @@ Use `--rsa` for RSA instead of EC P-256, and `--provider pkcs11prov` for libp11.
 The fixture deliberately avoids global provider configuration: SoftHSM's own
 OpenSSL backend must not recursively activate the provider being tested.
 This is a local integration check, not physical HSM or hosted-policy certification.
+
+## Older-kernel probe
+
+An isolated KVM guest running Ubuntu kernel `5.4.0-216-generic` (package
+`5.4.0-216.236`, downloaded through Ubuntu's signed APT metadata) passed the
+final x86_64/musl C++20 threads/filesystem smoke program, a TCP payload exchange,
+and an mTLS 1.3 HTTP exchange with the final rstream-ncat client and a reference
+OpenSSL server. The guest had no external network and changed neither the host
+kernel nor the SDK build settings. Exact executable/image hashes and the guest
+console log are in `../.yocto-pilot/kernel-probe/`.
+
+This is evidence for those selected x86_64/musl programs on that kernel, not a
+universal minimum-kernel guarantee. ARM64 and glibc were not tested on 5.4; the
+configured upstream 5.15 baseline remains unchanged.
+
+The initial `ncat -c` TLS test-server pattern transmitted its payload then
+returned `stream truncated` to the client. The same result reproduces with the
+prior source and both OpenSSL 3 and 4 on host kernel 7.0. It is recorded in
+`kernel-probe/ncat-server-control.json`; it is not counted as a passed TLS
+shutdown test. The successful compatibility probe used OpenSSL's server to
+provide proper TLS shutdown.
