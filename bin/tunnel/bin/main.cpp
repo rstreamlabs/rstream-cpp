@@ -170,7 +170,7 @@ int run(int argc, char** argv)
   }
   auto verbose = false;
   {
-    auto arg = args.at("--verbose");
+    const auto& arg = args.at("--verbose");
     if (arg) {
       verbose = arg.asBool();
     }
@@ -186,7 +186,7 @@ int run(int argc, char** argv)
   auto format = format::human;
 #endif
   {
-    auto arg = args.at("--format");
+    const auto& arg = args.at("--format");
     if (arg) {
       parse_format(format, arg.asString());
     }

@@ -44,6 +44,9 @@ set_target_properties(
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/bin")
 target_link_libraries(${PROJECT_NAME} PUBLIC rstream::rstream)
+if(RSTREAM_TEST_FULLY_STATIC)
+  target_link_options(${PROJECT_NAME} PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
 enable_testing()
 # Naming the target lets CMake apply CMAKE_CROSSCOMPILING_EMULATOR when the
 # qualification host explicitly enables execution of a cross-built consumer.

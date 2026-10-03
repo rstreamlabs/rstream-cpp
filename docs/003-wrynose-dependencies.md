@@ -71,3 +71,35 @@ requires QEMU or an ARM64 execution host. A glibc consumer may require the SDK's
 loader and libraries when its glibc is newer than the workstation's version.
 Do not mark a skipped external consumer as a runtime pass, and do not infer
 old-kernel compatibility from QEMU user-mode execution on the host kernel.
+
+## Pilot findings
+
+The Linux and macOS native CI linkage matrices passed with public Boost 1.91.0
+and the current public dependency graph. Windows qualification is still running.
+
+On x86_64/musl, the public dependency builds now complete with GCC 15. The Yocto
+tool recipe must append SDK flags to the Conan build environment: defining them
+replaced flags supplied by dependency recipes, including ncurses' GCC 15 C17
+compatibility flag. No public dependency recipe was changed for this fix.
+
+The ARM64 ncurses recipe rejects cross compilation before building. The separate
+`conan/recipes/ncurses-wrynose` packaging candidate narrows that exception to
+Linux x86_64 -> ARM64 with a Yocto 6.0 SDK. Its musl C++/terminfo/window/input
+consumer passed under QEMU. glibc and the complete ARM64 rstream package remain
+to qualify. This recipe is not a library dependency default.
+
+Fully static runtime qualification excludes the shared-module loader fixture,
+which requires dynamic loading; native dynamically linked runtime matrices
+retain it. The external consumer explicitly links fully statically when testing
+that package option. CLI argument readers use const references to docopt values,
+avoiding unnecessary variant copies exposed by GCC 15's optimized diagnostics.
+
+## OpenSSL major-version boundary
+
+The pilot retains the latest selected 3.x recipe (3.6.5), with the `<4` bound.
+OpenSSL 4 removes the ENGINE API, as documented by
+[OpenSSL](https://openssl-library.org/post/2025-12-18-remove-engines/index.html).
+rstream has both provider-based PKCS#11 and a legacy ENGINE compatibility path.
+Widening the bound therefore requires explicit provider/legacy configuration
+and supported-Boost qualification; a successful generic TLS build alone is
+insufficient. Do not silently drop that capability to claim a dependency bump.

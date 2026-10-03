@@ -36,6 +36,9 @@ class TestPackageConan(ConanFile):
         cmake_toolchain.variables["RSTREAM_TEST_EXPECT_STATIC_PLUGINS"] = (
             "ON" if str(dependency_options.static_plugins).lower() == "true" else "OFF"
         )
+        cmake_toolchain.variables["RSTREAM_TEST_FULLY_STATIC"] = (
+            "ON" if str(dependency_options.static_libstdcxx).lower() == "true" else "OFF"
+        )
         cmake_toolchain.generate()
         cmake_deps = conan.tools.cmake.CMakeDeps(self)
         cmake_deps.generate()

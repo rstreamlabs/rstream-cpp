@@ -12,7 +12,7 @@ add_subdirectory(webtty)
 if(TARGET ${PROJECT_NAME}-inspect)
   add_test(
     NAME rstream-test-inspect-runtime-plugins
-    COMMAND $<TARGET_FILE:${PROJECT_NAME}-inspect> plugins)
+    COMMAND ${PROJECT_NAME}-inspect plugins)
   set_tests_properties(
     rstream-test-inspect-runtime-plugins
     PROPERTIES
