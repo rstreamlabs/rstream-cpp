@@ -135,11 +135,23 @@ add_subdirectory(webtty)
         self.assertNotIn('ncurses_ref=', result.stdout)
         self.assertNotIn('boost_ref=', result.stdout)
 
+    def test_scarthgap_exception_uses_its_separate_packaging_recipe(self):
+        result = subprocess.run([sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                                 '--arch', 'arm64', '--libc', 'musl', '--sdk-version', '5.0.10',
+                                 '--arm-ncurses-exception', '--plan', '--conan', '/does/not/exist'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('ncurses/6.5@rstream/scarthgap', result.stdout)
+        self.assertNotIn('@rstream/wrynose', result.stdout)
+        self.assertNotIn('boost_ref=', result.stdout)
+        for option in ('build_os=linux', 'build_arch=arm64', 'build_channel=dev'):
+            self.assertIn('rstream/*:' + option, result.stdout)
+
     def test_invalid_scope_fails_before_conan(self):
         for arguments in (['--arch', 'x86_64', '--arm-ncurses-exception'],
                           ['--arch', 'arm64', '--sdk-version', '5.0.2'],
                           ['--arch', 'arm64', '--sdk-version', '5.0.20'],
-                          ['--arch', 'arm64', '--sdk-version', '5.0.10', '--arm-ncurses-exception'],
+                          ['--arch', 'arm64', '--sdk-version', '5.0.20', '--arm-ncurses-exception'],
                           ['--arch', 'x86_64', '--jobs', '0']):
             result = subprocess.run([sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
                                      '--libc', 'musl', '--plan', '--conan', '/does/not/exist',

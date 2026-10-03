@@ -189,6 +189,18 @@ extra_conan_options["linux-ppc64le-musl"]="--options boost/*:without_charconv=Tr
 extra_conan_options["linux-riscv64-glibc"]="--options openssl/*:no_asm=True"
 extra_conan_options["linux-riscv64-musl"]="--options openssl/*:no_asm=True"
 
+function modern_linux_sdk {
+  [[ "${linux_toolchain_version}" = 6.0.* || "${linux_toolchain_version}" = 5.0.10 ]]
+}
+
+function ncurses_packaging_generation {
+  if [ "${linux_toolchain_version}" = "5.0.10" ]; then
+    echo scarthgap
+  else
+    echo wrynose
+  fi
+}
+
 function patched_conan_conf {
   if [ "${use_patched_conan_deps}" != "on" ]; then
     return
@@ -196,9 +208,9 @@ function patched_conan_conf {
   if [ "${OS}" = "macos" ]; then
     return
   fi
-  if [ "${OS}" = "linux" ] && [[ "${linux_toolchain_version}" = 6.0.* ]]; then
+  if [ "${OS}" = "linux" ] && modern_linux_sdk; then
     if [ "${ARCH}" = "arm64" ]; then
-      echo "-o rstream/*:ncurses_ref=ncurses/6.5@rstream/wrynose"
+      echo "-o rstream/*:ncurses_ref=ncurses/6.5@rstream/$(ncurses_packaging_generation)"
     fi
     return
   fi
@@ -210,7 +222,7 @@ function patched_conan_conf {
 }
 
 function patched_test_conan_conf {
-  if [ "${OS}" = "macos" ] || { [ "${OS}" = "linux" ] && [[ "${linux_toolchain_version}" = 6.0.* ]]; }; then
+  if [ "${OS}" = "macos" ] || { [ "${OS}" = "linux" ] && modern_linux_sdk; }; then
     return
   fi
   if [ "${use_patched_conan_deps}" = "on" ]; then
@@ -463,12 +475,12 @@ function export_patched_conan_recipes {
     return
   fi
   local recipes=(boost ncurses)
-  if [ "${OS}" = "linux" ] && [[ "${linux_toolchain_version}" = 6.0.* ]]; then
+  if [ "${OS}" = "linux" ] && modern_linux_sdk; then
     recipes=()
     local arch
     for arch in "${linux_archs[@]}"; do
       if [ "${arch}" = "arm64" ]; then
-        recipes=(ncurses-wrynose)
+        recipes=("ncurses-$(ncurses_packaging_generation)")
         break
       fi
     done
@@ -483,15 +495,15 @@ function export_patched_conan_recipes {
       continue
     fi
     if [ "${backend}" = "docker" ]; then
-      if [ "${recipe}" = "ncurses-wrynose" ]; then
+      if [[ "${recipe}" = ncurses-wrynose || "${recipe}" = ncurses-scarthgap ]]; then
         docker_run_builder --entrypoint "conan" -v "${script_dir}:/source:rw" conan2-builder \
-          export /source/conan/recipes/ncurses-wrynose/all --version 6.5 --user rstream --channel wrynose || exit 1
+          export "/source/conan/recipes/${recipe}/all" --version 6.5 --user rstream --channel "${recipe#ncurses-}" || exit 1
       else
         docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
           "cd /source/conan/recipes/${recipe} && python3 export.py" || exit 1
       fi
-    elif [ "${recipe}" = "ncurses-wrynose" ]; then
-      conan export "${script_dir}/conan/recipes/ncurses-wrynose/all" --version 6.5 --user rstream --channel wrynose || exit 1
+    elif [[ "${recipe}" = ncurses-wrynose || "${recipe}" = ncurses-scarthgap ]]; then
+      conan export "${script_dir}/conan/recipes/${recipe}/all" --version 6.5 --user rstream --channel "${recipe#ncurses-}" || exit 1
     else
       (
         cd "${script_dir}/conan/recipes/${recipe}"
@@ -766,7 +778,7 @@ function show_help {
   echo "  WINDOWS_PLUGIN_MODES    : Use auto, static, or dynamic plugin loading (windows)."
   echo "  OSS                     : Set the operating systems to build for."
   echo "  USE_PATCHED_CONAN_DEPS  : Allow target-specific packaging overrides (default: ${default_use_patched_conan_deps})."
-  echo "                           Wrynose uses public Boost; only ARM64 uses the ncurses exception. macOS uses public recipes."
+  echo "                           Wrynose and Scarthgap 5.0.10 use public Boost; only ARM64 uses the ncurses exception. macOS uses public recipes."
   echo "  WARNINGS_AS_ERRORS      : Treat project warnings as errors (default: ${default_warnings_as_errors})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
   echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."

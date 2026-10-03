@@ -183,8 +183,14 @@ so Scarthgap and Wrynose results do not overwrite one another.
 The same driver accepts the pinned Scarthgap maintenance candidate with
 `--sdk-version 5.0.10`, after creating its local tool package from a verified
 archive. That path preserves GCC 13.3 and starts with public dependency recipes;
-the Wrynose ARM ncurses exception cannot be selected for Scarthgap. This adds a
-qualification path, not a claim that the Scarthgap C++ matrix already passes.
+the public ncurses recipe rejects ARM cross compilation before building. An
+explicit `--arm-ncurses-exception` selects the separate
+`ncurses/6.5@rstream/scarthgap` packaging recipe, restricted to 5.0.10. Its
+ARM64/musl consumer passed under QEMU; the complete ARM64 C++ matrix is still
+being qualified. The x86_64/musl SDK passed the C++ package's 51 tests, its
+external consumer, archive smoke tests and both local CE tunnel suites.
+`build-conan-cross.sh` also selects public Boost for exactly 5.0.10; other
+legacy SDK versions retain their prior settings. No SDK or package is uploaded.
 
 The script verifies public target recipe revisions, records a locked input
 graph, validates the installed SDK provenance, forces package tests and the

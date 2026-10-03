@@ -14,20 +14,21 @@ ROOT = Path(__file__).resolve().parents[1]
 class CrossPackagingDependenciesTest(unittest.TestCase):
     def test_ncurses_export_ignores_generated_consumer_files(self):
         from conan.api.conan_api import ConanAPI
-        with tempfile.TemporaryDirectory() as directory:
-            work = Path(directory)
-            recipe = work / 'recipe'
-            shutil.copytree(ROOT / 'conan/recipes/ncurses-wrynose/all', recipe,
-                            ignore=shutil.ignore_patterns('test_package', '__pycache__'))
-            api = ConanAPI(cache_folder=str(work / 'cache'))
-            before, _ = api.export.export(str(recipe / 'conanfile.py'), version='6.5',
-                                          user='rstream', channel='wrynose')
-            generated = recipe / 'test_package/build/generators'
-            generated.mkdir(parents=True)
-            (generated / 'conan_toolchain.cmake').write_text('set(FOREIGN_BUILD_PATH /another/sdk)\n')
-            after, _ = api.export.export(str(recipe / 'conanfile.py'), version='6.5',
-                                         user='rstream', channel='wrynose')
-            self.assertEqual(before.revision, after.revision)
+        for generation in ('wrynose', 'scarthgap'):
+            with tempfile.TemporaryDirectory() as directory:
+                work = Path(directory)
+                recipe = work / 'recipe'
+                shutil.copytree(ROOT / f'conan/recipes/ncurses-{generation}/all', recipe,
+                                ignore=shutil.ignore_patterns('test_package', '__pycache__'))
+                api = ConanAPI(cache_folder=str(work / 'cache'))
+                before, _ = api.export.export(str(recipe / 'conanfile.py'), version='6.5',
+                                              user='rstream', channel=generation)
+                generated = recipe / 'test_package/build/generators'
+                generated.mkdir(parents=True)
+                (generated / 'conan_toolchain.cmake').write_text('set(FOREIGN_BUILD_PATH /another/sdk)\n')
+                after, _ = api.export.export(str(recipe / 'conanfile.py'), version='6.5',
+                                             user='rstream', channel=generation)
+                self.assertEqual(before.revision, after.revision)
 
     def commands(self, **overrides):
         with tempfile.TemporaryDirectory() as directory:
@@ -69,6 +70,21 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
             self.assertIn('rstream/*:build_os=linux', command)
         self.assertFalse(any('ncurses_ref=' in arg for arg in builds[0]))
         self.assertIn('rstream/*:ncurses_ref=ncurses/6.5@rstream/wrynose', builds[1])
+
+    def test_scarthgap_maintenance_uses_public_boost_and_separate_arm_ncurses(self):
+        calls = self.commands(LINUX_TOOLCHAIN_VERSION='5.0.10')
+        exports = [c for c in calls if c['args'][0] == 'export']
+        self.assertEqual(len(exports), 1)
+        self.assertIn(str(ROOT / 'conan/recipes/ncurses-scarthgap/all'), exports[0]['args'])
+        self.assertEqual(exports[0]['args'][-1], 'scarthgap')
+        builds = [c['args'] for c in calls if c['args'][0] == 'create']
+        self.assertEqual(len(builds), 2)
+        self.assertFalse(any('boost_ref=' in arg for command in builds for arg in command))
+        self.assertFalse(any('ncurses_ref=' in arg for arg in builds[0]))
+        self.assertIn('rstream/*:ncurses_ref=ncurses/6.5@rstream/scarthgap', builds[1])
+        public = self.commands(LINUX_TOOLCHAIN_VERSION='5.0.10', USE_PATCHED_CONAN_DEPS='off')
+        self.assertFalse(any(c['args'][0] == 'export' for c in public))
+        self.assertFalse(any('_ref=' in arg for c in public for arg in c['args']))
 
     def test_public_only_mode_does_not_export_or_override(self):
         calls = self.commands(USE_PATCHED_CONAN_DEPS='off')

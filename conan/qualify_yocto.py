@@ -14,6 +14,10 @@ from check_public_dependencies import private_dependencies, verify_public_recipe
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def ncurses_generation(version):
+    return 'scarthgap' if version == '5.0.10' else 'wrynose'
+
+
 def build_arguments(arch, libc, version, jobs, arm_exception):
     args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={"armv8" if arch == "arm64" else arch}',
             '-s:h', f'os.sdk=yocto-toolchain-{version}-{arch}-{libc}', '-s:b', 'compiler.cppstd=20',
@@ -25,7 +29,7 @@ def build_arguments(arch, libc, version, jobs, arm_exception):
                    enable_testing=True, enable_strict_warnings=True, warnings_as_errors=True,
                    build_os='linux', build_arch=arch, build_channel='dev')
     if arm_exception:
-        options['ncurses_ref'] = 'ncurses/6.5@rstream/wrynose'
+        options['ncurses_ref'] = f'ncurses/6.5@rstream/{ncurses_generation(version)}'
     for key, value in options.items():
         args += ['-o:h', f'rstream/*:{key}={value}']
     block = re.search(r'production_boost_without_components=\((.*?)\n\)',
@@ -69,8 +73,6 @@ def main():
         parser.error('This pilot requires Yocto 6.0.x or pinned Scarthgap 5.0.10 and a positive job count')
     if args.arm_ncurses_exception and args.arch != 'arm64':
         parser.error('The ncurses packaging exception is limited to ARM64')
-    if args.arm_ncurses_exception and not args.sdk_version.startswith('6.0.'):
-        parser.error('The ncurses packaging exception is qualified only for Wrynose; start Scarthgap with public recipes')
     build_args = build_arguments(args.arch, args.libc, args.sdk_version, args.jobs,
                                  args.arm_ncurses_exception)
     create = [args.conan, 'create', str(ROOT), '--build=missing', '--build=rstream/*', *build_args]
@@ -83,8 +85,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     os.environ['LINUX_TOOLCHAIN_VERSION'] = args.sdk_version
     if args.arm_ncurses_exception:
-        subprocess.run([args.conan, 'export', str(ROOT / 'conan/recipes/ncurses-wrynose/all'),
-                        '--version', '6.5', '--user', 'rstream', '--channel', 'wrynose'], check=True)
+        subprocess.run([args.conan, 'export', str(ROOT / f'conan/recipes/ncurses-{ncurses_generation(args.sdk_version)}/all'),
+                        '--version', '6.5', '--user', 'rstream', '--channel', ncurses_generation(args.sdk_version)], check=True)
     graph_path = output / 'input-graph.json'
     input_lock = output / 'input.lock'
     subprocess.run([args.conan, 'graph', 'info', str(ROOT), *build_args,
@@ -100,7 +102,7 @@ def main():
             sdk_refs.add(f'{ref}:{node["package_id"]}')
         if key == '0' or node.get('context') == 'build':
             continue
-        if args.arm_ncurses_exception and ref.startswith('ncurses/6.5@rstream/wrynose#'):
+        if args.arm_ncurses_exception and ref.startswith(f'ncurses/6.5@rstream/{ncurses_generation(args.sdk_version)}#'):
             continue
         public['graph']['nodes'][key] = node
     violations = private_dependencies(public)
