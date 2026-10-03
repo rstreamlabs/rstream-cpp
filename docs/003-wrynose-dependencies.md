@@ -42,8 +42,8 @@ the newest public recipe; do not modify public dependency recipes to force it.
 | pkgconf | 2.0.3 | 2.5.1 is available; the unchanged ncurses recipe pins this build tool to 2.0.3. This is not a shipped runtime library. |
 | bzip2 | 1.0.8 | Latest available public recipe; used by the unrestricted native Boost graph. |
 | libiconv (macOS) | 1.17 | 1.18 is available, but the unmodified Boost 1.91 recipe pins 1.17. |
-| NASM / Strawberry Perl (Windows) | 3.01 / 5.40.2.1 candidates | OpenSSL 4 allows current public versions; CI refreshes tool ranges instead of retaining old cached versions. OpenSSL 3 compatibility builds retain its upstream-pinned tools. |
-| jom (Windows) | 1.1.4 candidate | Build tool newly required by the public OpenSSL 4 recipe; validate with the Windows CI graph. |
+| NASM / Strawberry Perl (Windows) | 3.01 / 5.40.2.1 | The Windows dependency-refresh build passed on `bc38d15` with these public versions. Compatibility variants also retain upstream-pinned Perl 5.32.1.1. Final product-source CI remains a separate gate. |
+| jom (Windows) | 1.1.4 | Public OpenSSL 4 build tool passed the Windows dependency-refresh build on `bc38d15`. |
 | libbacktrace | cci.20210118 | cci.20240730 is available; the unchanged Boost recipe pins cci.20210118 when stacktrace support is enabled. |
 
 `external/gtest/CMakeLists.txt` contains an old 1.12.1 fallback but is not
@@ -331,3 +331,20 @@ prior source and both OpenSSL 3 and 4 on host kernel 7.0. It is recorded in
 `kernel-probe/ncat-server-control.json`; it is not counted as a passed TLS
 shutdown test. The successful compatibility probe used OpenSSL's server to
 provide proper TLS shutdown.
+
+## Subsequent CI evidence
+
+The dependency-refresh Build run
+[37130063923](https://github.com/rstreamlabs/rstream-cpp/actions/runs/37130063923)
+completed successfully on `bc38d15`, including both Windows linkage variants.
+Its static Windows log resolves NASM 3.01, Strawberry Perl 5.40.2.1 and jom 1.1.4;
+the compatibility builds also use upstream-pinned Perl 5.32.1.1 and public Boost
+1.83 alongside the default Boost 1.91/OpenSSL 4 graph. Exact extracted versions
+are recorded in `../.yocto-pilot/windows-tools-refresh-versions.json`.
+
+The earlier Reliability run
+[37128288587](https://github.com/rstreamlabs/rstream-cpp/actions/runs/37128288587)
+also completed successfully, including Windows. These runs qualify their own
+revisions. The final provider-initialization source `61b9425` still requires
+its Windows Build/Reliability jobs to finish; its Linux/macOS, stress, static
+analysis and sanitizer checks have passed.
