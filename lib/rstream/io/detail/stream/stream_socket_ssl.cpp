@@ -35,6 +35,7 @@
 #include "openssl_engine_compat.hpp"
 #endif
 #if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+#include <openssl/params.h>
 #include <openssl/provider.h>
 #include <openssl/store.h>
 #endif
@@ -1586,7 +1587,31 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
                              : std::string("pkcs11prov");
   if (!m_pkcs11_provider) {
     ::ERR_clear_error();
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L
+    // Some providers read the module and PIN during OSSL_provider_init.
+    // Parameters added after OSSL_PROVIDER_load are too late for them.
+    const bool standard_provider = provider == "pkcs11";
+    char login_always[]          = "always";
+    char force_login[]           = "1";
+    OSSL_PARAM params[4];
+    size_t count    = 0;
+    params[count++] = ::OSSL_PARAM_construct_utf8_string(
+        standard_provider ? "pkcs11-module-path" : "pkcs11_module",
+        const_cast<char*>(m_config.m_pkcs11_module.get().c_str()), 0);
+    if (pin && !pin.get().empty()) {
+      params[count++] = ::OSSL_PARAM_construct_utf8_string(
+          standard_provider ? "pkcs11-module-token-pin" : "pin",
+          const_cast<char*>(pin.get().c_str()), 0);
+    }
+    params[count++] = ::OSSL_PARAM_construct_utf8_string(
+        standard_provider ? "pkcs11-module-login-behavior" : "force_login",
+        standard_provider ? login_always : force_login, 0);
+    params[count]     = ::OSSL_PARAM_construct_end();
+    m_pkcs11_provider = ::OSSL_PROVIDER_load_ex(nullptr, provider.c_str(), params);
+#else
+    (void)pin;
     m_pkcs11_provider = ::OSSL_PROVIDER_load(nullptr, provider.c_str());
+#endif
     if (!m_pkcs11_provider) {
       error_code = translate_error(::ERR_get_error());
       if (!error_code) {
@@ -1595,56 +1620,6 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
       return;
     }
   }
-#if OPENSSL_VERSION_NUMBER >= 0x30500000L
-  const bool has_pin = pin && !pin.get().empty();
-  if (provider == "pkcs11") {
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11-module-path",
-            m_config.m_pkcs11_module.get().c_str())
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (has_pin && ::OSSL_PROVIDER_add_conf_parameter(m_pkcs11_provider, "pkcs11-module-token-pin", pin.get().c_str()) != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11-module-login-behavior",
-            "always")
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-  }
-  else {
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11_module",
-            m_config.m_pkcs11_module.get().c_str())
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (has_pin && ::OSSL_PROVIDER_add_conf_parameter(m_pkcs11_provider, "pin", pin.get().c_str()) != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "force_login",
-            "1")
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-  }
-#else
-  (void)provider;
-  (void)pin;
-#endif
 }
 #endif
 

@@ -251,8 +251,15 @@ negotiated TLS and EC P-256 with TLS 1.2 accepted a valid PIN and rejected an
 invalid PIN. EC P-256 with TLS 1.3 failed in the OpenSSL command-line control
 client as well as the rstream diagnostic; libp11 0.4.20 showed the same control
 failure. Do not claim general EC/TLS 1.3 PKCS#11 support from the successful
-RSA/TLS 1.2 cases. Investigation of the alternative OpenSSL Projects provider
-is unfinished. No provider or public Conan dependency source was patched.
+RSA/TLS 1.2 cases. The alternative OpenSSL Projects provider 1.3.0 passes the standalone EC/TLS 1.3
+control when the SoftHSM fixture is isolated from global OpenSSL configuration.
+It exposed a rstream initialization error: module/PIN parameters were added
+after provider loading. The fix supplies them with `OSSL_PROVIDER_load_ex`
+on OpenSSL 3.2+, before provider initialization. No provider or public Conan
+dependency source was patched. The first native rebuild passed 52 tests and its external consumer. The local
+fixture passed EC/TLS 1.2 and 1.3 plus RSA/TLS 1.3 with this provider, and retained
+libp11 EC/TLS 1.2 and RSA/TLS 1.3 support; every case also rejected an invalid PIN.
+The remaining cross/CI matrix must be repeated for the changed source.
 
 A disposable CE engine pinned to image digest
 `sha256:40b6c8e56b3be11ed6e15e02699378e975738d58991d86253e2ce65c55bc498d`
@@ -274,3 +281,25 @@ Hosted engine/mTLS/PKCS#11 suites remain pending selection of a test environment
 The configured context is a hosted production project; available projects are
 all Pro, while the credential suites also exercise Basic-plan rejections.
 Native CI and sanitizer results must be checked separately before completion.
+
+## Local PKCS#11 regression fixture
+
+`test/e2e/rstream-pkcs11-local.py` creates disposable SoftHSM keys, checks an
+OpenSSL control connection, then tests the selected rstream binary with a valid
+and an invalid PIN. It uses loopback only and removes the token directory on
+exit. Set `LD_LIBRARY_PATH` if the extracted test tools need additional shared
+libraries. Use unmodified public provider builds matching the OpenSSL runtime:
+
+```bash
+python3 test/e2e/rstream-pkcs11-local.py \
+  --binary /path/to/rstream-ncat --openssl /path/to/openssl \
+  --tools-prefix /path/to/softhsm-and-opensc/usr \
+  --module /path/to/libsofthsm2.so \
+  --provider-dir /path/to/ossl-modules --provider pkcs11 \
+  --tls-version 1.3 --output /path/to/evidence
+```
+
+Use `--rsa` for RSA instead of EC P-256, and `--provider pkcs11prov` for libp11.
+The fixture deliberately avoids global provider configuration: SoftHSM's own
+OpenSSL backend must not recursively activate the provider being tested.
+This is a local integration check, not physical HSM or hosted-policy certification.
