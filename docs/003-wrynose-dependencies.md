@@ -26,14 +26,14 @@ the newest public recipe; do not modify public dependency recipes to force it.
 
 | Dependency | Current public resolution | Qualification work |
 | --- | --- | --- |
-| Boost | Pilot candidate 1.91.0, constrained to `<1.92.0` | Native Linux static libraries/static plugins passed 51 tests and the external consumer with the unmodified public recipe. Other topologies, Windows/macOS and Yocto remain to qualify. Upstream 1.92.0 is not yet present in the queried remote. |
-| OpenSSL | 4.0.3, constrained to `<5` | Native static libraries/plugins passed 52 tests and an external consumer. OpenSSL 3 remains supported; the final cross/native matrix is running against 4.0.3. |
-| Protobuf | 7.35.0 | Latest available public recipe; keep host `protoc` and target runtime aligned. |
-| nlohmann_json | 3.12.0 | Validate existing public resolution with GCC 15. |
+| Boost | Pilot candidate 1.91.0, constrained to `<1.92.0` | Final native Linux and all four Yocto cells passed with the unmodified public recipe; native CI linkage matrices are tracked below. Upstream 1.92.0 is not yet present in the queried remote. |
+| OpenSSL | 4.0.3, constrained to `<5` | Final native and all four Yocto cells passed with 4.0.3. The separate native 3.6.5 compatibility suite and external consumer also passed. |
+| Protobuf | 7.35.0 | Latest available public recipe; host `protoc` and target runtime are aligned in the passing final graphs. |
+| nlohmann_json | 3.12.0 | Passed the final native and GCC 15 cross matrix. |
 | spdlog / fmt | 1.17.0 / 12.1.0 | fmt 12.2.0 is available, but the unchanged spdlog 1.17.0 recipe pins 12.1.0. Retain that supported pair during the pilot. |
-| yaml-cpp | 0.9.0 | Validate static and shared runtime combinations. |
-| libmaxminddb | 1.12.2 | Validate public recipe on both target architectures and libcs. |
-| ncurses | 6.5 | Replace the vendored packaging recipe if public builds and WebTTY tests pass. |
+| yaml-cpp | 0.9.0 | Passed the local matrix; shared library/plugin configurations are also checked by native CI. |
+| libmaxminddb | 1.12.2 | Public recipe passed on both target architectures and libcs. |
+| ncurses | 6.5 | Public recipe used on x86_64; the documented private ARM64 packaging exception passed both libc consumers. |
 | docopt.cpp | 0.6.3 | Latest available public recipe; retain Windows Boost.Regex qualification. |
 | LibreSSL (optional provider) | 3.9.1 | Latest available public recipe; retain the alternate-provider contract. |
 | Abseil | 20260107.1 | 20260526.0 is available, but the unchanged Protobuf 7.35.0 recipe caps its dependency at 20260107.1. Keep compiler and runtime graphs compatible. |
@@ -184,8 +184,8 @@ graph, validates the installed SDK provenance, forces package tests and the
 external consumer, and writes the final graph and lockfile. ARM64 execution
 requires `qemu-aarch64`; x86_64 glibc execution uses the SDK loader and sysroot
 libraries. These runs use the workstation kernel and do not certify an older
-kernel. The ARM ncurses exception is explicit, packaging-only and still needs
-the full matrix qualification below. No upload or publication command exists
+kernel. The ARM ncurses exception is explicit and packaging-only; its final matrix
+qualification is recorded below. No upload or publication command exists
 in this script.
 
 ## Archive and website checks
@@ -209,13 +209,18 @@ the glibc SDK is validated separately with a dynamically linked C++20 program.
 Before publication, refresh the changelog and retain the package API fields
 `arch` (host), `targetArch`, `libc`, `version`, `checksum`, `components.host` and
 `components.target`. Prefer `readelf` to host `ldd` for inspecting a foreign ELF.
-The site remains unchanged while publication is deferred.
+The site deployment remains unchanged. A local documentation branch replaces
+host `ldd` with architecture-independent `readelf -l` / `readelf -d` inspection,
+checking for the absence of `INTERP` and `NEEDED`. The exact published sample
+also passed again with both final musl SDKs; its archive hashes and source hashes
+are recorded in `../.yocto-pilot/site-sample/final/validation.json`.
 
 ## Native CI dependency resolution
 
 A restored Conan cache can resolve a widened OpenSSL range to its cached 3.x
-version. The default CI build explicitly refreshes all ranged dependency and build-tool resolutions; the
-separate consumer check retains the explicit 3.6.5 compatibility run.
+version. The default CI build explicitly refreshes all ranged dependency and
+build-tool resolutions; the separate consumer check retains the explicit 3.6.5
+compatibility run.
 
 The public Boost 1.91 recipe expects `cobalt_io_ssl`, but the macOS and Windows
 packages tested by CI lacked that optional library. The root `qualification`
@@ -248,6 +253,22 @@ client as well as the rstream diagnostic; libp11 0.4.20 showed the same control
 failure. Do not claim general EC/TLS 1.3 PKCS#11 support from the successful
 RSA/TLS 1.2 cases. Investigation of the alternative OpenSSL Projects provider
 is unfinished. No provider or public Conan dependency source was patched.
+
+A disposable CE engine pinned to image digest
+`sha256:40b6c8e56b3be11ed6e15e02699378e975738d58991d86253e2ce65c55bc498d`
+passed local network qualification with the final native binary and all four
+extracted distribution packages. Each run passed passthrough creation plus
+seven runtime cases: two invalid-option checks, terminated TLS, TLS upstream,
+TLS passthrough, HTTP/1.1 and published TCP. ARM64 used QEMU; glibc used the
+SDK runtime. Evidence and the exact adapted script are in
+`../.yocto-pilot/local-engine-e2e/<cell>/`.
+
+The runtime script uses CE-compatible settings: it omits custom edge ALPN
+policy and the hosted cross-region routing flag. The original hosted script
+reproduced `feature not available` for those options against CE; these are not
+reported as successful hosted policy tests. The engine listened only on
+loopback, used a temporary certificate and short-lived test JWT, and was
+removed after each run. No hosted resources or credentials were changed.
 
 Hosted engine/mTLS/PKCS#11 suites remain pending selection of a test environment.
 The configured context is a hosted production project; available projects are
