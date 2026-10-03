@@ -17,6 +17,47 @@ spec.loader.exec_module(pilot)
 
 
 class YoctoQualificationTest(unittest.TestCase):
+    def test_instrumented_plan_configures_real_cmake_test_limits_and_runner(self):
+        import json
+        import shlex
+        with tempfile.TemporaryDirectory(prefix='runner with spaces ') as directory:
+            source = Path(directory)
+            runner = source / 'sde64'
+            runner.write_text('#!/bin/sh\nexit 1\n')
+            runner.chmod(0o755)
+            command = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                       '--arch', 'x86_64_v4', '--libc', 'musl', '--plan',
+                       '--runner-command', shlex.join([str(runner), '-skx', '--']),
+                       '--test-timeout-scale', '4', '--test-timeout-seconds', '300']
+            args = shlex.split(subprocess.check_output(command, text=True))
+            variables = json.loads(next(arg.split('=', 1)[1] for arg in args
+                                        if arg.startswith('tools.cmake.cmaketoolchain:extra_variables=')))
+            self.assertIn('tools.build:skip_test=False', args)
+            (source / 'CMakeLists.txt').write_text(
+                'cmake_minimum_required(VERSION 3.20)\nproject(timeout_control LANGUAGES NONE)\n'
+                f'include("{ROOT / "cmake/tests.cmake"}")\n'
+                'if(NOT RSTREAM_TEST_TIMEOUT_SCALE EQUAL 4)\nmessage(FATAL_ERROR "Scale lost")\nendif()\n'
+                'add_test(NAME control COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} /fixture)\n'
+                'rstream_configure_test(control)\n')
+            build = source / 'build'
+            subprocess.run(['cmake', '-S', str(source), '-B', str(build),
+                            *[f'-D{key}={value}' for key, value in variables.items()]],
+                           check=True, capture_output=True)
+            test = json.loads(subprocess.check_output(
+                ['ctest', '--test-dir', str(build), '--show-only=json-v1'], text=True))['tests'][0]
+            self.assertEqual(test['command'], [str(runner), '-skx', '--', '/fixture'])
+            self.assertEqual(next(p['value'] for p in test['properties'] if p['name'] == 'TIMEOUT'), 300)
+
+    def test_nonpositive_instrumented_limits_fail_before_conan(self):
+        for flag in ('--test-timeout-scale', '--test-timeout-seconds'):
+            for value in ('0', '-1'):
+                result = subprocess.run([sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                                         '--arch', 'x86_64', '--libc', 'musl',
+                                         flag, value, '--conan', '/does/not/exist'],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('positive integers', result.stderr)
+
     def test_cmake_startup_runner_is_optional_and_preserves_arguments(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'source'

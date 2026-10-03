@@ -210,6 +210,14 @@ x86 ISA levels. Command support and CPU checks alone do not qualify a complete
 C++ package build; that requires package tests, the external consumer and
 distribution runtime checks for the exact SDK.
 
+For slow instrumentation, explicitly select `--test-timeout-scale 4
+--test-timeout-seconds 300`. These configure the existing test-only deadline
+and CTest limits and are recorded alongside the runner in `command.json`.
+Production timeouts and the default native qualification limits are unchanged.
+The discovery test now observes the same test timeout scale as the other
+runtime tests. The existing instrumented child-exit stress test reduces its
+iteration count with this scale; native CI retains the full count.
+
 For ARM64 SDK-host qualification, run inside Linux ARM64 userspace with
 `--sdk-host aarch64`. Create the local tool package with Conan's `arch=armv8`
 setting and the archive built for `host-aarch64`; the target remains selected
