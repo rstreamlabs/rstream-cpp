@@ -28,6 +28,7 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/io/detail/stream/error.hpp>
@@ -72,9 +73,16 @@ static test_certificate generate_test_certificate()
   }
 
   ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), 1);
+  X509_set_version(cert.get(), 2);
   X509_gmtime_adj(X509_get_notBefore(cert.get()), -60);
   X509_gmtime_adj(X509_get_notAfter(cert.get()), 24 * 60 * 60);
   X509_set_pubkey(cert.get(), key.get());
+
+  openssl_ptr<X509_EXTENSION, decltype(&X509_EXTENSION_free)> names(
+      X509V3_EXT_conf_nid(nullptr, nullptr, NID_subject_alt_name, "DNS:localhost,IP:127.0.0.1,IP:::1"), X509_EXTENSION_free);
+  if (!names || X509_add_ext(cert.get(), names.get(), -1) != 1) {
+    throw std::runtime_error("failed to add test certificate identities");
+  }
 
   openssl_ptr<X509_NAME, decltype(&X509_NAME_free)> name(X509_NAME_new(), X509_NAME_free);
   if (!name || X509_NAME_add_entry_by_txt(name.get(), "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("localhost"), -1, -1, 0) <= 0
@@ -809,6 +817,11 @@ static void check_tls_peer_verification_checks_hostname()
 
   auto invalid = run_verified_tls_connect("wrong.localhost");
   assert(invalid);
+
+  assert(!run_verified_tls_connect("127.0.0.1"));
+  assert(run_verified_tls_connect("127.0.0.2"));
+  assert(!run_verified_tls_connect("::1"));
+  assert(run_verified_tls_connect("::2"));
 }
 
 #if OPENSSL_VERSION_NUMBER >= 0x30500000L

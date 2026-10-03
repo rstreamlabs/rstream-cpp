@@ -20,6 +20,9 @@ the existing Boost and ncurses overrides must be re-evaluated before reuse.
 
 Versions below were queried from Conan Center, not inferred from upstream
 release numbers. Availability is not a claim of build or runtime validation.
+The upgrade scope covers all direct, transitive, build and active test
+dependencies, not only Boost. Record why any selected version remains behind
+the newest public recipe; do not modify public dependency recipes to force it.
 
 | Dependency | Current public resolution | Qualification work |
 | --- | --- | --- |
@@ -27,12 +30,18 @@ release numbers. Availability is not a claim of build or runtime validation.
 | OpenSSL | 3.6.5, constrained to `<4` | Qualify 3.6.5 first; assess the separate 4.0.3 major upgrade before widening compatibility. |
 | Protobuf | 7.35.0 | Latest available public recipe; keep host `protoc` and target runtime aligned. |
 | nlohmann_json | 3.12.0 | Validate existing public resolution with GCC 15. |
-| spdlog / fmt | 1.17.0 / 12.1.0 | Validate existing public resolution with GCC 15. |
+| spdlog / fmt | 1.17.0 / 12.1.0 | fmt 12.2.0 is available, but the unchanged spdlog 1.17.0 recipe pins 12.1.0. Retain that supported pair during the pilot. |
 | yaml-cpp | 0.9.0 | Validate static and shared runtime combinations. |
 | libmaxminddb | 1.12.2 | Validate public recipe on both target architectures and libcs. |
 | ncurses | 6.5 | Replace the vendored packaging recipe if public builds and WebTTY tests pass. |
 | docopt.cpp | 0.6.3 | Latest available public recipe; retain Windows Boost.Regex qualification. |
 | LibreSSL (optional provider) | 3.9.1 | Latest available public recipe; retain the alternate-provider contract. |
+| Abseil | 20260107.1 | 20260526.0 is available, but the unchanged Protobuf 7.35.0 recipe caps its dependency at 20260107.1. Keep compiler and runtime graphs compatible. |
+| zlib | 1.3.2 | Latest available public recipe in the selected graph. |
+| b2 / CMake / Meson / Ninja | 5.5.3 / 4.4.3 / 1.10.2 / 1.13.2 | Latest available public recipes; the Yocto SDK also supplies its own build tools. |
+| pkgconf | 2.0.3 | 2.5.1 is available; the unchanged ncurses recipe pins this build tool to 2.0.3. This is not a shipped runtime library. |
+| bzip2 | 1.0.8 | Latest available public recipe; used by the unrestricted native Boost graph. |
+| libbacktrace | cci.20210118 | cci.20240730 is available; the unchanged Boost recipe pins cci.20210118 when stacktrace support is enabled. |
 
 `external/gtest/CMakeLists.txt` contains an old 1.12.1 fallback but is not
 included by the build. The active tests use the repository's own test harness.
@@ -74,8 +83,19 @@ old-kernel compatibility from QEMU user-mode execution on the host kernel.
 
 ## Pilot findings
 
-The Linux and macOS native CI linkage matrices passed with public Boost 1.91.0
-and the current public dependency graph. Windows qualification is still running.
+The first complete native CI run passed the Linux, macOS and Windows linkage
+matrices, including the Windows ASan gate and external consumers, with public
+Boost 1.91.0. Subsequent source changes require their own CI results.
+
+All four SDK archives passed installation and a C++20 execution smoke test;
+ARM64 used QEMU. The x86_64/musl package including the terminfo fix passed 51
+tests and its external consumer. ARM64/musl passed the earlier 50-test baseline.
+The x86_64/glibc package passed 52 tests and its external consumer with the SDK
+loader. ARM64/glibc remains in qualification.
+
+Python-wrapped CLI startup tests now receive the target's cross runner, including
+the SDK loader arguments. Native and static cross builds omit that prefix.
+Regression tests inspect generated CTest commands for all three cases.
 
 On x86_64/musl, the public dependency builds now complete with GCC 15. The Yocto
 tool recipe must append SDK flags to the Conan build environment: defining them
@@ -103,6 +123,19 @@ rstream has both provider-based PKCS#11 and a legacy ENGINE compatibility path.
 Widening the bound therefore requires explicit provider/legacy configuration
 and supported-Boost qualification; a successful generic TLS build alone is
 insufficient. Do not silently drop that capability to claim a dependency bump.
+
+The native 4.0.3 candidate exposed the deprecated `SSL_set1_host` call. The
+OpenSSL 4 path now uses `SSL_set1_dnsname`, retaining the existing API for
+OpenSSL 3 and LibreSSL. TLS tests check accepted and rejected DNS, IPv4 and
+IPv6 certificate identities. The candidate remains separate from the default
+dependency bound until its compatibility checks pass.
+The DNS API follows the [OpenSSL 4 documentation](https://docs.openssl.org/4.0/man3/SSL_set1_host/).
+
+The LibreSSL candidate exposed OpenSSL ENGINE sources being compiled despite
+the capability being disabled, and PKCS#11-only helpers being compiled with
+that feature disabled. Those sources/helpers now follow their capability
+guards. Unsupported PKCS#11 configurations still report an error; qualification
+does not add that feature to LibreSSL.
 
 ## Reproducing the local pilot
 

@@ -93,7 +93,11 @@ static boost::system::error_code configure_expected_peer_identity(SSL* ssl, cons
     ok = ::X509_VERIFY_PARAM_set1_ip_asc(::SSL_get0_param(ssl), identity.c_str());
   }
   else {
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L && !defined(LIBRESSL_VERSION_NUMBER)
+    ok = ::SSL_set1_dnsname(ssl, identity.c_str());
+#else
     ok = ::SSL_set1_host(ssl, identity.c_str());
+#endif
   }
   if (ok == 1) {
     return {};

@@ -1195,6 +1195,7 @@ static std::string append_query_param(std::string address, const std::string& ke
   return address;
 }
 
+#ifdef RSTREAM_WITH_PKCS11
 static int count_non_empty(const std::string& first, const std::string& second)
 {
   int count = 0;
@@ -1270,6 +1271,8 @@ static boost::system::result<std::string> pkcs11_uri_for_object(const config_mtl
   uri += "type=" + type;
   return uri;
 }
+
+#endif
 
 static boost::system::result<std::string> append_mtls_auth_params(std::string address, const boost::optional<config_mtls>& mtls)
 {

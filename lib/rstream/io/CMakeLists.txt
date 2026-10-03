@@ -10,6 +10,10 @@ set(LIBRARY_NAME "${PROJECT_NAME}-lib-${LIBRARY_COMPONENT}")
 file(GLOB_RECURSE SOURCES *.cpp)
 file(GLOB_RECURSE HEADERS *.hpp)
 
+if(NOT RSTREAM_OPENSSL_ENGINE_FOUND)
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/detail/stream/openssl_engine_compat.cpp")
+endif()
+
 if(MSVC AND ENABLE_STRICT_WARNINGS)
   # Boost.Asio buffer iterators trigger C4702 in valid template instantiations.
   set_source_files_properties(

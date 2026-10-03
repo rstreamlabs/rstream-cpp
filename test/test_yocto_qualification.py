@@ -15,6 +15,67 @@ spec.loader.exec_module(pilot)
 
 
 class YoctoQualificationTest(unittest.TestCase):
+    def test_cmake_startup_runner_is_optional_and_preserves_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'source'
+            source.mkdir()
+            (source / 'CMakeLists.txt').write_text('''cmake_minimum_required(VERSION 3.20)
+project(rstream LANGUAGES NONE)
+enable_testing()
+set(ENABLE_TESTING ON)
+set(RSTREAM_TEST_TIMEOUT_SCALE 1)
+function(rstream_configure_test)
+endfunction()
+add_subdirectory(webtty)
+''')
+            webtty = source / 'webtty'
+            webtty.mkdir()
+            (webtty / 'CMakeLists.txt').write_text((ROOT / 'bin/webtty/bin/CMakeLists.txt').read_text())
+            for name in ('client', 'server'):
+                child = webtty / name
+                child.mkdir()
+                (child / 'CMakeLists.txt').write_text(
+                    f'add_executable(rstream-webtty-{name} IMPORTED GLOBAL)\n'
+                    f'set_target_properties(rstream-webtty-{name} PROPERTIES IMPORTED_LOCATION /fake/{name}'
+                    ' CROSSCOMPILING_EMULATOR "${CMAKE_CROSSCOMPILING_EMULATOR}")\n')
+            for mode, args, expected in (
+                ('native', [], []),
+                ('cross-static', ['-DCMAKE_SYSTEM_NAME=Linux'], []),
+                ('cross-runner', ['-DCMAKE_SYSTEM_NAME=Linux',
+                                  '-DCMAKE_CROSSCOMPILING_EMULATOR=/runner with spaces;-L;/sdk path'],
+                 ['/runner with spaces', '-L', '/sdk path']),
+            ):
+                build = Path(directory) / mode
+                subprocess.run(['cmake', '-S', str(source), '-B', str(build), *args],
+                               check=True, capture_output=True)
+                import json
+                tests = json.loads(subprocess.check_output(
+                    ['ctest', '--test-dir', str(build), '--show-only=json-v1'], text=True))['tests']
+                self.assertEqual(len(tests), 4)
+                for test in tests:
+                    self.assertEqual(test['command'][5:], expected)
+
+    def test_cli_startup_accepts_an_explicit_runner(self):
+        # A non-executable Python fixture requires the supplied interpreter,
+        # just as a cross-built ELF requires QEMU or the SDK dynamic loader.
+        with tempfile.TemporaryDirectory(prefix='webtty startup ') as directory:
+            binary = Path(directory) / 'rstream-webtty-client'
+            binary.write_text('print("rstream-webtty-client Usage: test")\n')
+            script = ROOT / 'bin/webtty/bin/test_cli_startup.py'
+            for option in ('--help', '--version'):
+                subprocess.run([sys.executable, str(script), str(binary), option,
+                                '10', sys.executable], check=True, capture_output=True)
+
+    def test_cli_startup_runner_cannot_hide_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'rstream-webtty-client'
+            binary.write_text('print("rstream-webtty-client Usage: test")\nraise SystemExit(7)\n')
+            result = subprocess.run([
+                sys.executable, str(ROOT / 'bin/webtty/bin/test_cli_startup.py'),
+                str(binary), '--help', '10', sys.executable], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('failed (0x7)', result.stderr)
+
     def test_public_x86_pilot_keeps_tests_and_static_musl_consumer(self):
         args = pilot.build_arguments('x86_64', 'musl', '6.0.3', 4, False)
         self.assertIn('tools.build.cross_building:can_run=True', args)
