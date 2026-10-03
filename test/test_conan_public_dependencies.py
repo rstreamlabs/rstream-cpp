@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
 import os
+import subprocess
 import unittest
+from unittest.mock import Mock, patch
 
 
 REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -69,6 +72,54 @@ class ConanPublicDependenciesTest(unittest.TestCase):
             "boost/1.91.0: recipe source is missing recipe URL",
             violations,
         )
+
+    def test_rejects_private_reference_even_without_user_metadata(self):
+        violations = CHECK_PUBLIC_DEPENDENCIES.private_dependencies(
+            graph_with_dependency(ref="boost/1.91.0@private/stable")
+        )
+        self.assertTrue(violations)
+
+    def verification_responses(self, revisions=None):
+        return [
+            Mock(stdout=json.dumps([{
+                "name": "conancenter", "url": CHECK_PUBLIC_DEPENDENCIES.CONAN_CENTER_REMOTE_URL,
+                "verify_ssl": True, "enabled": True,
+            }])),
+            Mock(stdout=json.dumps({"conancenter": {"boost/1.91.0": {
+                "revisions": {"public-revision": {}} if revisions is None else revisions,
+            }}})),
+            Mock(stdout=""),
+        ]
+
+    def test_verifies_revision_membership_and_cache_integrity(self):
+        graph = graph_with_dependency(ref="boost/1.91.0#public-revision")
+        with patch.object(subprocess, "run", side_effect=self.verification_responses()) as run:
+            CHECK_PUBLIC_DEPENDENCIES.verify_public_recipes(graph)
+        self.assertEqual(run.call_args_list[-1].args[0],
+                         ["conan", "cache", "check-integrity", "boost/1.91.0#public-revision"])
+
+    def test_rejects_local_revision_with_unchanged_public_url(self):
+        graph = graph_with_dependency(ref="boost/1.91.0#local-revision")
+        with patch.object(subprocess, "run", side_effect=self.verification_responses()):
+            with self.assertRaisesRegex(ValueError, "not on Conan Center"):
+                CHECK_PUBLIC_DEPENDENCIES.verify_public_recipes(graph)
+
+    def test_rejects_corrupt_local_recipe(self):
+        responses = self.verification_responses()
+        responses[-1] = subprocess.CalledProcessError(1, ["conan", "cache", "check-integrity"])
+        graph = graph_with_dependency(ref="boost/1.91.0#public-revision")
+        with patch.object(subprocess, "run", side_effect=responses):
+            with self.assertRaises(subprocess.CalledProcessError):
+                CHECK_PUBLIC_DEPENDENCIES.verify_public_recipes(graph)
+
+    def test_rejects_remote_name_pointing_to_private_server(self):
+        response = Mock(stdout=json.dumps([{
+            "name": "conancenter", "url": "https://packages.example.com",
+            "verify_ssl": True, "enabled": True,
+        }]))
+        with patch.object(subprocess, "run", return_value=response):
+            with self.assertRaisesRegex(ValueError, "TLS verification"):
+                CHECK_PUBLIC_DEPENDENCIES.verify_public_recipes(graph_with_dependency())
 
 
 if __name__ == "__main__":

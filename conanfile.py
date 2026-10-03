@@ -220,10 +220,10 @@ class ConanPackage(ConanFile):
                 force=True,
             )
         else:
-            # Conan Center's Boost 1.90/1.91 Cobalt metadata does not consistently
-            # match the boost_cobalt_io_ssl library produced by those releases.
+            # Requalify public recipes and all supported package topologies
+            # before increasing this upper bound.
             self.requires(
-                "boost/[>=1.81.0 <1.90.0]",
+                "boost/[>=1.81.0 <1.92.0]",
                 transitive_headers=True,
                 transitive_libs=True,
                 # The Windows docopt Boost.Regex variant pins an older Boost.

@@ -23,7 +23,7 @@ release numbers. Availability is not a claim of build or runtime validation.
 
 | Dependency | Current public resolution | Qualification work |
 | --- | --- | --- |
-| Boost | 1.89.0, constrained to `<1.90.0` | Test public 1.91.0 and recheck the Cobalt metadata failure before changing the range. Upstream 1.92.0 is not yet present in the queried remote. |
+| Boost | Pilot candidate 1.91.0, constrained to `<1.92.0` | Native Linux static libraries/static plugins passed 51 tests and the external consumer with the unmodified public recipe. Other topologies, Windows/macOS and Yocto remain to qualify. Upstream 1.92.0 is not yet present in the queried remote. |
 | OpenSSL | 3.6.5, constrained to `<4` | Qualify 3.6.5 first; assess the separate 4.0.3 major upgrade before widening compatibility. |
 | Protobuf | 7.35.0 | Latest available public recipe; keep host `protoc` and target runtime aligned. |
 | nlohmann_json | 3.12.0 | Validate existing public resolution with GCC 15. |
@@ -57,3 +57,17 @@ Do not introduce a new GoogleTest dependency merely to update this unused file.
 The machine-local progress matrix and build logs live under
 `../.yocto-pilot/` relative to the repository. A successful dependency graph
 resolution alone does not qualify a dependency update.
+
+## Cross-built consumer execution
+
+The package consumer is registered with CTest using its executable target, so
+`CMAKE_CROSSCOMPILING_EMULATOR` can supply a runner when needed. Conan runs it
+only when `can_run()` permits execution. The Yocto profile disables execution
+by default; qualification must explicitly set
+`tools.build.cross_building:can_run=True` after provisioning the runner.
+
+An x86_64 fully static musl consumer can run directly on the Linux host. ARM64
+requires QEMU or an ARM64 execution host. A glibc consumer may require the SDK's
+loader and libraries when its glibc is newer than the workstation's version.
+Do not mark a skipped external consumer as a runtime pass, and do not infer
+old-kernel compatibility from QEMU user-mode execution on the host kernel.

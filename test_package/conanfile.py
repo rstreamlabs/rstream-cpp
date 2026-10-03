@@ -46,5 +46,9 @@ class TestPackageConan(ConanFile):
         cmake.build()
 
     def test(self):
-        if not conan.tools.build.cross_building(self) and conan.tools.build.can_run(self):
-            self.run(os.path.join(self.cpp.build.bindirs[0], "test_package"), env="conanrun")
+        # can_run() keeps foreign targets disabled by default and honors an
+        # explicit qualification environment (native static binary or emulator).
+        if conan.tools.build.can_run(self):
+            conan.tools.cmake.CMake(self).ctest(
+                cli_args=["--parallel", "1", "--output-on-failure", "--no-tests=error"]
+            )
