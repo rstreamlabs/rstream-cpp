@@ -41,6 +41,9 @@ the newest public recipe; do not modify public dependency recipes to force it.
 | b2 / CMake / Meson / Ninja | 5.5.3 / 4.4.3 / 1.10.2 / 1.13.2 | Latest available public recipes; the Yocto SDK also supplies its own build tools. |
 | pkgconf | 2.0.3 | 2.5.1 is available; the unchanged ncurses recipe pins this build tool to 2.0.3. This is not a shipped runtime library. |
 | bzip2 | 1.0.8 | Latest available public recipe; used by the unrestricted native Boost graph. |
+| libiconv (macOS) | 1.17 | 1.18 is available, but the unmodified Boost 1.91 recipe pins 1.17. |
+| NASM / Strawberry Perl (Windows) | 3.01 / 5.40.2.1 candidates | OpenSSL 4 allows current public versions; CI refreshes tool ranges instead of retaining old cached versions. OpenSSL 3 compatibility builds retain its upstream-pinned tools. |
+| jom (Windows) | 1.1.4 candidate | Build tool newly required by the public OpenSSL 4 recipe; validate with the Windows CI graph. |
 | libbacktrace | cci.20210118 | cci.20240730 is available; the unchanged Boost recipe pins cci.20210118 when stacktrace support is enabled. |
 
 `external/gtest/CMakeLists.txt` contains an old 1.12.1 fallback but is not
@@ -211,7 +214,7 @@ The site remains unchanged while publication is deferred.
 ## Native CI dependency resolution
 
 A restored Conan cache can resolve a widened OpenSSL range to its cached 3.x
-version. The default CI build explicitly refreshes OpenSSL resolution; the
+version. The default CI build explicitly refreshes all ranged dependency and build-tool resolutions; the
 separate consumer check retains the explicit 3.6.5 compatibility run.
 
 The public Boost 1.91 recipe expects `cobalt_io_ssl`, but the macOS and Windows
@@ -220,3 +223,33 @@ profile disables Cobalt for 1.91, which rstream does not use. The public recipe
 and the library consumer's component choices remain unchanged. This limitation
 still applies to an application that independently requires Cobalt; it must
 qualify that upstream component separately. Linux's unrestricted baseline passed.
+
+## Completed local matrix and remaining gates
+
+At source revision `681af3c`, the four regenerated SDKs passed C++20 and direct
+Perl execution. The OpenSSL 4 cross matrix passed 51 tests on each musl target,
+52 on each glibc target, and an external consumer in every cell. Native Linux
+also passed 52 tests plus a consumer for OpenSSL 4, OpenSSL 3, public Boost 1.83,
+and LibreSSL. Exact references, locks, timings and package sizes are recorded
+in `../.yocto-pilot/qualification/final/summary.json`.
+
+Both archive types were produced locally for all four targets. Every shipped
+executable passed help/version with the relevant native/SDK/QEMU runner.
+Terminfo from all eight archives passed a native ncurses data probe. The
+private ARM ncurses recipe now has the same deterministic revision on both
+libcs and its focused consumers passed. glibc execution used the SDK runtime;
+this does not prove compatibility with an older distribution's glibc.
+
+A separate native loopback mTLS probe uses disposable SoftHSM keys and an
+unmodified libp11 0.4.21 provider built against public OpenSSL 4.0.3. RSA with
+negotiated TLS and EC P-256 with TLS 1.2 accepted a valid PIN and rejected an
+invalid PIN. EC P-256 with TLS 1.3 failed in the OpenSSL command-line control
+client as well as the rstream diagnostic; libp11 0.4.20 showed the same control
+failure. Do not claim general EC/TLS 1.3 PKCS#11 support from the successful
+RSA/TLS 1.2 cases. Investigation of the alternative OpenSSL Projects provider
+is unfinished. No provider or public Conan dependency source was patched.
+
+Hosted engine/mTLS/PKCS#11 suites remain pending selection of a test environment.
+The configured context is a hosted production project; available projects are
+all Pro, while the credential suites also exercise Basic-plan rejections.
+Native CI and sanitizer results must be checked separately before completion.

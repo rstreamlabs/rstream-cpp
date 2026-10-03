@@ -41,7 +41,7 @@ def main():
         "install",
         str(source),
         "--build=missing",
-        "--update=openssl",
+        "--update",
         "-pr:h",
         "default",
         "-pr:h",
