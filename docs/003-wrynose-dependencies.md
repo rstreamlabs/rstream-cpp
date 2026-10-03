@@ -152,7 +152,7 @@ unsupported raw public keys now fails explicitly instead of ignoring the request
 
 CI repeats the Linux static consumer with OpenSSL 3.6.5 and LibreSSL 3.9.1 and
 the Windows consumer with explicitly selected public Boost 1.83. The default
-native matrix qualifies OpenSSL 4 and Boost 1.91. A consumer-selected Boost
+native matrix targets OpenSSL 4 and Boost 1.91. A consumer-selected Boost
 version is forced at the root so a nested Windows docopt requirement cannot
 silently select a different version.
 
@@ -207,3 +207,16 @@ Before publication, refresh the changelog and retain the package API fields
 `arch` (host), `targetArch`, `libc`, `version`, `checksum`, `components.host` and
 `components.target`. Prefer `readelf` to host `ldd` for inspecting a foreign ELF.
 The site remains unchanged while publication is deferred.
+
+## Native CI dependency resolution
+
+A restored Conan cache can resolve a widened OpenSSL range to its cached 3.x
+version. The default CI build explicitly refreshes OpenSSL resolution; the
+separate consumer check retains the explicit 3.6.5 compatibility run.
+
+The public Boost 1.91 recipe expects `cobalt_io_ssl`, but the macOS and Windows
+packages tested by CI lacked that optional library. The root `qualification`
+profile disables Cobalt for 1.91, which rstream does not use. The public recipe
+and the library consumer's component choices remain unchanged. This limitation
+still applies to an application that independently requires Cobalt; it must
+qualify that upstream component separately. Linux's unrestricted baseline passed.

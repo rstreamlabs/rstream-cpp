@@ -107,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           python test/test_conan_public_dependencies.py
-          conan graph info . --format=json > conan-graph.json
+          conan graph info . --update=openssl -pr:h default -pr:h qualification --format=json > conan-graph.json
           python conan/check_public_dependencies.py conan-graph.json --verify-recipes
           if conan graph info . -o "rstream/*:boost_ref=boost/1.91.0@private/stable" > private-graph.log 2>&1; then
             echo "A private dependency override was accepted outside package production." >&2
@@ -118,7 +118,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --update=openssl --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default -pr:h qualification \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -139,7 +139,7 @@ jobs:
               compatibility=(-c user.rstream:test_openssl_ref=openssl/3.6.5)
             fi
             conan test test_package "rstream/${package_version}@conan/${{ inputs.channel }}" \
-              --build=missing --build="rstream/*" -pr:b default -pr:h default \
+              --build=missing --build="rstream/*" -pr:b default -pr:h default -pr:h qualification \
               -s:b compiler.cppstd=20 -s:h compiler.cppstd=20 \
               -o "rstream/*:shared=False" -o "rstream/*:static_plugins=True" \
               -o "rstream/*:ssl_provider=${provider}" \
@@ -247,7 +247,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --update=openssl --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default -pr:h qualification \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -347,7 +347,7 @@ jobs:
           $packageVersion = (conan inspect . --format=json | ConvertFrom-Json).version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($staticPlugins in @("True", "False")) {
-            conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
+            conan create --update=openssl --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default -pr:h qualification `
               -s:b compiler.cppstd=20 `
               -s:h compiler.cppstd=20 `
               -o "rstream/*:shared=${{ matrix.shared }}" `
@@ -360,7 +360,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE
             }
-            conan test test_package "rstream/$packageVersion@conan/${{ inputs.channel }}" --build=missing --build="rstream/*" -pr:b default -pr:h default `
+            conan test test_package "rstream/$packageVersion@conan/${{ inputs.channel }}" --build=missing --build="rstream/*" -pr:b default -pr:h default -pr:h qualification `
               -s:b compiler.cppstd=20 `
               -s:h compiler.cppstd=20 `
               -o "rstream/*:shared=${{ matrix.shared }}" `
