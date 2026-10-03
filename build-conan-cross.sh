@@ -377,6 +377,7 @@ function linux_conan_extra_options {
   if [[ "${linux_toolchain_version}" = "5.0.10" && "${ARCH}" = "armv7hf" ]]; then
     # Preserve the SDK's ARMv7/VFP tuning for Boost.Context assembly as well.
     opts+=" --options:host 'boost/*:extra_b2_flags=asmflags=-march=armv7-a asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard'"
+    opts+=" --conf:host openssl/*:user.openssl:target=linux-armv4"
   fi
   echo "${opts}"
 }

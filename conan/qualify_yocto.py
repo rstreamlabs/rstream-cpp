@@ -76,6 +76,7 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64')
         # B2 assembly does not inherit the compiler's C/C++ tuning flags.
         args += ['-o:h', 'boost/*:extra_b2_flags=asmflags=-march=armv7-a '
                  'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard']
+        args += ['-c:h', 'openssl/*:user.openssl:target=linux-armv4']
     return args
 
 

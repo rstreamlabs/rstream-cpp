@@ -191,6 +191,11 @@ Both the production packaging command and this driver apply that option for
 Scarthgap ARMv7hf. An isolated B2 build reproduces the missing-FPU failure
 without it and passes a context-switching consumer with it. The public Boost
 recipe is unchanged.
+The public OpenSSL 4 recipe additionally requires
+`-c:h openssl/*:user.openssl:target=linux-armv4` for this Conan architecture.
+This OpenSSL target retains the SDK's explicit ARMv7/VFP/hard-float tuning;
+the target name does not replace it with ARMv4 compiler settings. Its actual
+Configure invocation passes; full OpenSSL and rstream qualification remain pending.
 Public library defaults are unchanged.
 
 The driver also accepts `--arch x86_64_v2`, `x86_64_v3`, or `x86_64_v4`.

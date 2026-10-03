@@ -120,6 +120,7 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
                 'boost/*:extra_b2_flags=asmflags=-march=armv7-a '
                 'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard'
             ] if version == '5.0.10' else [])
+            self.assertEqual('openssl/*:user.openssl:target=linux-armv4' in builds[0], version == '5.0.10')
 
     def test_wrynose_x86_does_not_export_unused_recipes(self):
         self.assertFalse(any(c['args'][0] == 'export' for c in self.commands(LINUX_ARCHS='x86_64')))
