@@ -54,7 +54,8 @@ class NCursesConan(ConanFile):
         return self.settings.os == "Windows" and self.settings.compiler == "gcc"
 
     def export_sources(self):
-        copy(self, "*.cmake", src=self.recipe_folder, dst=self.export_sources_folder)
+        copy(self, "*.cmake", src=os.path.join(self.recipe_folder, "cmake"),
+             dst=os.path.join(self.export_sources_folder, "cmake"))
 
     def config_options(self):
         if self.settings.os == "Windows":

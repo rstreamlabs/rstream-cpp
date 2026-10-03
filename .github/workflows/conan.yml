@@ -127,6 +127,26 @@ jobs:
             -o "rstream/*:enable_strict_warnings=True" \
             -o "rstream/*:warnings_as_errors=True" \
             .
+      - name: Check OpenSSL 3 and LibreSSL consumers
+        if: ${{ matrix.linkage == 'static' && matrix.plugin_mode == 'static' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(conan inspect . --format=json | python -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+          for provider in openssl libressl; do
+            compatibility=()
+            if [ "$provider" = openssl ]; then
+              compatibility=(-c user.rstream:test_openssl_ref=openssl/3.6.5)
+            fi
+            conan test test_package "rstream/${package_version}@conan/${{ inputs.channel }}" \
+              --build=missing --build="rstream/*" -pr:b default -pr:h default \
+              -s:b compiler.cppstd=20 -s:h compiler.cppstd=20 \
+              -o "rstream/*:shared=False" -o "rstream/*:static_plugins=True" \
+              -o "rstream/*:ssl_provider=${provider}" \
+              -o "rstream/*:enable_testing=True" \
+              -o "rstream/*:enable_strict_warnings=True" \
+              -o "rstream/*:warnings_as_errors=True" "${compatibility[@]}"
+          done
       - name: Show compiler cache statistics
         if: ${{ always() }}
         shell: bash
@@ -324,6 +344,8 @@ jobs:
       - name: Build and test Conan package
         shell: pwsh
         run: |
+          $packageVersion = (conan inspect . --format=json | ConvertFrom-Json).version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($staticPlugins in @("True", "False")) {
             conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
               -s:b compiler.cppstd=20 `
@@ -335,6 +357,19 @@ jobs:
               -o "rstream/*:warnings_as_errors=True" `
               -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': {'value': True, 'cache': True, 'type': 'BOOL'}}" `
               .
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+            conan test test_package "rstream/$packageVersion@conan/${{ inputs.channel }}" --build=missing --build="rstream/*" -pr:b default -pr:h default `
+              -s:b compiler.cppstd=20 `
+              -s:h compiler.cppstd=20 `
+              -o "rstream/*:shared=${{ matrix.shared }}" `
+              -o "rstream/*:static_plugins=$staticPlugins" `
+              -o "rstream/*:enable_testing=True" `
+              -o "rstream/*:enable_strict_warnings=True" `
+              -o "rstream/*:warnings_as_errors=True" `
+              -c "user.rstream:test_boost_ref=boost/1.83.0" `
+              -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': {'value': True, 'cache': True, 'type': 'BOOL'}}"
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE
             }

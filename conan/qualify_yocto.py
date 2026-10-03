@@ -131,7 +131,8 @@ def main():
         'command': create, 'sdk': sdk_ref, 'runtime': runner,
         'private_ncurses_packaging_exception': args.arm_ncurses_exception}, indent=2) + '\n')
     print(shlex.join(create), flush=True)
-    subprocess.run(create, check=True)
+    subprocess.run(create, check=True,
+                   env=os.environ | {'TEST_BUILD_FOLDER': str(output / 'consumer')})
 
 
 if __name__ == '__main__':

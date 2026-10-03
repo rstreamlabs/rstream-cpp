@@ -55,7 +55,7 @@ static std::string bio_string(BIO& bio)
   return {buffer->data, buffer->length};
 }
 
-static test_certificate generate_test_certificate()
+static test_certificate generate_test_certificate(const char* subject_alt_names = "DNS:localhost,IP:127.0.0.1,IP:::1")
 {
   openssl_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> key_context(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr), EVP_PKEY_CTX_free);
   if (!key_context || EVP_PKEY_keygen_init(key_context.get()) <= 0 || EVP_PKEY_CTX_set_rsa_keygen_bits(key_context.get(), 2048) <= 0) {
@@ -79,7 +79,7 @@ static test_certificate generate_test_certificate()
   X509_set_pubkey(cert.get(), key.get());
 
   openssl_ptr<X509_EXTENSION, decltype(&X509_EXTENSION_free)> names(
-      X509V3_EXT_conf_nid(nullptr, nullptr, NID_subject_alt_name, "DNS:localhost,IP:127.0.0.1,IP:::1"), X509_EXTENSION_free);
+      X509V3_EXT_conf_nid(nullptr, nullptr, NID_subject_alt_name, subject_alt_names), X509_EXTENSION_free);
   if (!names || X509_add_ext(cert.get(), names.get(), -1) != 1) {
     throw std::runtime_error("failed to add test certificate identities");
   }
@@ -100,8 +100,12 @@ static test_certificate generate_test_certificate()
   return {bio_string(*cert_bio), bio_string(*key_bio)};
 }
 
-static const test_certificate& test_certificate_pem()
+static const test_certificate& test_certificate_pem(bool dns_only = false)
 {
+  if (dns_only) {
+    static const test_certificate certificate = generate_test_certificate("DNS:localhost");
+    return certificate;
+  }
   static const test_certificate certificate = generate_test_certificate();
   return certificate;
 }
@@ -316,14 +320,14 @@ static void run_until(boost::asio::io_context& io_context, Predicate&& predicate
 
 class certificate_files {
  public:
-  certificate_files()
+  explicit certificate_files(bool dns_only = false)
   {
     const auto suffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     m_dir             = std::filesystem::temp_directory_path() / ("rstream-cpp-tls-" + suffix);
     std::filesystem::create_directories(m_dir);
     m_cert_file             = m_dir / "cert.pem";
     m_key_file              = m_dir / "key.pem";
-    const auto& certificate = test_certificate_pem();
+    const auto& certificate = test_certificate_pem(dns_only);
     std::ofstream(m_cert_file) << certificate.cert;
     std::ofstream(m_key_file) << certificate.key;
   }
@@ -368,6 +372,10 @@ static void check_tls_config_errors()
     rstream::io::stream::stream_socket socket(io_context.get_executor());
     bool completed = false;
     socket.async_connect(endpoint, [&](const boost::system::error_code& error) {
+      if (error != rstream::io::detail::stream::error::code::ssl_configuration_error) {
+        std::cerr << "Unexpected TLS configuration result for " << query << ": "
+                  << error.category().name() << ':' << error.value() << ' ' << error.message() << std::endl;
+      }
       assert_stream_error(error, rstream::io::detail::stream::error::code::ssl_configuration_error);
       completed = true;
     });
@@ -496,10 +504,17 @@ static void check_direct_tls_context_configuration()
   {
     auto config         = base_ssl_config();
     config.m_ciphers    = "DEFAULT";
-    config.m_groups     = "X25519:secp256r1";
+    config.m_groups     = "X25519:P-256";
+    assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
     config.m_client_rpk = true;
     config.m_server_rpk = true;
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L && !defined(LIBRESSL_VERSION_NUMBER)
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
+#else
+    assert_direct_ssl_config_fails(config);
+    config.m_client_rpk = false;
+    assert_direct_ssl_config_fails(config);
+#endif
   }
   {
     auto config                = base_ssl_config();
@@ -753,9 +768,9 @@ static void check_tls_accept_preserves_peer_executor()
   assert(server_peer.get_executor() == peer_io_context.get_executor());
 }
 
-static boost::system::error_code run_verified_tls_connect(const std::string& sni)
+static boost::system::error_code run_verified_tls_connect(const std::string& sni, bool dns_only = false)
 {
-  certificate_files files;
+  certificate_files files(dns_only);
   boost::asio::io_context io_context;
   const auto port            = unused_tcp_port();
   const auto server_endpoint = resolve_one(
@@ -822,6 +837,9 @@ static void check_tls_peer_verification_checks_hostname()
   assert(run_verified_tls_connect("127.0.0.2"));
   assert(!run_verified_tls_connect("::1"));
   assert(run_verified_tls_connect("::2"));
+  // Disabling SNI must still check the endpoint's IP certificate identity.
+  assert(!run_verified_tls_connect(""));
+  assert(run_verified_tls_connect("", true));
 }
 
 #if OPENSSL_VERSION_NUMBER >= 0x30500000L

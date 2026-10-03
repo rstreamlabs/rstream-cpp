@@ -20,7 +20,10 @@ class TestPackageConan(ConanFile):
         # distribution-build component pruning on the root dependency graph.
         self.requires(self.tested_reference_str)
         boost_ref = self.conf.get("user.rstream:test_boost_ref", default=None)
-        self.requires(boost_ref or "boost/[>=1.83 <2]")
+        self.requires(boost_ref or "boost/[>=1.83 <2]", force=bool(boost_ref))
+        openssl_ref = self.conf.get("user.rstream:test_openssl_ref", default=None)
+        if openssl_ref:
+            self.requires(openssl_ref)
 
     def layout(self):
         conan.tools.cmake.cmake_layout(self, build_folder=os.getenv("TEST_BUILD_FOLDER", "build"))

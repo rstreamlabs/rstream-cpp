@@ -18,6 +18,12 @@ recipe disables install-time stripping for cross builds; ncurses source and
 compiler flags remain unchanged. Final distribution stripping uses target
 tools.
 
+The local export also restricts CMake inputs to the recipe's `cmake/` directory.
+The upstream recursive wildcard otherwise captures generated files below
+`test_package/build`, changing the recipe revision after a consumer test.
+An export regression check verifies that these generated files cannot change
+the revision. This changes recipe packaging, not ncurses sources.
+
 Export locally with:
 
 ```sh
@@ -29,6 +35,9 @@ database, window contents and input pushback. It uses CTest so ARM64 execution
 can run through QEMU. Qualification must enable Conan's `can_run` explicitly;
 unexecuted consumers do not qualify this exception.
 
-This remains a candidate until both ARM64 libc configurations and their rstream
-package tests pass. Remove it when the public recipe supports the same matrix.
+Both ARM64 libc configurations passed the focused ncurses consumer and the
+rstream baseline package tests (musl: 50, glibc: 52), plus external consumers.
+The final dependency selection and deterministic-export revision must be
+requalified together before distribution. Remove this exception when the
+public recipe supports the same matrix.
 The historical `../ncurses` recipe remains separate for existing package flows.

@@ -22,6 +22,10 @@ the supported Yocto and LLVM-MinGW package matrix without these changes.
 Validate removal with the historical cross-package command and the Windows
 static/shared plugin matrix before deleting it.
 
+Wrynose 6.0 and native macOS packaging now use unmodified public Boost. The
+historical override is selected only for the remaining legacy Linux and
+LLVM-MinGW flows while those toolchains await their own qualification.
+
 ## ncurses 6.5
 
 This is a vendored Conan Center recipe used by the legacy cross-package flow.
@@ -40,6 +44,13 @@ already selects C17 for GCC 15. The SDK's environment previously overwrote
 that flag after Autotools generated it; the Wrynose tool recipe now appends its
 flags instead. No ncurses recipe change is required for that issue. Validate
 the public x86_64 recipe on both libcs before changing packaging defaults.
+
+That x86_64 validation passed on musl and glibc. Wrynose packaging now selects
+the public recipe on x86_64 and only the narrower
+[`ncurses-wrynose`](ncurses-wrynose/README.md) exception on ARM64. Native macOS
+uses public recipes as well. `USE_PATCHED_CONAN_DEPS=off` disables all private
+exports and overrides. The local qualification driver requires the explicit
+`--arm-ncurses-exception` option for its ARM64 distribution-package checks.
 
 ## Review Rule
 

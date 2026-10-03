@@ -27,7 +27,7 @@ the newest public recipe; do not modify public dependency recipes to force it.
 | Dependency | Current public resolution | Qualification work |
 | --- | --- | --- |
 | Boost | Pilot candidate 1.91.0, constrained to `<1.92.0` | Native Linux static libraries/static plugins passed 51 tests and the external consumer with the unmodified public recipe. Other topologies, Windows/macOS and Yocto remain to qualify. Upstream 1.92.0 is not yet present in the queried remote. |
-| OpenSSL | 3.6.5, constrained to `<4` | Qualify 3.6.5 first; assess the separate 4.0.3 major upgrade before widening compatibility. |
+| OpenSSL | 4.0.3, constrained to `<5` | Native static libraries/plugins passed 52 tests and an external consumer. OpenSSL 3 remains supported; the final cross/native matrix is running against 4.0.3. |
 | Protobuf | 7.35.0 | Latest available public recipe; keep host `protoc` and target runtime aligned. |
 | nlohmann_json | 3.12.0 | Validate existing public resolution with GCC 15. |
 | spdlog / fmt | 1.17.0 / 12.1.0 | fmt 12.2.0 is available, but the unchanged spdlog 1.17.0 recipe pins 12.1.0. Retain that supported pair during the pilot. |
@@ -90,8 +90,9 @@ Boost 1.91.0. Subsequent source changes require their own CI results.
 All four SDK archives passed installation and a C++20 execution smoke test;
 ARM64 used QEMU. The x86_64/musl package including the terminfo fix passed 51
 tests and its external consumer. ARM64/musl passed the earlier 50-test baseline.
-The x86_64/glibc package passed 52 tests and its external consumer with the SDK
-loader. ARM64/glibc remains in qualification.
+Both glibc packages passed 52 tests and their external consumers (ARM64 under
+QEMU). These baseline runs used OpenSSL 3.6.5; the final matrix must repeat with
+OpenSSL 4.0.3 and the final source revision.
 
 Python-wrapped CLI startup tests now receive the target's cross runner, including
 the SDK loader arguments. Native and static cross builds omit that prefix.
@@ -104,9 +105,10 @@ compatibility flag. No public dependency recipe was changed for this fix.
 
 The ARM64 ncurses recipe rejects cross compilation before building. The separate
 `conan/recipes/ncurses-wrynose` packaging candidate narrows that exception to
-Linux x86_64 -> ARM64 with a Yocto 6.0 SDK. Its musl C++/terminfo/window/input
-consumer passed under QEMU. glibc and the complete ARM64 rstream package remain
-to qualify. This recipe is not a library dependency default.
+Linux x86_64 -> ARM64 with a Yocto 6.0 SDK. Its C++/terminfo/window/input consumers
+passed under QEMU on both libcs, as did the complete baseline rstream packages.
+This recipe is not a library dependency default. Its export now excludes
+generated consumer CMake files so running a test cannot change the recipe revision.
 
 Fully static runtime qualification excludes the shared-module loader fixture,
 which requires dynamic loading; native dynamically linked runtime matrices
@@ -116,19 +118,21 @@ avoiding unnecessary variant copies exposed by GCC 15's optimized diagnostics.
 
 ## OpenSSL major-version boundary
 
-The pilot retains the latest selected 3.x recipe (3.6.5), with the `<4` bound.
+The public range accepts OpenSSL 3 and 4, and currently resolves to 4.0.3.
 OpenSSL 4 removes the ENGINE API, as documented by
 [OpenSSL](https://openssl-library.org/post/2025-12-18-remove-engines/index.html).
 rstream has both provider-based PKCS#11 and a legacy ENGINE compatibility path.
-Widening the bound therefore requires explicit provider/legacy configuration
-and supported-Boost qualification; a successful generic TLS build alone is
-insufficient. Do not silently drop that capability to claim a dependency bump.
+Legacy ENGINE users must select OpenSSL 3; OpenSSL 4 uses the provider path for
+PKCS#11. A generic TLS test does not qualify an external PKCS#11 provider or HSM.
+Unsupported explicit ENGINE configurations fail; they do not fall back to an
+unauthenticated connection. Hardware/provider integration remains an explicit
+qualification item before claiming that integration is supported with OpenSSL 4.
 
 The native 4.0.3 candidate exposed the deprecated `SSL_set1_host` call. The
 OpenSSL 4 path now uses `SSL_set1_dnsname`, retaining the existing API for
 OpenSSL 3 and LibreSSL. TLS tests check accepted and rejected DNS, IPv4 and
-IPv6 certificate identities. The candidate remains separate from the default
-dependency bound until its compatibility checks pass.
+IPv6 certificate identities. Its native suite and external consumer passed;
+cross-platform and cross-compilation qualification must still complete.
 The DNS API follows the [OpenSSL 4 documentation](https://docs.openssl.org/4.0/man3/SSL_set1_host/).
 
 The LibreSSL candidate exposed OpenSSL ENGINE sources being compiled despite
@@ -136,6 +140,21 @@ the capability being disabled, and PKCS#11-only helpers being compiled with
 that feature disabled. Those sources/helpers now follow their capability
 guards. Unsupported PKCS#11 configurations still report an error; qualification
 does not add that feature to LibreSSL.
+
+LibreSSL also rejected literal IP addresses sent as SNI. The client now sends
+SNI only for DNS names, as required by
+[RFC 6066 section 3](https://www.rfc-editor.org/rfc/rfc6066.html#section-3),
+while retaining certificate verification for IP identities. An explicitly empty
+SNI still verifies the endpoint identity. Tests accept matching IP certificates
+and reject a DNS-only certificate for that case. Provider-neutral group tests
+use `P-256`; LibreSSL does not recognize the OpenSSL alias `secp256r1`. Requesting
+unsupported raw public keys now fails explicitly instead of ignoring the request.
+
+CI repeats the Linux static consumer with OpenSSL 3.6.5 and LibreSSL 3.9.1 and
+the Windows consumer with explicitly selected public Boost 1.83. The default
+native matrix qualifies OpenSSL 4 and Boost 1.91. A consumer-selected Boost
+version is forced at the root so a nested Windows docopt requirement cannot
+silently select a different version.
 
 ## Reproducing the local pilot
 

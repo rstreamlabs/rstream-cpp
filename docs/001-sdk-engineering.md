@@ -176,9 +176,11 @@ Distribution packaging may override a dependency only when an upstream Conan
 Center recipe cannot support a required target, such as the configured Yocto
 SDK. An override must:
 
-- be used only by `build-conan-cross.sh`;
+- be used only by `build-conan-cross.sh` or its explicit local distribution
+  qualification driver `conan/qualify_yocto.py`;
 - be controlled through `USE_PATCHED_CONAN_DEPS`, with patched dependencies
-  confined to the distribution packaging flow;
+  confined to the distribution packaging flow; the qualification driver uses
+  the explicit `--arm-ncurses-exception` switch instead;
 - contain the smallest possible delta from the matching Conan Center recipe;
 - document the affected platform and the upstream limitation;
 - avoid changing behavior for unaffected targets;

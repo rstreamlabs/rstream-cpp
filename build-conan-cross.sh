@@ -56,7 +56,7 @@ production_boost_without_components=(
   "wave"
 )
 docker_conan_config_synced="off"
-patched_conan_recipes_exported="off"
+declare -A patched_conan_recipes_exported
 package_name_cache=""
 package_version_cache=""
 
@@ -193,6 +193,15 @@ function patched_conan_conf {
   if [ "${use_patched_conan_deps}" != "on" ]; then
     return
   fi
+  if [ "${OS}" = "macos" ]; then
+    return
+  fi
+  if [ "${OS}" = "linux" ] && [[ "${linux_toolchain_version}" = 6.0.* ]]; then
+    if [ "${ARCH}" = "arm64" ]; then
+      echo "-o rstream/*:ncurses_ref=ncurses/6.5@rstream/wrynose"
+    fi
+    return
+  fi
   local opts=("-o" "rstream/*:boost_ref=boost/${patched_boost_version}@${patched_conan_channel}")
   if [ "${OS}" != "windows" ] && [ -n "${patched_ncurses_version}" ]; then
     opts+=("-o" "rstream/*:ncurses_ref=ncurses/${patched_ncurses_version}@${patched_conan_channel}")
@@ -201,6 +210,9 @@ function patched_conan_conf {
 }
 
 function patched_test_conan_conf {
+  if [ "${OS}" = "macos" ] || { [ "${OS}" = "linux" ] && [[ "${linux_toolchain_version}" = 6.0.* ]]; }; then
+    return
+  fi
   if [ "${use_patched_conan_deps}" = "on" ]; then
     echo "--conf user.rstream:test_boost_ref=boost/${patched_boost_version}@${patched_conan_channel}"
   fi
@@ -447,33 +459,47 @@ function sync_docker_conan_config {
 }
 
 function export_patched_conan_recipes {
-  if [ "${use_patched_conan_deps}" != "on" ] || [ "${patched_conan_recipes_exported}" = "on" ]; then
+  if [ "${use_patched_conan_deps}" != "on" ] || [ "${OS}" = "macos" ]; then
     return
   fi
-  local export_local="off"
-  local export_docker="off"
-  local os
+  local recipes=(boost ncurses)
+  if [ "${OS}" = "linux" ] && [[ "${linux_toolchain_version}" = 6.0.* ]]; then
+    recipes=()
+    local arch
+    for arch in "${linux_archs[@]}"; do
+      if [ "${arch}" = "arm64" ]; then
+        recipes=(ncurses-wrynose)
+        break
+      fi
+    done
+  fi
+  local backend="local"
+  if [ "${use_docker}" = "on" ]; then
+    backend="docker"
+  fi
   local recipe
-  for os in "${oss[@]}"; do
-    if [ "${os}" = "macos" ] || [ "${use_docker}" != "on" ]; then
-      export_local="on"
-    elif [ "${os}" = "linux" ] || [ "${os}" = "windows" ]; then
-      export_docker="on"
+  for recipe in "${recipes[@]}"; do
+    if [ "${patched_conan_recipes_exported[${backend}:${recipe}]:-off}" = "on" ]; then
+      continue
     fi
-  done
-  if [ "${export_local}" = "on" ]; then
-    for recipe in boost ncurses; do
+    if [ "${backend}" = "docker" ]; then
+      if [ "${recipe}" = "ncurses-wrynose" ]; then
+        docker_run_builder --entrypoint "conan" -v "${script_dir}:/source:rw" conan2-builder \
+          export /source/conan/recipes/ncurses-wrynose/all --version 6.5 --user rstream --channel wrynose || exit 1
+      else
+        docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
+          "cd /source/conan/recipes/${recipe} && python3 export.py" || exit 1
+      fi
+    elif [ "${recipe}" = "ncurses-wrynose" ]; then
+      conan export "${script_dir}/conan/recipes/ncurses-wrynose/all" --version 6.5 --user rstream --channel wrynose || exit 1
+    else
       (
         cd "${script_dir}/conan/recipes/${recipe}"
         python3 export.py
       ) || exit 1
-    done
-  fi
-  if [ "${export_docker}" = "on" ]; then
-    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
-      "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done" || exit 1
-  fi
-  patched_conan_recipes_exported="on"
+    fi
+    patched_conan_recipes_exported[${backend}:${recipe}]="on"
+  done
 }
 
 function linux_run_build {
@@ -701,8 +727,8 @@ function run {
       fi
     done
   fi
-  export_patched_conan_recipes
   for os in "${oss[@]}"; do
+    OS=${os} export_patched_conan_recipes
     OS=${os} call_os run
   done
 }
@@ -739,7 +765,8 @@ function show_help {
   echo "  WINDOWS_BUILD_SHARED    : Build shared or static libraries (windows)."
   echo "  WINDOWS_PLUGIN_MODES    : Use auto, static, or dynamic plugin loading (windows)."
   echo "  OSS                     : Set the operating systems to build for."
-  echo "  USE_PATCHED_CONAN_DEPS  : Use patched Boost and Ncurses overrides (default: ${default_use_patched_conan_deps})."
+  echo "  USE_PATCHED_CONAN_DEPS  : Allow target-specific packaging overrides (default: ${default_use_patched_conan_deps})."
+  echo "                           Wrynose uses public Boost; only ARM64 uses the ncurses exception. macOS uses public recipes."
   echo "  WARNINGS_AS_ERRORS      : Treat project warnings as errors (default: ${default_warnings_as_errors})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
   echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."
