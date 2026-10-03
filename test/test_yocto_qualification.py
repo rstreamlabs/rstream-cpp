@@ -103,6 +103,50 @@ add_subdirectory(webtty)
             self.assertEqual(pilot.runtime_command('arm64', 'glibc', Path('/sdk/sysroot')),
                              ['/usr/bin/qemu-aarch64', '-L', '/sdk/sysroot'])
 
+    def test_sdk_host_and_target_have_distinct_conan_settings(self):
+        args = pilot.build_arguments('x86_64', 'glibc', '5.0.10', 2, False,
+                                     sdk_host='aarch64')
+        build = [args[i + 1] for i, arg in enumerate(args) if arg == '-s:b']
+        host = [args[i + 1] for i, arg in enumerate(args) if arg == '-s:h']
+        self.assertIn('arch=armv8', build)
+        self.assertIn('arch=x86_64', host)
+        self.assertIn('yocto-toolchain/*:arch=x86_64', args)
+        self.assertFalse(any('ncurses_ref=' in arg for arg in args))
+
+    def test_arm_sdk_host_needs_an_x86_target_runner(self):
+        with patch.object(pilot.shutil, 'which', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'qemu-x86_64'):
+                pilot.runtime_command('x86_64', 'musl', Path('/sdk'), 'aarch64')
+        with patch.object(pilot.shutil, 'which', return_value='/runner/qemu-x86_64'):
+            for libc in ('musl', 'glibc'):
+                self.assertEqual(pilot.runtime_command('x86_64', libc, Path('/sdk'), 'aarch64'),
+                                 ['/runner/qemu-x86_64', '-L', '/sdk'])
+
+    def test_sysroot_selection_excludes_the_actual_sdk_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory)
+            native = prefix / 'sysroots/aarch64-pokysdk-linux'
+            target = prefix / 'sysroots/armv8a-poky-linux-musl'
+            native.mkdir(parents=True)
+            target.mkdir()
+            self.assertEqual(pilot.target_sysroot(prefix, 'aarch64'), target)
+            with self.assertRaisesRegex(RuntimeError, 'host sysroot is missing'):
+                pilot.target_sysroot(prefix, 'x86_64')
+            (prefix / 'sysroots/unexpected-target').mkdir()
+            with self.assertRaisesRegex(RuntimeError, 'exactly one target'):
+                pilot.target_sysroot(prefix, 'aarch64')
+
+    def test_wrong_sdk_host_userspace_fails_before_conan(self):
+        sdk_host = 'x86_64' if pilot.platform.machine() == 'aarch64' else 'aarch64'
+        command = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                   '--arch', 'arm64', '--libc', 'musl', '--sdk-host', sdk_host,
+                   '--conan', '/does/not/exist']
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(f'Linux {sdk_host} userspace', result.stderr)
+        plan = subprocess.run([*command, '--plan'], capture_output=True, text=True)
+        self.assertEqual(plan.returncode, 0, plan.stderr)
+
     def test_glibc_execution_uses_sdk_loader(self):
         with tempfile.TemporaryDirectory() as directory:
             sysroot = Path(directory)

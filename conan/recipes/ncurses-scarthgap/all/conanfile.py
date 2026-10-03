@@ -88,7 +88,7 @@ class NCursesConan(ConanFile):
     def validate(self):
         # Packaging-only exception for the pinned Scarthgap Linux ARM64 SDK.
         scarthgap_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
-                         and self.settings_build.arch == "x86_64" and self.settings.arch == "armv8"
+                         and str(self.settings_build.arch) in ("x86_64", "armv8") and self.settings.arch == "armv8"
                          and str(self.settings.get_safe("os.sdk", "")) in ("yocto-toolchain-5.0.10-arm64-musl", "yocto-toolchain-5.0.10-arm64-glibc"))
         if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not scarthgap_arm64:
             # FIXME: Cannot build ncurses from x86_64 to armv8 (Apple M1).  Cross building from Linux/x86_64 to Mingw/x86_64 works flawless.

@@ -164,7 +164,7 @@ silently select a different version.
 Use Conan 2.31.2 in an isolated `CONAN_HOME`, install `conan/config`, and create
 the required local `yocto-toolchain/6.0.3` tool packages from verified archives
 as described in the toolchain repository. No personal publishing credentials
-are needed. The pilot script currently targets a Linux x86_64 build host.
+are needed. The pilot script defaults to a Linux x86_64 SDK host.
 
 ```sh
 conan config install conan/config
@@ -180,15 +180,31 @@ package build command without running Conan. `--output` selects the evidence
 directory; the default is `out/yocto-pilot/<sdk-version>/<architecture>-<libc>`
 so Scarthgap and Wrynose results do not overwrite one another.
 
+For ARM64 SDK-host qualification, run inside Linux ARM64 userspace with
+`--sdk-host aarch64`. Create the local tool package with Conan's `arch=armv8`
+setting and the archive built for `host-aarch64`; the target remains selected
+by `--arch`. Add `--host-execution emulated` when the whole host userspace runs
+under QEMU. The driver checks host identity before invoking Conan, validates
+the SDK provenance, and excludes the corresponding host sysroot when selecting
+target libraries. ARM64-host results default to
+`out/yocto-pilot/<sdk-version>/aarch64/<architecture>-<libc>`.
+The target runners must be available in that environment: `qemu-aarch64` for
+ARM64 targets, and `qemu-x86_64` for x86_64 targets from an ARM64 SDK host.
+ARM64-host compiled-package qualification is pending; command support alone
+does not establish a successful build or runtime result.
+
 The same driver accepts the pinned Scarthgap maintenance candidate with
 `--sdk-version 5.0.10`, after creating its local tool package from a verified
 archive. That path preserves GCC 13.3 and starts with public dependency recipes;
 the public ncurses recipe rejects ARM cross compilation before building. An
 explicit `--arm-ncurses-exception` selects the separate
 `ncurses/6.5@rstream/scarthgap` packaging recipe, restricted to 5.0.10. Its
-ARM64/musl consumer passed under QEMU; the complete ARM64 C++ matrix is still
-being qualified. The x86_64/musl SDK passed the C++ package's 51 tests, its
-external consumer, archive smoke tests and both local CE tunnel suites.
+four x86_64-host SDK configurations (x86_64/ARM64 targets, musl/glibc) passed
+the C++ package tests (51 for musl, 52 for glibc), external consumers, archive
+checks and both local CE tunnel suites. The ARM64 ncurses consumers also passed
+for both libcs. These results used the x86_64-host packaging exception;
+the ARM64-host/ARM64-target musl ncurses build and focused consumer also passed
+in emulated ARM64 userspace. The complete ARM64-host rstream chain remains pending.
 `build-conan-cross.sh` also selects public Boost for exactly 5.0.10; other
 legacy SDK versions retain their prior settings. No SDK or package is uploaded.
 

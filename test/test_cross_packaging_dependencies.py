@@ -12,6 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CrossPackagingDependenciesTest(unittest.TestCase):
+    def test_cache_migration_preserves_project_sdk_settings(self):
+        from conan.api.conan_api import ConanAPI
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            settings = cache / 'settings.yml'
+            expected = (ROOT / 'conan/config/settings.yml').read_bytes()
+            settings.write_bytes(expected)
+            ConanAPI(cache_folder=str(cache)).profiles.list()
+            self.assertEqual(settings.read_bytes(), expected)
+            self.assertIn(b'sdk: [null, ANY]', expected)
+
     def test_ncurses_export_ignores_generated_consumer_files(self):
         from conan.api.conan_api import ConanAPI
         for generation in ('wrynose', 'scarthgap'):

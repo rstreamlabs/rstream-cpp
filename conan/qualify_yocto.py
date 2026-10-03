@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shlex
 import shutil
@@ -18,9 +19,10 @@ def ncurses_generation(version):
     return 'scarthgap' if version == '5.0.10' else 'wrynose'
 
 
-def build_arguments(arch, libc, version, jobs, arm_exception):
+def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64'):
     args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={"armv8" if arch == "arm64" else arch}',
             '-s:h', f'os.sdk=yocto-toolchain-{version}-{arch}-{libc}', '-s:b', 'compiler.cppstd=20',
+            '-s:b', f'arch={"armv8" if sdk_host == "aarch64" else sdk_host}',
             '-o:b', f'yocto-toolchain/*:arch={arch}', '-o:b', f'yocto-toolchain/*:libc={libc}',
             '-c:h', f'tools.build:jobs={jobs}', '-c:b', f'tools.build:jobs={jobs}',
             '-c:h', 'tools.build.cross_building:can_run=True',
@@ -41,11 +43,12 @@ def build_arguments(arch, libc, version, jobs, arm_exception):
     return args
 
 
-def runtime_command(arch, libc, sysroot):
-    if arch == 'arm64':
-        qemu = shutil.which('qemu-aarch64')
+def runtime_command(arch, libc, sysroot, sdk_host='x86_64'):
+    if arch == 'arm64' or sdk_host == 'aarch64':
+        emulator = 'qemu-aarch64' if arch == 'arm64' else 'qemu-x86_64'
+        qemu = shutil.which(emulator)
         if not qemu:
-            raise RuntimeError('qemu-aarch64 is required for ARM64 runtime qualification')
+            raise RuntimeError(f'{emulator} is required for this target runtime qualification')
         return [qemu, '-L', str(sysroot)]
     if libc == 'glibc':
         loader = sysroot / 'lib/ld-linux-x86-64.so.2'
@@ -57,11 +60,25 @@ def runtime_command(arch, libc, sysroot):
     return []
 
 
+def target_sysroot(prefix, sdk_host):
+    roots = prefix / 'sysroots'
+    native = roots / f'{sdk_host}-pokysdk-linux'
+    if not native.is_dir():
+        raise RuntimeError(f'SDK host sysroot is missing: {native}')
+    targets = [path for path in roots.iterdir() if path.is_dir() and path != native]
+    if len(targets) != 1:
+        raise RuntimeError('Expected exactly one target sysroot')
+    return targets[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--arch', choices=['x86_64', 'arm64'], required=True)
     parser.add_argument('--libc', choices=['musl', 'glibc'], required=True)
     parser.add_argument('--sdk-version', default='6.0.3')
+    parser.add_argument('--sdk-host', choices=['x86_64', 'aarch64'], default='x86_64')
+    parser.add_argument('--host-execution', choices=['native', 'emulated'], default='native',
+                        help='Record when the entire SDK host userspace is emulated')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--conan', default='conan')
     parser.add_argument('--output', type=Path)
@@ -74,14 +91,19 @@ def main():
     if args.arm_ncurses_exception and args.arch != 'arm64':
         parser.error('The ncurses packaging exception is limited to ARM64')
     build_args = build_arguments(args.arch, args.libc, args.sdk_version, args.jobs,
-                                 args.arm_ncurses_exception)
+                                 args.arm_ncurses_exception, args.sdk_host)
     create = [args.conan, 'create', str(ROOT), '--build=missing', '--build=rstream/*', *build_args]
     if args.plan:
         print(shlex.join(create))
         return
+    if platform.system() != 'Linux' or platform.machine() != args.sdk_host:
+        parser.error(f'Run this qualification in Linux {args.sdk_host} userspace')
     if not os.environ.get('CONAN_HOME'):
         parser.error('Set an isolated CONAN_HOME before running the pilot')
-    output = (args.output or ROOT / 'out/yocto-pilot' / args.sdk_version / f'{args.arch}-{args.libc}').resolve()
+    default_output = ROOT / 'out/yocto-pilot' / args.sdk_version
+    if args.sdk_host != 'x86_64':
+        default_output /= args.sdk_host
+    output = (args.output or default_output / f'{args.arch}-{args.libc}').resolve()
     output.mkdir(parents=True, exist_ok=True)
     os.environ['LINUX_TOOLCHAIN_VERSION'] = args.sdk_version
     if args.arm_ncurses_exception:
@@ -118,14 +140,11 @@ def main():
         raise RuntimeError('Expected exactly one SDK provenance file')
     metadata = json.loads(metadata_files[0].read_text())
     for key, expected in dict(ARCH=args.arch, TCLIBC=args.libc, yocto_version=args.sdk_version,
-                              SDK_ARCH='x86_64').items():
+                              SDK_ARCH=args.sdk_host).items():
         if metadata.get(key) != expected:
             raise RuntimeError(f'SDK {key} does not match {expected}')
-    sysroots = [path for path in (prefix / 'sysroots').iterdir()
-                if path.name != 'x86_64-pokysdk-linux']
-    if len(sysroots) != 1:
-        raise RuntimeError('Expected exactly one target sysroot')
-    runner = runtime_command(args.arch, args.libc, sysroots[0])
+    sysroot = target_sysroot(prefix, args.sdk_host)
+    runner = runtime_command(args.arch, args.libc, sysroot, args.sdk_host)
     if runner:
         create += ['-c:h', 'tools.cmake.cmaketoolchain:extra_variables=' + json.dumps({
             'CMAKE_CROSSCOMPILING_EMULATOR': ';'.join(runner)})]
@@ -133,6 +152,7 @@ def main():
                '--out-file', str(output / 'result.json')]
     (output / 'command.json').write_text(json.dumps({
         'command': create, 'sdk': sdk_ref, 'runtime': runner,
+        'sdk_host': args.sdk_host, 'sdk_host_execution': args.host_execution,
         'private_ncurses_packaging_exception': args.arm_ncurses_exception}, indent=2) + '\n')
     print(shlex.join(create), flush=True)
     subprocess.run(create, check=True,
