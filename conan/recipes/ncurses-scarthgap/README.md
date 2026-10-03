@@ -1,4 +1,4 @@
-# Scarthgap ARM64 packaging candidate
+# Scarthgap ARM packaging candidate
 
 This unpublished candidate is restricted to compiled distribution packages.
 Library consumers retain unmodified public Conan Center recipes.
@@ -8,8 +8,10 @@ building, including the pinned Yocto 5.0.10 ARM64 profile. The same restriction
 was confirmed in the current Conan Center Index source.
 
 This candidate derives from the recorded unmodified public recipe. It permits
-only Linux x86_64 or ARM64 SDK hosts targeting Linux ARM64 with the exact
-Yocto 5.0.10 musl or glibc SDK.
+Linux x86_64 or ARM64 SDK hosts targeting Linux ARM64, and Linux x86_64
+SDK hosts targeting Linux ARMv7 hard-float, with the exact Yocto 5.0.10
+musl or glibc SDK. ARMv7 soft-float, mismatched ABI identities, other SDK
+versions and ARM64 hosts targeting ARMv7 are rejected.
 It retains the public recipe's native build compiler detection. As in the
 qualified Wrynose packaging variant, install-time stripping is disabled for
 cross builds so the host strip is not applied to target binaries. No ncurses
@@ -27,3 +29,7 @@ database. The ARM64-host/ARM64-target musl build and focused consumer also
 passed in an emulated Linux ARM64 userspace. The complete ARM64-host rstream
 package chain and the ARM64-host glibc consumer remain pending; no native
 ARM hardware performance result is claimed.
+
+The ARMv7 hard-float extension passes graph boundary controls but remains
+pending actual SDK compilation and its QEMU C++/terminfo consumer. It is not
+yet a qualified distribution package.

@@ -51,7 +51,7 @@ def ncurses_generation(version):
 
 
 def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64'):
-    conan_arch = {**dict.fromkeys(X86_TARGETS, 'x86_64'), 'arm64': 'armv8'}[arch]
+    conan_arch = {**dict.fromkeys(X86_TARGETS, 'x86_64'), 'arm64': 'armv8', 'armv7hf': 'armv7hf'}[arch]
     args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={conan_arch}',
             '-s:h', f'os.sdk=yocto-toolchain-{version}-{arch}-{libc}', '-s:b', 'compiler.cppstd=20',
             '-s:b', f'arch={"armv8" if sdk_host == "aarch64" else sdk_host}',
@@ -77,12 +77,13 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64')
 
 def runtime_command(arch, libc, sysroot, sdk_host='x86_64', explicit=None):
     prefix = validate_runner(arch, sdk_host, explicit)
-    if explicit is None and (arch == 'arm64' or sdk_host == 'aarch64'):
-        emulator = 'qemu-aarch64' if arch == 'arm64' else 'qemu-x86_64'
+    if explicit is None and (arch in ('arm64', 'armv7hf') or sdk_host == 'aarch64'):
+        emulator = {'arm64': 'qemu-aarch64', 'armv7hf': 'qemu-arm'}.get(arch, 'qemu-x86_64')
         qemu = shutil.which(emulator)
         if not qemu:
             raise RuntimeError(f'{emulator} is required for this target runtime qualification')
-        return [qemu, '-L', str(sysroot)]
+        cpu = ['-cpu', 'cortex-a15'] if arch == 'armv7hf' else []
+        return [qemu, *cpu, '-L', str(sysroot)]
     if libc == 'glibc':
         loader = sysroot / 'lib/ld-linux-x86-64.so.2'
         if not loader.is_file():
@@ -106,7 +107,7 @@ def target_sysroot(prefix, sdk_host):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--arch', choices=[*X86_TARGETS, 'arm64'], required=True)
+    parser.add_argument('--arch', choices=[*X86_TARGETS, 'arm64', 'armv7hf'], required=True)
     parser.add_argument('--libc', choices=['musl', 'glibc'], required=True)
     parser.add_argument('--sdk-version', default='6.0.3')
     parser.add_argument('--sdk-host', choices=['x86_64', 'aarch64'], default='x86_64')
@@ -118,13 +119,14 @@ def main():
     parser.add_argument('--conan', default='conan')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--arm-ncurses-exception', action='store_true',
-                        help='Explicitly use the private ARM64 packaging candidate; never a library default')
+                        help='Explicitly use a scoped private ARM packaging candidate; never a library default')
     parser.add_argument('--plan', action='store_true', help='Print the package build command without running Conan')
     args = parser.parse_args()
     if not (re.fullmatch(r'6\.0\.\d+', args.sdk_version) or args.sdk_version == '5.0.10') or args.jobs < 1:
         parser.error('This pilot requires Yocto 6.0.x or pinned Scarthgap 5.0.10 and a positive job count')
-    if args.arm_ncurses_exception and args.arch != 'arm64':
-        parser.error('The ncurses packaging exception is limited to ARM64')
+    if args.arm_ncurses_exception and not (args.arch == 'arm64' or (
+            args.arch == 'armv7hf' and args.sdk_version == '5.0.10' and args.sdk_host == 'x86_64')):
+        parser.error('The ncurses packaging exception requires ARM64 or x86_64-host Scarthgap 5.0.10 ARMv7hf')
     build_args = build_arguments(args.arch, args.libc, args.sdk_version, args.jobs,
                                  args.arm_ncurses_exception, args.sdk_host)
     create = [args.conan, 'create', str(ROOT), '--build=missing', '--build=rstream/*', *build_args]

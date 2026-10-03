@@ -201,6 +201,10 @@ function ncurses_packaging_generation {
   fi
 }
 
+function modern_ncurses_target {
+  [[ "$1" = "arm64" || ( "${linux_toolchain_version}" = "5.0.10" && "$1" = "armv7hf" ) ]]
+}
+
 function patched_conan_conf {
   if [ "${use_patched_conan_deps}" != "on" ]; then
     return
@@ -209,7 +213,7 @@ function patched_conan_conf {
     return
   fi
   if [ "${OS}" = "linux" ] && modern_linux_sdk; then
-    if [ "${ARCH}" = "arm64" ]; then
+    if modern_ncurses_target "${ARCH}"; then
       echo "-o rstream/*:ncurses_ref=ncurses/6.5@rstream/$(ncurses_packaging_generation)"
     fi
     return
@@ -479,7 +483,7 @@ function export_patched_conan_recipes {
     recipes=()
     local arch
     for arch in "${linux_archs[@]}"; do
-      if [ "${arch}" = "arm64" ]; then
+      if modern_ncurses_target "${arch}"; then
         recipes=("ncurses-$(ncurses_packaging_generation)")
         break
       fi
@@ -778,7 +782,7 @@ function show_help {
   echo "  WINDOWS_PLUGIN_MODES    : Use auto, static, or dynamic plugin loading (windows)."
   echo "  OSS                     : Set the operating systems to build for."
   echo "  USE_PATCHED_CONAN_DEPS  : Allow target-specific packaging overrides (default: ${default_use_patched_conan_deps})."
-  echo "                           Wrynose and Scarthgap 5.0.10 use public Boost; only ARM64 uses the ncurses exception. macOS uses public recipes."
+  echo "                           Wrynose and Scarthgap 5.0.10 use public Boost; ARM64 and Scarthgap ARMv7hf use scoped ncurses exceptions. macOS uses public recipes."
   echo "  WARNINGS_AS_ERRORS      : Treat project warnings as errors (default: ${default_warnings_as_errors})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
   echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."

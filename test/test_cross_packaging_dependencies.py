@@ -102,6 +102,20 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
         self.assertFalse(any(c['args'][0] == 'export' for c in calls))
         self.assertFalse(any('_ref=' in arg for c in calls for arg in c['args']))
 
+    def test_arm32_exception_is_selected_only_for_scarthgap_packaging(self):
+        for version, patched, expected in (('5.0.10', 'on', True),
+                                           ('5.0.10', 'off', False),
+                                           ('6.0.3', 'on', False)):
+            calls = self.commands(LINUX_TOOLCHAIN_VERSION=version, LINUX_ARCHS='armv7hf',
+                                  USE_PATCHED_CONAN_DEPS=patched)
+            exports = [c for c in calls if c['args'][0] == 'export']
+            self.assertEqual(len(exports), int(expected))
+            builds = [c['args'] for c in calls if c['args'][0] == 'create']
+            self.assertEqual(len(builds), 1)
+            self.assertIn('arch=armv7hf', builds[0])
+            self.assertEqual(any('ncurses_ref=' in arg for arg in builds[0]), expected)
+            self.assertFalse(any('boost_ref=' in arg for arg in builds[0]))
+
     def test_wrynose_x86_does_not_export_unused_recipes(self):
         self.assertFalse(any(c['args'][0] == 'export' for c in self.commands(LINUX_ARCHS='x86_64')))
 

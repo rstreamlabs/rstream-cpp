@@ -185,6 +185,34 @@ add_subdirectory(webtty)
             self.assertEqual(pilot.runtime_command('arm64', 'glibc', Path('/sdk/sysroot')),
                              ['/usr/bin/qemu-aarch64', '-L', '/sdk/sysroot'])
 
+    def test_arm32_runner_uses_target_cpu_and_sdk_runtime_for_both_libcs(self):
+        for libc in ('musl', 'glibc'):
+            with patch.object(pilot.shutil, 'which', return_value='/usr/bin/qemu-arm'):
+                self.assertEqual(pilot.runtime_command('armv7hf', libc, Path('/sdk target')),
+                                 ['/usr/bin/qemu-arm', '-cpu', 'cortex-a15', '-L', '/sdk target'])
+        with patch.object(pilot.shutil, 'which', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'qemu-arm'):
+                pilot.runtime_command('armv7hf', 'musl', Path('/sdk'))
+
+    def test_arm32_settings_keep_hard_float_and_private_recipe_opt_in(self):
+        args = pilot.build_arguments('armv7hf', 'musl', '5.0.10', 2, False)
+        self.assertIn('arch=armv7hf', args)
+        self.assertIn('os.sdk=yocto-toolchain-5.0.10-armv7hf-musl', args)
+        self.assertIn('yocto-toolchain/*:arch=armv7hf', args)
+        self.assertFalse(any('ncurses_ref=' in arg for arg in args))
+        args = pilot.build_arguments('armv7hf', 'musl', '5.0.10', 2, True)
+        self.assertIn('rstream/*:ncurses_ref=ncurses/6.5@rstream/scarthgap', args)
+
+    def test_arm32_private_recipe_is_rejected_outside_its_sdk_scope(self):
+        for version, host in (('6.0.3', 'x86_64'), ('5.0.10', 'aarch64')):
+            result = subprocess.run([
+                sys.executable, str(ROOT / 'conan/qualify_yocto.py'), '--arch', 'armv7hf',
+                '--libc', 'musl', '--sdk-version', version, '--sdk-host', host,
+                '--arm-ncurses-exception', '--plan', '--conan', '/does/not/exist'],
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('x86_64-host Scarthgap 5.0.10 ARMv7hf', result.stderr)
+
     def test_sdk_host_and_target_have_distinct_conan_settings(self):
         args = pilot.build_arguments('x86_64', 'glibc', '5.0.10', 2, False,
                                      sdk_host='aarch64')

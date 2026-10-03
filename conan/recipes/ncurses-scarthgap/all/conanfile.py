@@ -86,11 +86,19 @@ class NCursesConan(ConanFile):
                 self.requires("naive-tsearch/0.1.1")
 
     def validate(self):
-        # Packaging-only exception for the pinned Scarthgap Linux ARM64 SDK.
-        scarthgap_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
-                         and str(self.settings_build.arch) in ("x86_64", "armv8") and self.settings.arch == "armv8"
-                         and str(self.settings.get_safe("os.sdk", "")) in ("yocto-toolchain-5.0.10-arm64-musl", "yocto-toolchain-5.0.10-arm64-glibc"))
-        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not scarthgap_arm64:
+        # Packaging-only exceptions for exact Scarthgap SDK target identities.
+        sdk_targets = {
+            ("x86_64", "armv8"): "arm64",
+            ("armv8", "armv8"): "arm64",
+            ("x86_64", "armv7hf"): "armv7hf",
+        }
+        target = sdk_targets.get((str(self.settings_build.arch), str(self.settings.arch)))
+        scarthgap_arm = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
+                        and target is not None
+                        and str(self.settings.get_safe("os.sdk", "")) in (
+                            f"yocto-toolchain-5.0.10-{target}-musl",
+                            f"yocto-toolchain-5.0.10-{target}-glibc"))
+        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not scarthgap_arm:
             # FIXME: Cannot build ncurses from x86_64 to armv8 (Apple M1).  Cross building from Linux/x86_64 to Mingw/x86_64 works flawless.
             # FIXME: Need access to environment of build profile to set build compiler (BUILD_CC/CC_FOR_BUILD)
             raise ConanInvalidConfiguration("Cross building to/from arm is (currently) not supported")

@@ -19,12 +19,13 @@ class TestPackage(ConanFile):
     def generate(self):
         toolchain = CMakeToolchain(self)
         toolchain.variables["TEST_FULLY_STATIC"] = str(self.settings.get_safe("os.sdk", "")).endswith("-musl")
-        if can_run(self) and cross_building(self) and self.settings.arch == "armv8":
-            qemu = shutil.which("qemu-aarch64")
+        if can_run(self) and cross_building(self) and str(self.settings.arch) in ("armv8", "armv7hf"):
+            arm32 = self.settings.arch == "armv7hf"
+            qemu = shutil.which("qemu-arm" if arm32 else "qemu-aarch64")
             sysroot = self.conf.get("tools.build:sysroot")
             if not qemu or not sysroot:
-                raise ConanInvalidConfiguration("ARM64 runtime qualification requires QEMU and the SDK sysroot")
-            toolchain.variables["CMAKE_CROSSCOMPILING_EMULATOR"] = ";".join([qemu, "-L", sysroot])
+                raise ConanInvalidConfiguration("ARM runtime qualification requires QEMU and the SDK sysroot")
+            toolchain.variables["CMAKE_CROSSCOMPILING_EMULATOR"] = ";".join([qemu, *(["-cpu", "cortex-a15"] if arm32 else []), "-L", sysroot])
         toolchain.generate()
         CMakeDeps(self).generate()
 

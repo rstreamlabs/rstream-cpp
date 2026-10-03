@@ -7,14 +7,22 @@
 -        copy(self, "*.cmake", src=self.recipe_folder, dst=self.export_sources_folder)
 +        copy(self, "*.cmake", src=os.path.join(self.recipe_folder, "cmake"),
 +             dst=os.path.join(self.export_sources_folder, "cmake"))
-@@ -88 +89,5 @@
+@@ -88 +89,13 @@
 -        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)):
-+        # Packaging-only exception for the pinned Scarthgap Linux ARM64 SDK.
-+        scarthgap_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
-+                         and str(self.settings_build.arch) in ("x86_64", "armv8") and self.settings.arch == "armv8"
-+                         and str(self.settings.get_safe("os.sdk", "")) in ("yocto-toolchain-5.0.10-arm64-musl", "yocto-toolchain-5.0.10-arm64-glibc"))
-+        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not scarthgap_arm64:
-@@ -137,0 +143,3 @@
++        # Packaging-only exceptions for exact Scarthgap SDK target identities.
++        sdk_targets = {
++            ("x86_64", "armv8"): "arm64",
++            ("armv8", "armv8"): "arm64",
++            ("x86_64", "armv7hf"): "armv7hf",
++        }
++        target = sdk_targets.get((str(self.settings_build.arch), str(self.settings.arch)))
++        scarthgap_arm = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
++                        and target is not None
++                        and str(self.settings.get_safe("os.sdk", "")) in (
++                            f"yocto-toolchain-5.0.10-{target}-musl",
++                            f"yocto-toolchain-5.0.10-{target}-glibc"))
++        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not scarthgap_arm:
+@@ -137,0 +151,3 @@
 +        if cross_building(self):
 +            # Native install -s calls the host strip on target executables.
 +            tc.configure_args.append("--disable-stripping")

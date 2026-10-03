@@ -180,6 +180,13 @@ package build command without running Conan. `--output` selects the evidence
 directory; the default is `out/yocto-pilot/<sdk-version>/<architecture>-<libc>`
 so Scarthgap and Wrynose results do not overwrite one another.
 
+The driver also accepts `--arch armv7hf`, preserving the Conan hard-float
+architecture and using `qemu-arm -cpu cortex-a15` with the exact SDK sysroot
+for both libcs. Its opt-in private ncurses candidate is restricted to the
+x86_64-host Scarthgap 5.0.10 SDK. Graph boundary controls pass; actual ARM32
+SDK, dependency, rstream package and runtime qualification remain pending.
+Public library defaults are unchanged.
+
 The driver also accepts `--arch x86_64_v2`, `x86_64_v3`, or `x86_64_v4`.
 Each selects its exact SDK identity and distribution architecture while keeping
 Conan's `arch=x86_64` setting. Native execution checks the required CPU flags
