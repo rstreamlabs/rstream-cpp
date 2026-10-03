@@ -109,6 +109,9 @@ resolve_list "${LINUX_PLUGIN_MODES:-}" linux_plugin_modes "${default_linux_plugi
 resolve_list "${LINUX_TCLIBCS:-}" linux_tclibcs "${default_linux_tclibcs[@]}"
 linux_toolchain_version="${LINUX_TOOLCHAIN_VERSION:-${default_linux_toolchain_version}}"
 linux_toolchain="${LINUX_TOOLCHAIN:-${default_linux_toolchain}}"
+# Keep the recipe selected by the Conan profile consistent with the SDK package
+# ID and options assembled below, including when a caller selects Wrynose.
+export LINUX_TOOLCHAIN_VERSION="${linux_toolchain_version}"
 resolve_list "${MACOS_ARCHS:-}" macos_archs "${default_macos_archs[@]}"
 resolve_list "${MACOS_BUILD_SHARED:-}" macos_build_shared "${default_macos_build_shared[@]}"
 resolve_list "${MACOS_PLUGIN_MODES:-}" macos_plugin_modes "${default_macos_plugin_modes[@]}"
@@ -154,9 +157,13 @@ function is_blacklisted {
   return 1
 }
 
-glibc_version="2.39"
+case "${linux_toolchain_version}" in
+6.0.*) default_glibc_version="2.43"; default_musl_version="1.2.6" ;;
+*) default_glibc_version="2.39"; default_musl_version="1.2.4" ;;
+esac
+glibc_version="${LINUX_GLIBC_VERSION:-${default_glibc_version}}"
 macosx_version_min="11.0"
-musl_version="1.2.4"
+musl_version="${LINUX_MUSL_VERSION:-${default_musl_version}}"
 windows_ntddi_version="0x0A000006"
 windows_win32_winnt="0x0A00"
 

@@ -1,9 +1,9 @@
 include(default)
 
 {% set toolchain = "yocto-toolchain" %}
-{% set toolchain_version = "5.0.2" %}
+{% set toolchain_version = os.getenv("LINUX_TOOLCHAIN_VERSION", "5.0.2") %}
 {% set compiler = "gcc" %}
-{% set compiler_version = "13" %}
+{% set compiler_version = os.getenv("LINUX_COMPILER_VERSION", "15" if toolchain_version.startswith("6.0.") else "13") %}
 
 [tool_requires]
 {{ toolchain }}/{{ toolchain_version }}
