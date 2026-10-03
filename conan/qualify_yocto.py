@@ -13,6 +13,37 @@ import subprocess
 from check_public_dependencies import private_dependencies, verify_public_recipes
 
 ROOT = Path(__file__).resolve().parents[1]
+X86_TARGETS = ('x86_64', 'x86_64_v2', 'x86_64_v3', 'x86_64_v4')
+
+
+def native_x86_features():
+    rows = re.findall(r'^flags\s*:\s*(.*)$', Path('/proc/cpuinfo').read_text(), re.M)
+    return set.intersection(*(set(row.split()) for row in rows)) if rows else set()
+
+
+def validate_runner(arch, sdk_host, explicit=None):
+    if explicit is not None:
+        if arch not in X86_TARGETS:
+            raise RuntimeError('An explicit runner is currently supported only for x86_64 targets')
+        prefix = shlex.split(explicit)
+        if not prefix or not shutil.which(prefix[0]):
+            raise RuntimeError('The explicit runner executable is missing')
+        return prefix
+    if arch in X86_TARGETS[1:]:
+        if sdk_host != 'x86_64':
+            raise RuntimeError('Select a verified explicit runner for x86 ISA levels from an ARM64 SDK host')
+        required = {'cx16', 'lahf_lm', 'popcnt', 'sse4_1', 'sse4_2', 'ssse3'}
+        features = native_x86_features()
+        if arch in ('x86_64_v3', 'x86_64_v4'):
+            required.update(('avx', 'avx2', 'bmi1', 'bmi2', 'f16c', 'fma', 'movbe', 'xsave'))
+            if not features.intersection(('abm', 'lzcnt')):
+                required.add('lzcnt')
+        if arch == 'x86_64_v4':
+            required.update(('avx512f', 'avx512bw', 'avx512cd', 'avx512dq', 'avx512vl'))
+        missing = required - features
+        if missing:
+            raise RuntimeError(f'Host lacks {sorted(missing)}; supply a verified --runner-command')
+    return []
 
 
 def ncurses_generation(version):
@@ -20,7 +51,8 @@ def ncurses_generation(version):
 
 
 def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64'):
-    args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={"armv8" if arch == "arm64" else arch}',
+    conan_arch = {**dict.fromkeys(X86_TARGETS, 'x86_64'), 'arm64': 'armv8'}[arch]
+    args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={conan_arch}',
             '-s:h', f'os.sdk=yocto-toolchain-{version}-{arch}-{libc}', '-s:b', 'compiler.cppstd=20',
             '-s:b', f'arch={"armv8" if sdk_host == "aarch64" else sdk_host}',
             '-o:b', f'yocto-toolchain/*:arch={arch}', '-o:b', f'yocto-toolchain/*:libc={libc}',
@@ -43,8 +75,9 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64')
     return args
 
 
-def runtime_command(arch, libc, sysroot, sdk_host='x86_64'):
-    if arch == 'arm64' or sdk_host == 'aarch64':
+def runtime_command(arch, libc, sysroot, sdk_host='x86_64', explicit=None):
+    prefix = validate_runner(arch, sdk_host, explicit)
+    if explicit is None and (arch == 'arm64' or sdk_host == 'aarch64'):
         emulator = 'qemu-aarch64' if arch == 'arm64' else 'qemu-x86_64'
         qemu = shutil.which(emulator)
         if not qemu:
@@ -56,8 +89,8 @@ def runtime_command(arch, libc, sysroot, sdk_host='x86_64'):
             raise RuntimeError(f'SDK dynamic loader is missing: {loader}')
         libraries = ':'.join(str(sysroot / directory)
                              for directory in ('lib', 'usr/lib', 'lib64', 'usr/lib64'))
-        return [str(loader), '--library-path', libraries]
-    return []
+        return [*prefix, str(loader), '--library-path', libraries]
+    return prefix
 
 
 def target_sysroot(prefix, sdk_host):
@@ -73,12 +106,14 @@ def target_sysroot(prefix, sdk_host):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--arch', choices=['x86_64', 'arm64'], required=True)
+    parser.add_argument('--arch', choices=[*X86_TARGETS, 'arm64'], required=True)
     parser.add_argument('--libc', choices=['musl', 'glibc'], required=True)
     parser.add_argument('--sdk-version', default='6.0.3')
     parser.add_argument('--sdk-host', choices=['x86_64', 'aarch64'], default='x86_64')
     parser.add_argument('--host-execution', choices=['native', 'emulated'], default='native',
                         help='Record when the entire SDK host userspace is emulated')
+    parser.add_argument('--runner-command',
+                        help='Verified x86 target runner prefix, e.g. "/path/sde64 -skx --"; never evaluated by a shell')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--conan', default='conan')
     parser.add_argument('--output', type=Path)
@@ -98,6 +133,10 @@ def main():
         return
     if platform.system() != 'Linux' or platform.machine() != args.sdk_host:
         parser.error(f'Run this qualification in Linux {args.sdk_host} userspace')
+    try:
+        validate_runner(args.arch, args.sdk_host, args.runner_command)
+    except (RuntimeError, ValueError) as error:
+        parser.error(str(error))
     if not os.environ.get('CONAN_HOME'):
         parser.error('Set an isolated CONAN_HOME before running the pilot')
     default_output = ROOT / 'out/yocto-pilot' / args.sdk_version
@@ -144,7 +183,7 @@ def main():
         if metadata.get(key) != expected:
             raise RuntimeError(f'SDK {key} does not match {expected}')
     sysroot = target_sysroot(prefix, args.sdk_host)
-    runner = runtime_command(args.arch, args.libc, sysroot, args.sdk_host)
+    runner = runtime_command(args.arch, args.libc, sysroot, args.sdk_host, args.runner_command)
     if runner:
         create += ['-c:h', 'tools.cmake.cmaketoolchain:extra_variables=' + json.dumps({
             'CMAKE_CROSSCOMPILING_EMULATOR': ';'.join(runner)})]
@@ -153,6 +192,7 @@ def main():
     (output / 'command.json').write_text(json.dumps({
         'command': create, 'sdk': sdk_ref, 'runtime': runner,
         'sdk_host': args.sdk_host, 'sdk_host_execution': args.host_execution,
+        'target_arch': args.arch, 'explicit_runner': args.runner_command,
         'private_ncurses_packaging_exception': args.arm_ncurses_exception}, indent=2) + '\n')
     print(shlex.join(create), flush=True)
     subprocess.run(create, check=True,

@@ -1,5 +1,7 @@
 """Guard the scope and execution policy of the unpublished SDK pilot."""
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -94,6 +96,86 @@ add_subdirectory(webtty)
         for option in ('build_os=linux', 'build_arch=arm64', 'build_channel=dev'):
             self.assertIn('rstream/*:' + option, args)
         self.assertFalse(any('boost_ref=' in arg for arg in args))
+
+    def test_x86_isa_levels_select_distinct_sdks_with_the_same_conan_arch(self):
+        for arch in pilot.X86_TARGETS:
+            args = pilot.build_arguments(arch, 'musl', '5.0.10', 2, False)
+            host = [args[i + 1] for i, arg in enumerate(args) if arg == '-s:h']
+            self.assertIn('arch=x86_64', host)
+            self.assertIn(f'os.sdk=yocto-toolchain-5.0.10-{arch}-musl', host)
+            self.assertIn(f'yocto-toolchain/*:arch={arch}', args)
+            self.assertIn(f'rstream/*:build_arch={arch}', args)
+            self.assertFalse(any('ncurses_ref=' in arg for arg in args))
+
+    def test_x86_isa_level_rejects_missing_instructions(self):
+        with patch.object(pilot, 'native_x86_features', return_value=set()):
+            for arch in pilot.X86_TARGETS[1:]:
+                with self.assertRaisesRegex(RuntimeError, 'Host lacks'):
+                    pilot.runtime_command(arch, 'musl', Path('/sdk'))
+        v2 = {'cx16', 'lahf_lm', 'popcnt', 'sse4_1', 'sse4_2', 'ssse3'}
+        with patch.object(pilot, 'native_x86_features', return_value=v2):
+            self.assertEqual(pilot.runtime_command('x86_64_v2', 'musl', Path('/sdk')), [])
+            with self.assertRaisesRegex(RuntimeError, 'Host lacks'):
+                pilot.runtime_command('x86_64_v3', 'musl', Path('/sdk'))
+        v3 = v2 | {'avx', 'avx2', 'bmi1', 'bmi2', 'f16c', 'fma', 'movbe', 'xsave', 'abm'}
+        with patch.object(pilot, 'native_x86_features', return_value=v3):
+            self.assertEqual(pilot.runtime_command('x86_64_v3', 'musl', Path('/sdk')), [])
+            with self.assertRaisesRegex(RuntimeError, 'avx512'):
+                pilot.runtime_command('x86_64_v4', 'musl', Path('/sdk'))
+
+    def test_x86_features_are_intersected_across_cores(self):
+        with patch.object(Path, 'read_text', return_value='flags : sse avx avx2\nflags : sse avx\n'):
+            self.assertEqual(pilot.native_x86_features(), {'sse', 'avx'})
+
+    def test_missing_isa_instructions_fail_before_conan(self):
+        arguments = ['qualify_yocto.py', '--arch', 'x86_64_v4', '--libc', 'musl']
+        error = io.StringIO()
+        with patch.object(sys, 'argv', arguments), \
+                patch.object(pilot.platform, 'system', return_value='Linux'), \
+                patch.object(pilot.platform, 'machine', return_value='x86_64'), \
+                patch.object(pilot, 'native_x86_features', return_value=set()), \
+                patch.object(pilot.subprocess, 'run') as run, \
+                contextlib.redirect_stderr(error):
+            with self.assertRaises(SystemExit) as result:
+                pilot.main()
+            self.assertEqual(result.exception.code, 2)
+            run.assert_not_called()
+        self.assertIn('Host lacks', error.getvalue())
+
+    def test_explicit_x86_runner_preserves_arguments_and_glibc_loader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sysroot = Path(directory)
+            (sysroot / 'lib').mkdir()
+            loader = sysroot / 'lib/ld-linux-x86-64.so.2'
+            loader.touch()
+            explicit = '"/runner with spaces/sde64" -skx --'
+            with patch.object(pilot.shutil, 'which', return_value='/runner with spaces/sde64'):
+                prefix = ['/runner with spaces/sde64', '-skx', '--']
+                self.assertEqual(pilot.runtime_command('x86_64_v4', 'musl', sysroot,
+                                                       explicit=explicit), prefix)
+                dynamic = pilot.runtime_command('x86_64_v4', 'glibc', sysroot,
+                                                'aarch64', explicit)
+                self.assertEqual(dynamic[:5], [*prefix, str(loader), '--library-path'])
+                self.assertIn(str(sysroot / 'usr/lib'), dynamic[5].split(':'))
+
+    def test_unverified_arm_host_x86_isa_runner_is_rejected(self):
+        for arch in pilot.X86_TARGETS[1:]:
+            with self.assertRaisesRegex(RuntimeError, 'verified explicit runner'):
+                pilot.runtime_command(arch, 'musl', Path('/sdk'), 'aarch64')
+        with patch.object(pilot.shutil, 'which', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'runner executable is missing'):
+                pilot.runtime_command('x86_64_v4', 'musl', Path('/sdk'), explicit='/missing -skx --')
+
+    def test_isa_plan_is_portable_and_preserves_target_identity(self):
+        for arch in pilot.X86_TARGETS[1:]:
+            command = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                       '--arch', arch, '--libc', 'musl', '--sdk-version', '5.0.10',
+                       '--runner-command', '/not/installed/sde64 -skx --',
+                       '--plan', '--conan', '/does/not/exist']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('arch=x86_64', result.stdout)
+            self.assertIn(f'os.sdk=yocto-toolchain-5.0.10-{arch}-musl', result.stdout)
 
     def test_arm_execution_requires_qemu(self):
         with patch.object(pilot.shutil, 'which', return_value=None):

@@ -180,6 +180,18 @@ package build command without running Conan. `--output` selects the evidence
 directory; the default is `out/yocto-pilot/<sdk-version>/<architecture>-<libc>`
 so Scarthgap and Wrynose results do not overwrite one another.
 
+The driver also accepts `--arch x86_64_v2`, `x86_64_v3`, or `x86_64_v4`.
+Each selects its exact SDK identity and distribution architecture while keeping
+Conan's `arch=x86_64` setting. Native execution checks the required CPU flags
+on every host core before invoking Conan. If the physical CPU does not support
+the selected level, supply a separately verified runner, for example
+`--runner-command '/path/to/sde64 -skx --'` for Intel SDE. The argument prefix
+is parsed without a shell; glibc execution retains the selected SDK loader and
+library paths. An ARM64 SDK host requires an explicit verified runner for these
+x86 ISA levels. Command support and CPU checks alone do not qualify a complete
+C++ package build; that requires package tests, the external consumer and
+distribution runtime checks for the exact SDK.
+
 For ARM64 SDK-host qualification, run inside Linux ARM64 userspace with
 `--sdk-host aarch64`. Create the local tool package with Conan's `arch=armv8`
 setting and the archive built for `host-aarch64`; the target remains selected
