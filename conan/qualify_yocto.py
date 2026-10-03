@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and execute one unpublished Wrynose distribution-package pilot."""
+"""Build and execute one unpublished Wrynose or Scarthgap maintenance pilot."""
 import argparse
 import json
 import os
@@ -65,10 +65,12 @@ def main():
                         help='Explicitly use the private ARM64 packaging candidate; never a library default')
     parser.add_argument('--plan', action='store_true', help='Print the package build command without running Conan')
     args = parser.parse_args()
-    if not re.fullmatch(r'6\.0\.\d+', args.sdk_version) or args.jobs < 1:
-        parser.error('This pilot requires a Yocto 6.0.x version and positive job count')
+    if not (re.fullmatch(r'6\.0\.\d+', args.sdk_version) or args.sdk_version == '5.0.10') or args.jobs < 1:
+        parser.error('This pilot requires Yocto 6.0.x or pinned Scarthgap 5.0.10 and a positive job count')
     if args.arm_ncurses_exception and args.arch != 'arm64':
         parser.error('The ncurses packaging exception is limited to ARM64')
+    if args.arm_ncurses_exception and not args.sdk_version.startswith('6.0.'):
+        parser.error('The ncurses packaging exception is qualified only for Wrynose; start Scarthgap with public recipes')
     build_args = build_arguments(args.arch, args.libc, args.sdk_version, args.jobs,
                                  args.arm_ncurses_exception)
     create = [args.conan, 'create', str(ROOT), '--build=missing', '--build=rstream/*', *build_args]
@@ -77,7 +79,7 @@ def main():
         return
     if not os.environ.get('CONAN_HOME'):
         parser.error('Set an isolated CONAN_HOME before running the pilot')
-    output = (args.output or ROOT / 'out/yocto-pilot' / f'{args.arch}-{args.libc}').resolve()
+    output = (args.output or ROOT / 'out/yocto-pilot' / args.sdk_version / f'{args.arch}-{args.libc}').resolve()
     output.mkdir(parents=True, exist_ok=True)
     os.environ['LINUX_TOOLCHAIN_VERSION'] = args.sdk_version
     if args.arm_ncurses_exception:

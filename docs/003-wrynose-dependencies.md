@@ -177,7 +177,14 @@ python3 conan/qualify_yocto.py --arch arm64 --libc glibc --jobs 4 --arm-ncurses-
 Run configurations serially when they share a Conan cache: some recipes write
 compiler configuration into a shared source directory. `--plan` prints the
 package build command without running Conan. `--output` selects the evidence
-directory; the default is `out/yocto-pilot/<architecture>-<libc>`.
+directory; the default is `out/yocto-pilot/<sdk-version>/<architecture>-<libc>`
+so Scarthgap and Wrynose results do not overwrite one another.
+
+The same driver accepts the pinned Scarthgap maintenance candidate with
+`--sdk-version 5.0.10`, after creating its local tool package from a verified
+archive. That path preserves GCC 13.3 and starts with public dependency recipes;
+the Wrynose ARM ncurses exception cannot be selected for Scarthgap. This adds a
+qualification path, not a claim that the Scarthgap C++ matrix already passes.
 
 The script verifies public target recipe revisions, records a locked input
 graph, validates the installed SDK provenance, forces package tests and the
