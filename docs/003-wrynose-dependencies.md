@@ -345,6 +345,10 @@ are recorded in `../.yocto-pilot/windows-tools-refresh-versions.json`.
 The earlier Reliability run
 [37128288587](https://github.com/rstreamlabs/rstream-cpp/actions/runs/37128288587)
 also completed successfully, including Windows. These runs qualify their own
-revisions. The final provider-initialization source `61b9425` still requires
-its Windows Build/Reliability jobs to finish; its Linux/macOS, stress, static
-analysis and sanitizer checks have passed.
+revisions. The final provider-initialization source `61b9425` passed the entire
+[Reliability run 37133042984](https://github.com/rstreamlabs/rstream-cpp/actions/runs/37133042984),
+including Linux, macOS, both Windows linkage variants, stress, static analysis
+and sanitizer checks. Its separate
+[Build run 37133028526](https://github.com/rstreamlabs/rstream-cpp/actions/runs/37133028526)
+also passed all jobs, including both Windows linkage variants. Hosted-policy
+tests remain a separate gate.
