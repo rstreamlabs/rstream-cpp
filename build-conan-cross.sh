@@ -373,7 +373,12 @@ function windows_package_options {
 }
 
 function linux_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}"
+  local opts="${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}"
+  if [[ "${linux_toolchain_version}" = "5.0.10" && "${ARCH}" = "armv7hf" ]]; then
+    # Preserve the SDK's ARMv7/VFP tuning for Boost.Context assembly as well.
+    opts+=" --options:host 'boost/*:extra_b2_flags=asmflags=-march=armv7-a asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard'"
+  fi
+  echo "${opts}"
 }
 
 function macos_conan_extra_options {

@@ -72,6 +72,10 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64')
         raise ValueError('Cannot find the production Boost component selection')
     for component in shlex.split(block[1]):
         args += ['-o:h', f'boost/*:without_{component}=True']
+    if arch == 'armv7hf' and version == '5.0.10':
+        # B2 assembly does not inherit the compiler's C/C++ tuning flags.
+        args += ['-o:h', 'boost/*:extra_b2_flags=asmflags=-march=armv7-a '
+                 'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard']
     return args
 
 

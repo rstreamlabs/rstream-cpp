@@ -115,6 +115,11 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
             self.assertIn('arch=armv7hf', builds[0])
             self.assertEqual(any('ncurses_ref=' in arg for arg in builds[0]), expected)
             self.assertFalse(any('boost_ref=' in arg for arg in builds[0]))
+            flags = [arg for arg in builds[0] if 'extra_b2_flags=' in arg]
+            self.assertEqual(flags, [
+                'boost/*:extra_b2_flags=asmflags=-march=armv7-a '
+                'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard'
+            ] if version == '5.0.10' else [])
 
     def test_wrynose_x86_does_not_export_unused_recipes(self):
         self.assertFalse(any(c['args'][0] == 'export' for c in self.commands(LINUX_ARCHS='x86_64')))

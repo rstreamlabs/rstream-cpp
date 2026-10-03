@@ -203,6 +203,17 @@ add_subdirectory(webtty)
         args = pilot.build_arguments('armv7hf', 'musl', '5.0.10', 2, True)
         self.assertIn('rstream/*:ncurses_ref=ncurses/6.5@rstream/scarthgap', args)
 
+    def test_arm32_boost_assembly_tuning_is_scoped_and_uses_public_options(self):
+        expected = ('boost/*:extra_b2_flags=asmflags=-march=armv7-a '
+                    'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard')
+        for libc in ('musl', 'glibc'):
+            args = pilot.build_arguments('armv7hf', libc, '5.0.10', 2, False)
+            self.assertIn(expected, args)
+            self.assertFalse(any('boost_ref=' in arg for arg in args))
+        for arch, version in (('arm64', '5.0.10'), ('x86_64_v4', '5.0.10'), ('armv7hf', '6.0.3')):
+            args = pilot.build_arguments(arch, 'musl', version, 2, False)
+            self.assertFalse(any('extra_b2_flags=' in arg for arg in args))
+
     def test_arm32_private_recipe_is_rejected_outside_its_sdk_scope(self):
         for version, host in (('6.0.3', 'x86_64'), ('5.0.10', 'aarch64')):
             result = subprocess.run([

@@ -183,8 +183,14 @@ so Scarthgap and Wrynose results do not overwrite one another.
 The driver also accepts `--arch armv7hf`, preserving the Conan hard-float
 architecture and using `qemu-arm -cpu cortex-a15` with the exact SDK sysroot
 for both libcs. Its opt-in private ncurses candidate is restricted to the
-x86_64-host Scarthgap 5.0.10 SDK. Graph boundary controls pass; actual ARM32
-SDK, dependency, rstream package and runtime qualification remain pending.
+x86_64-host Scarthgap 5.0.10 SDK. The ARM32 SDK and focused ncurses consumer
+pass under QEMU; full rstream package and runtime qualification remain pending.
+Boost.Context assembly requires the SDK tuning flags through the public recipe
+option `boost/*:extra_b2_flags=asmflags=-march=armv7-a asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard`.
+Both the production packaging command and this driver apply that option for
+Scarthgap ARMv7hf. An isolated B2 build reproduces the missing-FPU failure
+without it and passes a context-switching consumer with it. The public Boost
+recipe is unchanged.
 Public library defaults are unchanged.
 
 The driver also accepts `--arch x86_64_v2`, `x86_64_v3`, or `x86_64_v4`.

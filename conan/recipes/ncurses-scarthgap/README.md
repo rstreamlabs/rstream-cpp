@@ -30,6 +30,6 @@ passed in an emulated Linux ARM64 userspace. The complete ARM64-host rstream
 package chain and the ARM64-host glibc consumer remain pending; no native
 ARM hardware performance result is claimed.
 
-The ARMv7 hard-float extension passes graph boundary controls but remains
-pending actual SDK compilation and its QEMU C++/terminfo consumer. It is not
-yet a qualified distribution package.
+The x86_64-host ARMv7 hard-float/musl SDK and focused QEMU C++/terminfo
+consumer passed, as did the graph boundary controls. Full rstream distribution
+qualification remains pending.
