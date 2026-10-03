@@ -30,6 +30,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 test/test_release_workflow.py
+      - run: python3 -m unittest discover -s test -p test_yocto_qualification.py
   build:
     name: Conan package
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}

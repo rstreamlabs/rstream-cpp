@@ -103,3 +103,55 @@ rstream has both provider-based PKCS#11 and a legacy ENGINE compatibility path.
 Widening the bound therefore requires explicit provider/legacy configuration
 and supported-Boost qualification; a successful generic TLS build alone is
 insufficient. Do not silently drop that capability to claim a dependency bump.
+
+## Reproducing the local pilot
+
+Use Conan 2.31.2 in an isolated `CONAN_HOME`, install `conan/config`, and create
+the required local `yocto-toolchain/6.0.3` tool packages from verified archives
+as described in the toolchain repository. No personal publishing credentials
+are needed. The pilot script currently targets a Linux x86_64 build host.
+
+```sh
+conan config install conan/config
+python3 conan/qualify_yocto.py --arch x86_64 --libc musl --jobs 4
+python3 conan/qualify_yocto.py --arch x86_64 --libc glibc --jobs 4
+python3 conan/qualify_yocto.py --arch arm64 --libc musl --jobs 4 --arm-ncurses-exception
+python3 conan/qualify_yocto.py --arch arm64 --libc glibc --jobs 4 --arm-ncurses-exception
+```
+
+Run configurations serially when they share a Conan cache: some recipes write
+compiler configuration into a shared source directory. `--plan` prints the
+package build command without running Conan. `--output` selects the evidence
+directory; the default is `out/yocto-pilot/<architecture>-<libc>`.
+
+The script verifies public target recipe revisions, records a locked input
+graph, validates the installed SDK provenance, forces package tests and the
+external consumer, and writes the final graph and lockfile. ARM64 execution
+requires `qemu-aarch64`; x86_64 glibc execution uses the SDK loader and sysroot
+libraries. These runs use the workstation kernel and do not certify an older
+kernel. The ARM ncurses exception is explicit, packaging-only and still needs
+the full matrix qualification below. No upload or publication command exists
+in this script.
+
+## Archive and website checks
+
+The initial x86_64/musl `rstream-utils` and `rstream-webtty` archives were
+extracted and all eight/two shipped executables passed `--help` and `--version`
+without the SDK environment. ELF inspection confirmed fully static x86_64
+executables. Both archives include the public ncurses terminfo directory.
+
+This check exposed an old assumption in the tunnel UI: it only looked for
+`share/terminfo.db`. The UI now also selects `share/terminfo`, preferring that
+format while preserving an explicitly configured `TERMINFO`. Selection tests
+cover both layouts, a missing database and an invalid directory. A fully static
+probe initialized ncurses and used the terminfo data from the extracted archive.
+Archives produced before this fix must be rebuilt; CLI help alone does not
+qualify the interactive terminal UI.
+
+The exact Hello World sources from the product page compiled and ran with both
+musl SDKs (ARM64 via QEMU). The page explicitly selects musl for static linking;
+the glibc SDK is validated separately with a dynamically linked C++20 program.
+Before publication, refresh the changelog and retain the package API fields
+`arch` (host), `targetArch`, `libc`, `version`, `checksum`, `components.host` and
+`components.target`. Prefer `readelf` to host `ldd` for inspecting a foreign ELF.
+The site remains unchanged while publication is deferred.
