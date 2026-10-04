@@ -299,6 +299,14 @@ The Scarthgap ARM64-host/ARM64-target musl chain passes package tests, an
 external consumer, archive checks and both local CE tunnel suites under
 emulation. This does not qualify other host/target/libc combinations.
 
+The Wrynose 6.0.3 ARM64-host/ARM64-target musl chain also passed with
+source revision `f9f2447`: 51 package tests, one external consumer, both
+distribution archives and both local CE tunnel suites. This uses the explicit
+Wrynose ncurses packaging exception and emulated ARM64 host execution.
+Together with the four x86_64-host pilots, five modern SDK/C++ combinations
+are qualified; the remaining 71 SDK combinations still need full qualification.
+Local evidence is indexed in `../.yocto-pilot/wrynose-build-matrix.json`.
+
 The same driver accepts the pinned Scarthgap maintenance candidate with
 `--sdk-version 5.0.10`, after creating its local tool package from a verified
 archive. That path preserves GCC 13.3 and starts with public dependency recipes;
@@ -334,8 +342,12 @@ builds. Their verified distribution archives and recipe backups are retained.
 Reinstallation relocates an SDK to a new prefix and creates a new Conan package
 revision; regenerate dependency graphs before using it again. Historical graph
 paths are qualification evidence, not a promise that cache directories remain
-installed. The ten retired legacy installations and their exact recovery commands
-are indexed in `../.yocto-pilot/scarthgap-sdk-installation-retirement-summary.json`.
+installed. Ten legacy and four modern x86_64-host SDK installations have been
+retired after archive recovery checks. Their exact recovery commands are indexed
+in `../.yocto-pilot/sdk-installation-retirement-inventory.json`.
+The modern recovery control re-created a removed tool requirement from its
+retained installer and exact recipe, then passed C++20 compilation/execution
+and the SDK Perl check in a disposable cache.
 
 The script verifies public target recipe revisions, records a locked input
 graph, validates the installed SDK provenance, forces package tests and the
