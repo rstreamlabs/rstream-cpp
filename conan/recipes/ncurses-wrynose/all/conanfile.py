@@ -90,13 +90,13 @@ class NCursesConan(ConanFile):
         wrynose_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
                          and self.settings_build.arch == "x86_64" and self.settings.arch == "armv8"
                          and str(self.settings.get_safe("os.sdk", "")).startswith("yocto-toolchain-6.0."))
-        arm64_host_targets = {"armv8": "arm64", "x86_64": "x86_64"}
-        sdk_target = arm64_host_targets.get(str(self.settings.arch))
+        arm64_host_targets = {"armv8": ("arm64",), "x86_64": ("x86_64", "x86_64_v2")}
+        sdk_targets = arm64_host_targets.get(str(self.settings.arch), ())
         wrynose_arm64_host = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
-                             and self.settings_build.arch == "armv8" and sdk_target is not None
+                             and self.settings_build.arch == "armv8" and sdk_targets
                              and str(self.settings.get_safe("os.sdk", "")) in (
-                                 f"yocto-toolchain-6.0.3-{sdk_target}-musl",
-                                 f"yocto-toolchain-6.0.3-{sdk_target}-glibc"))
+                                 f"yocto-toolchain-6.0.3-{sdk_target}-{libc}"
+                                 for sdk_target in sdk_targets for libc in ("musl", "glibc")))
         if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not (wrynose_arm64 or wrynose_arm64_host):
             # FIXME: Cannot build ncurses from x86_64 to armv8 (Apple M1).  Cross building from Linux/x86_64 to Mingw/x86_64 works flawless.
             # FIXME: Need access to environment of build profile to set build compiler (BUILD_CC/CC_FOR_BUILD)

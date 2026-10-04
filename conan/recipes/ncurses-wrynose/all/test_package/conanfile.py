@@ -26,7 +26,12 @@ class TestPackage(ConanFile):
             sysroot = self.conf.get("tools.build:sysroot")
             if not qemu or not sysroot:
                 raise ConanInvalidConfiguration(f"Runtime qualification requires {emulator} and the SDK sysroot")
-            runner = [qemu, "-L", sysroot]
+            runner = [qemu]
+            if str(self.settings.get_safe("os.sdk", "")) in (
+                    "yocto-toolchain-6.0.3-x86_64_v2-musl",
+                    "yocto-toolchain-6.0.3-x86_64_v2-glibc"):
+                runner += ["-cpu", "Nehalem"]
+            runner += ["-L", sysroot]
             if str(self.settings.get_safe("os.sdk", "")).endswith("-glibc"):
                 root = Path(sysroot).resolve()
                 loaders = {path.resolve() for directory in ("lib", "lib64")

@@ -324,10 +324,16 @@ combination for 6.0.3, with either libc. Its consumer selects `qemu-x86_64`
 and uses the same explicit SDK loader for glibc. The qualification command
 requires `--sdk-host aarch64 --arch x86_64 --arm-ncurses-exception`;
 `--library-only` continues to select only public dependencies and excludes
-ncurses. Other SDK versions and x86 ISA levels are not included in this
-new exception. Fourteen actual Conan graph policy controls and the command
-selection tests pass; the real Intel SDK builds and their binary consumers
-remain pending, so this preparation does not qualify either new combination.
+ncurses. The standard Intel SDKs and focused consumers now pass for both
+libcs; their full rstream qualification is in progress.
+
+The next packaging candidate additionally permits `x86_64_v2` on that same
+ARM64 host and exact 6.0.3 SDK version. Its focused consumer selects QEMU
+`-cpu Nehalem`; full qualification requires the explicit
+`--runner-command "qemu-x86_64 -cpu Nehalem"` option. The CPU instruction
+probe passes inside the pinned ARM64 container. Other SDK versions and
+x86 ISA levels remain excluded from this private exception. Actual v2
+SDK, consumer, package and archive qualification is still pending.
 
 The packaging script chooses the SDK host from `uname -m` for a local build,
 or from `CONAN_DOCKER_PLATFORM` for its Docker builder (default `linux/amd64`).

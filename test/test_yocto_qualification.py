@@ -558,6 +558,41 @@ add_subdirectory(webtty)
                 self.assertEqual(glibc[:6], musl + [str(loader), '--inhibit-cache', '--library-path'])
                 self.assertEqual(glibc[6].split(':'), [str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64')])
 
+    def test_private_ncurses_consumer_uses_v2_cpu_and_isolated_sdk_loader(self):
+        from types import SimpleNamespace
+        path = ROOT / 'conan/recipes/ncurses-wrynose/all/test_package/conanfile.py'
+        spec = importlib.util.spec_from_file_location('ncurses_consumer', path)
+        consumer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(consumer)
+        for target in ('x86_64', 'x86_64_v2'):
+            for libc in ('musl', 'glibc'):
+                with self.subTest(target=target, libc=libc), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / 'lib').mkdir()
+                    loader = root / 'lib/ld-linux-x86-64.so.2'
+                    loader.touch()
+                    settings = SimpleNamespace(arch='x86_64', get_safe=lambda *args:
+                                               f'yocto-toolchain-6.0.3-{target}-{libc}')
+                    recipe = SimpleNamespace(settings=settings,
+                                             conf=SimpleNamespace(get=lambda *args: str(root)))
+                    toolchain = SimpleNamespace(variables={}, generate=lambda: None)
+                    with patch.object(consumer, 'can_run', return_value=True), \
+                            patch.object(consumer, 'cross_building', return_value=True), \
+                            patch.object(consumer.shutil, 'which', return_value='/runner/qemu-x86_64'), \
+                            patch.object(consumer, 'CMakeToolchain', return_value=toolchain), \
+                            patch.object(consumer, 'CMakeDeps'):
+                        consumer.TestPackage.generate(recipe)
+                    runtime = toolchain.variables['CMAKE_CROSSCOMPILING_EMULATOR'].split(';')
+                    expected = ['/runner/qemu-x86_64']
+                    if target == 'x86_64_v2':
+                        expected += ['-cpu', 'Nehalem']
+                    expected += ['-L', str(root)]
+                    if libc == 'glibc':
+                        expected += [str(loader), '--inhibit-cache', '--library-path',
+                                     ':'.join(str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64'))]
+                    self.assertEqual(runtime, expected)
+                    self.assertEqual(toolchain.variables['TEST_FULLY_STATIC'], libc == 'musl')
+
     def test_invalid_scope_fails_before_conan(self):
         for arguments in (['--arch', 'x86_64', '--arm-ncurses-exception'],
                           ['--arch', 'arm64', '--sdk-version', '5.0.2'],
