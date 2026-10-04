@@ -183,8 +183,9 @@ so Scarthgap and Wrynose results do not overwrite one another.
 The driver also accepts `--arch armv7hf`, preserving the Conan hard-float
 architecture and using `qemu-arm -cpu cortex-a15` with the exact SDK sysroot
 for both libcs. Its opt-in private ncurses candidate is restricted to the
-x86_64-host Scarthgap 5.0.10 SDK. The ARM32 SDK and focused ncurses consumer
-pass under QEMU; full rstream package and runtime qualification remain pending.
+x86_64-host Scarthgap 5.0.10 SDK. The ARM32/musl SDK, focused ncurses
+consumer and full rstream package/archive/local-engine chain pass under QEMU.
+ARM32/glibc still requires its own SDK and package qualification.
 Boost.Context assembly requires the SDK tuning flags through the public recipe
 option `boost/*:extra_b2_flags=asmflags=-march=armv7-a asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard`.
 Both the production packaging command and this driver apply that option for
@@ -194,8 +195,8 @@ recipe is unchanged.
 The public OpenSSL 4 recipe additionally requires
 `-c:h openssl/*:user.openssl:target=linux-armv4` for this Conan architecture.
 This OpenSSL target retains the SDK's explicit ARMv7/VFP/hard-float tuning;
-the target name does not replace it with ARMv4 compiler settings. Its actual
-Configure invocation passes; full OpenSSL and rstream qualification remain pending.
+the target name does not replace it with ARMv4 compiler settings. The public
+OpenSSL package builds and passes the rstream ARM32/musl runtime tests.
 Public library defaults are unchanged.
 
 The driver also accepts `--arch x86_64_v2`, `x86_64_v3`, or `x86_64_v4`.
@@ -213,6 +214,10 @@ distribution runtime checks for the exact SDK.
 For slow instrumentation, explicitly select `--test-timeout-scale 4
 --test-timeout-seconds 300`. These configure the existing test-only deadline
 and CTest limits and are recorded alongside the runner in `command.json`.
+The values use Conan's typed CMake cache configuration so project defaults
+cannot silently reset them; a regression control checks Conan parsing and
+CMake toolchain loading together. The compiler cache defaults to `ccache/`
+inside the explicitly selected `CONAN_HOME`, unless `CCACHE_DIR` is supplied.
 Production timeouts and the default native qualification limits are unchanged.
 The discovery test now observes the same test timeout scale as the other
 runtime tests. The existing instrumented child-exit stress test reduces its
@@ -228,8 +233,9 @@ target libraries. ARM64-host results default to
 `out/yocto-pilot/<sdk-version>/aarch64/<architecture>-<libc>`.
 The target runners must be available in that environment: `qemu-aarch64` for
 ARM64 targets, and `qemu-x86_64` for x86_64 targets from an ARM64 SDK host.
-ARM64-host compiled-package qualification is pending; command support alone
-does not establish a successful build or runtime result.
+The Scarthgap ARM64-host/ARM64-target musl chain passes package tests, an
+external consumer, archive checks and both local CE tunnel suites under
+emulation. This does not qualify other host/target/libc combinations.
 
 The same driver accepts the pinned Scarthgap maintenance candidate with
 `--sdk-version 5.0.10`, after creating its local tool package from a verified
@@ -242,9 +248,24 @@ the C++ package tests (51 for musl, 52 for glibc), external consumers, archive
 checks and both local CE tunnel suites. The ARM64 ncurses consumers also passed
 for both libcs. These results used the x86_64-host packaging exception;
 the ARM64-host/ARM64-target musl ncurses build and focused consumer also passed
-in emulated ARM64 userspace. The complete ARM64-host rstream chain remains pending.
+in emulated ARM64 userspace, followed by the complete rstream chain.
 `build-conan-cross.sh` also selects public Boost for exactly 5.0.10; other
 legacy SDK versions retain their prior settings. No SDK or package is uploaded.
+
+As of 2026-10-04, nine Scarthgap 5.0.10 SDK/package combinations are qualified:
+
+| SDK host | Targets | Qualified libc |
+| --- | --- | --- |
+| x86_64 | x86_64, arm64 | musl and glibc |
+| x86_64 | x86_64_v2, x86_64_v3, x86_64_v4, armv7hf | musl |
+| aarch64, emulated | arm64 | musl |
+
+Each passed its package tests, external library consumer, both distribution
+archives and local CE tunnel suites. The v4 build uses verified Intel SDE,
+explicit AVX-512 SDK checks and test timeout scale 4; this is functional
+qualification under emulation, not a hardware performance result. The other
+63 legacy SDK combinations and their C++ packages remain unqualified.
+Local evidence is indexed in `../.yocto-pilot/scarthgap-build-matrix.json`.
 
 The script verifies public target recipe revisions, records a locked input
 graph, validates the installed SDK provenance, forces package tests and the
