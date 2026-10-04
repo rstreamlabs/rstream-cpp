@@ -20,6 +20,7 @@ class YoctoQualificationTest(unittest.TestCase):
     def test_instrumented_plan_configures_real_cmake_test_limits_and_runner(self):
         import json
         import shlex
+        from conan.internal.model.conf import ConfDefinition
         from conan.tools.cmake.utils import parse_extra_variable
         with tempfile.TemporaryDirectory(prefix='runner with spaces ') as directory:
             source = Path(directory)
@@ -31,8 +32,11 @@ class YoctoQualificationTest(unittest.TestCase):
                        '--runner-command', shlex.join([str(runner), '-skx', '--']),
                        '--test-timeout-scale', '4', '--test-timeout-seconds', '300']
             args = shlex.split(subprocess.check_output(command, text=True))
-            variables = json.loads(next(arg.split('=', 1)[1] for arg in args
-                                        if arg.startswith('tools.cmake.cmaketoolchain:extra_variables=')))
+            configuration = next(arg for arg in args
+                                 if arg.startswith('tools.cmake.cmaketoolchain:extra_variables='))
+            conf = ConfDefinition()
+            conf.loads(configuration)
+            variables = conf.get('tools.cmake.cmaketoolchain:extra_variables', check_type=dict)
             self.assertIn('tools.build:skip_test=False', args)
             # Exercise the same toolchain set() statements as Conan, not -D
             # command-line cache entries, which would hide scalar resets.

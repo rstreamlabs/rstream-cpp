@@ -118,7 +118,7 @@ def test_cmake_arguments(runner, scale, seconds):
         variables['RSTREAM_TEST_TIMEOUT_SCALE'] = {'value': scale, 'cache': True, 'type': 'STRING'}
     if seconds != 120:
         variables['RSTREAM_TEST_TIMEOUT_SECONDS'] = {'value': seconds, 'cache': True, 'type': 'STRING'}
-    return ['-c:h', 'tools.cmake.cmaketoolchain:extra_variables=' + json.dumps(variables)] if variables else []
+    return ['-c:h', 'tools.cmake.cmaketoolchain:extra_variables=' + repr(variables)] if variables else []
 
 
 def main():
