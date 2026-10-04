@@ -19,6 +19,9 @@ add_test_target(${PROJECT_NAME}-test-webtty-payload-crypto test_webtty_payload_c
 add_test_target(${PROJECT_NAME}-test-webtty-auth-proof test_webtty_auth_proof.cpp ${PROJECT_NAME}::webtty)
 
 add_test_target(${PROJECT_NAME}-test-webtty-cli-config test_webtty_cli_config.cpp ${PROJECT_NAME}::webtty nlohmann_json::nlohmann_json yaml-cpp::yaml-cpp)
+# Keep runtime fixtures independent of compiler source-path remapping.
+configure_file(fixtures/workspace-approved-client.json
+  "${BIN_OUT_DIR}/webtty-fixtures/workspace-approved-client.json" COPYONLY)
 
 add_test_target(${PROJECT_NAME}-test-webtty-terminal-stream test_webtty_terminal_stream.cpp ${PROJECT_NAME}::webtty)
 

@@ -437,7 +437,7 @@ static void check_enrollment_validation()
 
 static void check_workspace_approved_client_credential()
 {
-  auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "workspace-approved-client.json";
+  auto path = std::filesystem::path("webtty-fixtures") / "workspace-approved-client.json";
   std::ifstream file(path);
   assert(file.is_open());
   auto fixture     = nlohmann::json::parse(file);
