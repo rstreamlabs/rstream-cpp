@@ -22,6 +22,7 @@
 #include <rstream/core/system.hpp>
 
 #include "error.hpp"
+#include "terminfo.hpp"
 
 class RSTREAM_GNUC_INTERNAL ncurses::impl : public std::enable_shared_from_this<impl> {
  public:
@@ -209,11 +210,11 @@ void ncurses::impl::run()
   boost::system::error_code error_code;
   try {
     const auto program_location = boost::filesystem::canonical(boost::dll::program_location());
-    const auto terminfodb       = boost::filesystem::canonical(program_location.parent_path().parent_path() / "share" / "terminfo.db");
-    if (boost::filesystem::exists(terminfodb)) {
+    const auto terminfo         = rstream::tunnel::cli::packaged_terminfo(program_location.string());
+    if (!terminfo.empty()) {
       const auto env = rstream::core::get_environment_variable("TERMINFO");
       if (!env) {
-        setenv("TERMINFO", terminfodb.string().c_str(), 1);
+        setenv("TERMINFO", terminfo.string().c_str(), 0);
       }
     }
   }

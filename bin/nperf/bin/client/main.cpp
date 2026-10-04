@@ -110,7 +110,7 @@ int run(int argc, char** argv)
   auto args    = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
   auto verbose = false;
   {
-    auto arg = args.at("--verbose");
+    const auto& arg = args.at("--verbose");
     if (arg) {
       verbose = arg.asBool();
     }
@@ -122,14 +122,14 @@ int run(int argc, char** argv)
 #endif
   auto format = (!verbose && is_tty) ? format::human_pretty : format::human;
   {
-    auto arg = args.at("--format");
+    const auto& arg = args.at("--format");
     if (arg) {
       parse_format(format, arg.asString());
     }
   }
   auto extra_infos = false;
   {
-    auto arg = args.at("--infos");
+    const auto& arg = args.at("--infos");
     if (arg) {
       extra_infos = arg.asBool();
     }
@@ -148,19 +148,19 @@ int run(int argc, char** argv)
   rstream::core::default_logger()->info(version);
   rstream::nperf::options options = 0;
   {
-    auto arg = args.at("ping");
+    const auto& arg = args.at("ping");
     if (arg && arg.asBool()) {
       options |= rstream::nperf::option::ping;
     }
   }
   {
-    auto arg = args.at("download");
+    const auto& arg = args.at("download");
     if (arg && arg.asBool()) {
       options |= rstream::nperf::option::download;
     }
   }
   {
-    auto arg = args.at("upload");
+    const auto& arg = args.at("upload");
     if (arg && arg.asBool()) {
       options |= rstream::nperf::option::upload;
     }
@@ -172,7 +172,7 @@ int run(int argc, char** argv)
   }
   unsigned int precision = 3;
   {
-    auto arg = args.at("--precision");
+    const auto& arg = args.at("--precision");
     if (arg) {
       precision = std::stoul(arg.asString());
     }

@@ -1,0 +1,9 @@
+{
+  "reference": "ncurses/6.5#d35d5bc6bbe86cf25c10957df6302f8f",
+  "remote": "https://center2.conan.io",
+  "files_sha256": {
+    "e/conanfile.py": "b106c4525301860863e40f92949bd8286c01dc57d2a0dc8a30641f65a25ae8a6",
+    "e/conandata.yml": "bacfa4b0c766431138f280f57865239bd50eafdde7705285a4ec480b32374b1c",
+    "es/cmake/conan-official-ncurses-targets.cmake": "f04e47bb013e44d82e7664f509733a5ab323629f640211002de25af48f33b20d"
+  }
+}

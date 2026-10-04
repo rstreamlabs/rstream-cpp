@@ -164,7 +164,11 @@ recipes only:
 - consumers must never need a patched rstream dependency remote;
 - a local recipe must not be added merely to repair a developer workstation.
 
-`conan/check_public_dependencies.py` enforces this contract in CI. Private
+`conan/check_public_dependencies.py --verify-recipes` enforces this contract in
+CI by checking metadata, public recipe revisions and local cache integrity.
+The `conancenter` remote must point to `https://center2.conan.io` with TLS
+verification enabled; a public-looking URL in a locally modified recipe does
+not satisfy the contract. Private
 references are rejected by `conanfile.py` unless the build explicitly provides
 the distribution metadata `build_os`, `build_arch`, and `build_channel`.
 
@@ -172,9 +176,11 @@ Distribution packaging may override a dependency only when an upstream Conan
 Center recipe cannot support a required target, such as the configured Yocto
 SDK. An override must:
 
-- be used only by `build-conan-cross.sh`;
+- be used only by `build-conan-cross.sh` or its explicit local distribution
+  qualification driver `conan/qualify_yocto.py`;
 - be controlled through `USE_PATCHED_CONAN_DEPS`, with patched dependencies
-  confined to the distribution packaging flow;
+  confined to the distribution packaging flow; the qualification driver uses
+  the explicit `--arm-ncurses-exception` switch instead;
 - contain the smallest possible delta from the matching Conan Center recipe;
 - document the affected platform and the upstream limitation;
 - avoid changing behavior for unaffected targets;

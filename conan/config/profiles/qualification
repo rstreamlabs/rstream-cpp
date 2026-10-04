@@ -1,0 +1,6 @@
+# Overlay for native package and sanitizer qualification.
+# Public Boost 1.91 expects cobalt_io_ssl even when it did not build it
+# on hosts without an implicitly discovered OpenSSL installation.
+# rstream does not use Cobalt. Keep this root choice out of the library recipe.
+[options]
+boost/1.91.0:without_cobalt=True

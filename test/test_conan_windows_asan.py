@@ -23,7 +23,9 @@ class WindowsAsanRequirementTest(unittest.TestCase):
     def test_cached_sdk_cannot_skip_qualification(self):
         workflow = (ROOT / ".github/workflows/conan.yml").read_text(encoding="utf-8")
         commands = re.findall(r"conan create[^\n]+", workflow)
-        self.assertEqual(len(commands), 3)
+        # Additional qualification modes must also rebuild cached rstream
+        # packages so their tests execute; do not fix the workflow's job count.
+        self.assertGreaterEqual(len(commands), 3)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             cache = path / "cache"

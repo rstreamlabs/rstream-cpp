@@ -39,6 +39,9 @@ jobs:
             plugin_mode: dynamic
             static_plugins: "False"
     steps:
+      - name: Select Conan cache outside the checkout
+        shell: bash
+        run: printf 'CONAN_HOME=%s/rstream-conan\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Install dependencies
         shell: bash
         run: |
@@ -64,7 +67,7 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
@@ -106,8 +109,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan graph info . --format=json > conan-graph.json
-          python conan/check_public_dependencies.py conan-graph.json
+          python test/test_conan_public_dependencies.py
+          conan graph info . --update -pr:h default -pr:h qualification --format=json > conan-graph.json
+          python conan/check_public_dependencies.py conan-graph.json --verify-recipes
           if conan graph info . -o "rstream/*:boost_ref=boost/1.91.0@private/stable" > private-graph.log 2>&1; then
             echo "A private dependency override was accepted outside package production." >&2
             exit 1
@@ -117,7 +121,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --update --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default -pr:h qualification \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -126,6 +130,54 @@ jobs:
             -o "rstream/*:enable_strict_warnings=True" \
             -o "rstream/*:warnings_as_errors=True" \
             .
+      - name: Check public library without CLI tools
+        if: ${{ matrix.linkage == 'static' && matrix.plugin_mode == 'static' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          library_args=(
+            -pr:b default -pr:h default -pr:h qualification
+            -s:b compiler.cppstd=20 -s:h compiler.cppstd=20
+            -o "rstream/*:shared=False" -o "rstream/*:static_plugins=True"
+            -o "rstream/*:build_bins=False" -o "rstream/*:with_ncurses=False"
+            -o "rstream/*:enable_testing=True"
+            -o "rstream/*:enable_strict_warnings=True"
+            -o "rstream/*:warnings_as_errors=True"
+          )
+          conan graph info . "${library_args[@]}" --build=missing \
+            --format=json --out-file public-library-graph.json \
+            --lockfile-out public-library.lock
+          python conan/check_public_dependencies.py public-library-graph.json --verify-recipes
+          python - <<'PY'
+          import json
+          graph = json.load(open("public-library-graph.json"))["graph"]["nodes"]
+          options = graph["0"]["options"]
+          assert options["build_bins"] == options["with_ncurses"] == "False"
+          assert all(options[key] is None for key in ("build_os", "build_arch", "build_channel", "boost_ref", "ncurses_ref"))
+          assert not any(node.get("name") == "ncurses" for node in graph.values())
+          PY
+          conan create . "${library_args[@]}" --build=missing --build="rstream/*" \
+            --lockfile public-library.lock
+      - name: Check OpenSSL 3 and LibreSSL consumers
+        if: ${{ matrix.linkage == 'static' && matrix.plugin_mode == 'static' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(conan inspect . --format=json | python -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+          for provider in openssl libressl; do
+            compatibility=()
+            if [ "$provider" = openssl ]; then
+              compatibility=(-c user.rstream:test_openssl_ref=openssl/3.6.5)
+            fi
+            conan test test_package "rstream/${package_version}@conan/${{ inputs.channel }}" \
+              --build=missing --build="rstream/*" -pr:b default -pr:h default -pr:h qualification \
+              -s:b compiler.cppstd=20 -s:h compiler.cppstd=20 \
+              -o "rstream/*:shared=False" -o "rstream/*:static_plugins=True" \
+              -o "rstream/*:ssl_provider=${provider}" \
+              -o "rstream/*:enable_testing=True" \
+              -o "rstream/*:enable_strict_warnings=True" \
+              -o "rstream/*:warnings_as_errors=True" "${compatibility[@]}"
+          done
       - name: Show compiler cache statistics
         if: ${{ always() }}
         shell: bash
@@ -139,7 +191,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
@@ -175,6 +227,9 @@ jobs:
             plugin_mode: dynamic
             static_plugins: "False"
     steps:
+      - name: Select Conan cache outside the checkout
+        shell: bash
+        run: printf 'CONAN_HOME=%s/rstream-conan\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -184,7 +239,7 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
@@ -226,7 +281,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default \
+          conan create --update --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default -pr:h qualification \
             -s:b compiler.cppstd=20 \
             -s:h compiler.cppstd=20 \
             -o "rstream/*:shared=${{ matrix.shared }}" \
@@ -248,7 +303,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
@@ -272,6 +327,9 @@ jobs:
           - linkage: static
             shared: "False"
     steps:
+      - name: Select Conan cache outside the checkout
+        shell: bash
+        run: printf 'CONAN_HOME=%s/rstream-conan\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -281,7 +339,7 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
@@ -323,8 +381,10 @@ jobs:
       - name: Build and test Conan package
         shell: pwsh
         run: |
+          $packageVersion = (conan inspect . --format=json | ConvertFrom-Json).version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($staticPlugins in @("True", "False")) {
-            conan create --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default `
+            conan create --update --build=missing --build="rstream/*" --user conan --channel "${{ inputs.channel }}" -pr:b default -pr:h default -pr:h qualification `
               -s:b compiler.cppstd=20 `
               -s:h compiler.cppstd=20 `
               -o "rstream/*:shared=${{ matrix.shared }}" `
@@ -334,6 +394,19 @@ jobs:
               -o "rstream/*:warnings_as_errors=True" `
               -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': {'value': True, 'cache': True, 'type': 'BOOL'}}" `
               .
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+            conan test test_package "rstream/$packageVersion@conan/${{ inputs.channel }}" --build=missing --build="rstream/*" -pr:b default -pr:h default -pr:h qualification `
+              -s:b compiler.cppstd=20 `
+              -s:h compiler.cppstd=20 `
+              -o "rstream/*:shared=${{ matrix.shared }}" `
+              -o "rstream/*:static_plugins=$staticPlugins" `
+              -o "rstream/*:enable_testing=True" `
+              -o "rstream/*:enable_strict_warnings=True" `
+              -o "rstream/*:warnings_as_errors=True" `
+              -c "user.rstream:test_boost_ref=boost/1.83.0" `
+              -c "rstream/*:tools.cmake.cmaketoolchain:extra_variables={'RSTREAM_TEST_WINDOWS_PIPE_ASAN': {'value': True, 'cache': True, 'type': 'BOOL'}}"
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE
             }
@@ -349,7 +422,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}

@@ -18,6 +18,8 @@
 
 #include <webtty_discovery.hpp>
 
+#include <rstream/test/time.hpp>
+
 namespace cli = rstream::webtty::cli;
 
 template <typename F>
@@ -68,7 +70,7 @@ void check_engine_discovery_io(const std::string& mode)
   target.params().append({"server", "tcp://127.0.0.1:" + std::to_string(acceptor.local_endpoint().port())});
   target.params().append({"rstream.no_token", "true"});
   const auto start = std::chrono::steady_clock::now();
-  const auto run   = [&]() { return cli::discover_webtty_server(context, signals, rstream::io::address(target), "", std::chrono::milliseconds(200)); };
+  const auto run   = [&]() { return cli::discover_webtty_server(context, signals, rstream::io::address(target), "", rstream::test::timeout(std::chrono::milliseconds(200))); };
   if (mode == "ok") {
     const auto server = run();
     assert(server.m_transport == "plain");
@@ -79,7 +81,7 @@ void check_engine_discovery_io(const std::string& mode)
                                                                           : "discovery failed");
   }
   assert(observed);
-  assert(std::chrono::steady_clock::now() - start < std::chrono::seconds(2));
+  assert(std::chrono::steady_clock::now() - start < rstream::test::timeout(std::chrono::seconds(2)));
   assert(context.poll() == 0);
 }
 

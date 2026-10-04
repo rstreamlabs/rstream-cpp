@@ -56,7 +56,7 @@ production_boost_without_components=(
   "wave"
 )
 docker_conan_config_synced="off"
-patched_conan_recipes_exported="off"
+declare -A patched_conan_recipes_exported
 package_name_cache=""
 package_version_cache=""
 
@@ -109,6 +109,9 @@ resolve_list "${LINUX_PLUGIN_MODES:-}" linux_plugin_modes "${default_linux_plugi
 resolve_list "${LINUX_TCLIBCS:-}" linux_tclibcs "${default_linux_tclibcs[@]}"
 linux_toolchain_version="${LINUX_TOOLCHAIN_VERSION:-${default_linux_toolchain_version}}"
 linux_toolchain="${LINUX_TOOLCHAIN:-${default_linux_toolchain}}"
+# Keep the recipe selected by the Conan profile consistent with the SDK package
+# ID and options assembled below, including when a caller selects Wrynose.
+export LINUX_TOOLCHAIN_VERSION="${linux_toolchain_version}"
 resolve_list "${MACOS_ARCHS:-}" macos_archs "${default_macos_archs[@]}"
 resolve_list "${MACOS_BUILD_SHARED:-}" macos_build_shared "${default_macos_build_shared[@]}"
 resolve_list "${MACOS_PLUGIN_MODES:-}" macos_plugin_modes "${default_macos_plugin_modes[@]}"
@@ -154,9 +157,13 @@ function is_blacklisted {
   return 1
 }
 
-glibc_version="2.39"
+case "${linux_toolchain_version}" in
+6.0.*) default_glibc_version="2.43"; default_musl_version="1.2.6" ;;
+*) default_glibc_version="2.39"; default_musl_version="1.2.4" ;;
+esac
+glibc_version="${LINUX_GLIBC_VERSION:-${default_glibc_version}}"
 macosx_version_min="11.0"
-musl_version="1.2.4"
+musl_version="${LINUX_MUSL_VERSION:-${default_musl_version}}"
 windows_ntddi_version="0x0A000006"
 windows_win32_winnt="0x0A00"
 
@@ -182,8 +189,46 @@ extra_conan_options["linux-ppc64le-musl"]="--options boost/*:without_charconv=Tr
 extra_conan_options["linux-riscv64-glibc"]="--options openssl/*:no_asm=True"
 extra_conan_options["linux-riscv64-musl"]="--options openssl/*:no_asm=True"
 
+function modern_linux_sdk {
+  [[ "${linux_toolchain_version}" = 6.0.* || "${linux_toolchain_version}" = 5.0.10 ]]
+}
+
+function ncurses_packaging_generation {
+  if [ "${linux_toolchain_version}" = "5.0.10" ]; then
+    echo scarthgap
+  else
+    echo wrynose
+  fi
+}
+
+function linux_sdk_host {
+  if [ "${use_docker}" = "on" ]; then
+    case "${CONAN_DOCKER_PLATFORM:-linux/amd64}" in
+      linux/arm64|linux/arm64/v8) echo aarch64 ;;
+      linux/amd64) echo x86_64 ;;
+      *) echo unknown ;;
+    esac
+  else
+    uname -m
+  fi
+}
+
+function modern_ncurses_target {
+  [[ "$1" = "arm64" || ( "${linux_toolchain_version}" = "5.0.10" && "$1" = "armv7hf" ) ||
+     ( "${linux_toolchain_version}" = "6.0.3" && "$1" = "x86_64" && "$(linux_sdk_host)" = "aarch64" ) ]]
+}
+
 function patched_conan_conf {
   if [ "${use_patched_conan_deps}" != "on" ]; then
+    return
+  fi
+  if [ "${OS}" = "macos" ]; then
+    return
+  fi
+  if [ "${OS}" = "linux" ] && modern_linux_sdk; then
+    if modern_ncurses_target "${ARCH}"; then
+      echo "-o rstream/*:ncurses_ref=ncurses/6.5@rstream/$(ncurses_packaging_generation)"
+    fi
     return
   fi
   local opts=("-o" "rstream/*:boost_ref=boost/${patched_boost_version}@${patched_conan_channel}")
@@ -194,6 +239,9 @@ function patched_conan_conf {
 }
 
 function patched_test_conan_conf {
+  if [ "${OS}" = "macos" ] || { [ "${OS}" = "linux" ] && modern_linux_sdk; }; then
+    return
+  fi
   if [ "${use_patched_conan_deps}" = "on" ]; then
     echo "--conf user.rstream:test_boost_ref=boost/${patched_boost_version}@${patched_conan_channel}"
   fi
@@ -338,7 +386,18 @@ function windows_package_options {
 }
 
 function linux_conan_extra_options {
-  echo "${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}"
+  local opts="${extra_conan_options["${OS}-${ARCH}-${LIBC}"]}"
+  local openssl_target
+  openssl_target=$(python3 "${script_dir}/conan/yocto_openssl_target.py" "${linux_toolchain_version}" "${ARCH}")
+  if [[ -n "${openssl_target}" ]]; then
+    # Keep explicit user options last, so they can override this default.
+    opts="--conf:host 'openssl/*:user.openssl:target=${openssl_target}' ${opts}"
+  fi
+  if [[ "${linux_toolchain_version}" = "5.0.10" && "${ARCH}" = "armv7hf" ]]; then
+    # Preserve the SDK's ARMv7/VFP tuning for Boost.Context assembly as well.
+    opts+=" --options:host 'boost/*:extra_b2_flags=asmflags=-march=armv7-a asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard'"
+  fi
+  echo "${opts}"
 }
 
 function macos_conan_extra_options {
@@ -440,33 +499,47 @@ function sync_docker_conan_config {
 }
 
 function export_patched_conan_recipes {
-  if [ "${use_patched_conan_deps}" != "on" ] || [ "${patched_conan_recipes_exported}" = "on" ]; then
+  if [ "${use_patched_conan_deps}" != "on" ] || [ "${OS}" = "macos" ]; then
     return
   fi
-  local export_local="off"
-  local export_docker="off"
-  local os
+  local recipes=(boost ncurses)
+  if [ "${OS}" = "linux" ] && modern_linux_sdk; then
+    recipes=()
+    local arch
+    for arch in "${linux_archs[@]}"; do
+      if modern_ncurses_target "${arch}"; then
+        recipes=("ncurses-$(ncurses_packaging_generation)")
+        break
+      fi
+    done
+  fi
+  local backend="local"
+  if [ "${use_docker}" = "on" ]; then
+    backend="docker"
+  fi
   local recipe
-  for os in "${oss[@]}"; do
-    if [ "${os}" = "macos" ] || [ "${use_docker}" != "on" ]; then
-      export_local="on"
-    elif [ "${os}" = "linux" ] || [ "${os}" = "windows" ]; then
-      export_docker="on"
+  for recipe in "${recipes[@]}"; do
+    if [ "${patched_conan_recipes_exported[${backend}:${recipe}]:-off}" = "on" ]; then
+      continue
     fi
-  done
-  if [ "${export_local}" = "on" ]; then
-    for recipe in boost ncurses; do
+    if [ "${backend}" = "docker" ]; then
+      if [[ "${recipe}" = ncurses-wrynose || "${recipe}" = ncurses-scarthgap ]]; then
+        docker_run_builder --entrypoint "conan" -v "${script_dir}:/source:rw" conan2-builder \
+          export "/source/conan/recipes/${recipe}/all" --version 6.5 --user rstream --channel "${recipe#ncurses-}" || exit 1
+      else
+        docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
+          "cd /source/conan/recipes/${recipe} && python3 export.py" || exit 1
+      fi
+    elif [[ "${recipe}" = ncurses-wrynose || "${recipe}" = ncurses-scarthgap ]]; then
+      conan export "${script_dir}/conan/recipes/${recipe}/all" --version 6.5 --user rstream --channel "${recipe#ncurses-}" || exit 1
+    else
       (
         cd "${script_dir}/conan/recipes/${recipe}"
         python3 export.py
       ) || exit 1
-    done
-  fi
-  if [ "${export_docker}" = "on" ]; then
-    docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" conan2-builder -c \
-      "set -e; for recipe in boost ncurses; do cd /source/conan/recipes/\${recipe} && python3 export.py; done" || exit 1
-  fi
-  patched_conan_recipes_exported="on"
+    fi
+    patched_conan_recipes_exported[${backend}:${recipe}]="on"
+  done
 }
 
 function linux_run_build {
@@ -694,8 +767,8 @@ function run {
       fi
     done
   fi
-  export_patched_conan_recipes
   for os in "${oss[@]}"; do
+    OS=${os} export_patched_conan_recipes
     OS=${os} call_os run
   done
 }
@@ -732,7 +805,8 @@ function show_help {
   echo "  WINDOWS_BUILD_SHARED    : Build shared or static libraries (windows)."
   echo "  WINDOWS_PLUGIN_MODES    : Use auto, static, or dynamic plugin loading (windows)."
   echo "  OSS                     : Set the operating systems to build for."
-  echo "  USE_PATCHED_CONAN_DEPS  : Use patched Boost and Ncurses overrides (default: ${default_use_patched_conan_deps})."
+  echo "  USE_PATCHED_CONAN_DEPS  : Allow target-specific packaging overrides (default: ${default_use_patched_conan_deps})."
+  echo "                           Wrynose and Scarthgap 5.0.10 use public Boost; ARM64, Scarthgap ARMv7hf and Wrynose 6.0.3 ARM64-host Intel builds use scoped ncurses exceptions. macOS uses public recipes."
   echo "  WARNINGS_AS_ERRORS      : Treat project warnings as errors (default: ${default_warnings_as_errors})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
   echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."

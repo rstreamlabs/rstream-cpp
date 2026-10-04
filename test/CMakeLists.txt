@@ -4,15 +4,17 @@
 
 add_subdirectory(core)
 add_subdirectory(io)
-add_subdirectory(ncat)
-add_subdirectory(nperf)
-add_subdirectory(tunnel)
-add_subdirectory(webtty)
+if(BUILD_BINS)
+  add_subdirectory(ncat)
+  add_subdirectory(nperf)
+  add_subdirectory(tunnel)
+  add_subdirectory(webtty)
+endif()
 
 if(TARGET ${PROJECT_NAME}-inspect)
   add_test(
     NAME rstream-test-inspect-runtime-plugins
-    COMMAND $<TARGET_FILE:${PROJECT_NAME}-inspect> plugins)
+    COMMAND ${PROJECT_NAME}-inspect plugins)
   set_tests_properties(
     rstream-test-inspect-runtime-plugins
     PROPERTIES

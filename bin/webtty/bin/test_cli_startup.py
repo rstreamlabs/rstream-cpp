@@ -16,7 +16,7 @@ def main():
     if timeout <= 0:
         raise ValueError("Expected a positive startup timeout")
     result = subprocess.run(
-        [str(binary), argument], capture_output=True, text=True, timeout=timeout
+        [*sys.argv[4:], str(binary), argument], capture_output=True, text=True, timeout=timeout
     )
     if result.returncode != 0:
         raise RuntimeError(

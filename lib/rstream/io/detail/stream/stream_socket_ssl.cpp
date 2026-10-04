@@ -35,6 +35,7 @@
 #include "openssl_engine_compat.hpp"
 #endif
 #if SSL_STREAM_USE_OPENSSL_PROVIDER == 1
+#include <openssl/params.h>
 #include <openssl/provider.h>
 #include <openssl/store.h>
 #endif
@@ -93,7 +94,11 @@ static boost::system::error_code configure_expected_peer_identity(SSL* ssl, cons
     ok = ::X509_VERIFY_PARAM_set1_ip_asc(::SSL_get0_param(ssl), identity.c_str());
   }
   else {
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L && !defined(LIBRESSL_VERSION_NUMBER)
+    ok = ::SSL_set1_dnsname(ssl, identity.c_str());
+#else
     ok = ::SSL_set1_host(ssl, identity.c_str());
+#endif
   }
   if (ok == 1) {
     return {};
@@ -643,8 +648,9 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     }
 #else
 #ifdef DEBUG_BUILD
-    m_logger->warn("raw public keys functionality (RPK) (RFC7250) is not supported");
+      m_logger->warn("raw public keys functionality (RPK) (RFC7250) is not supported");
 #endif
+    throw boost::system::system_error(error::code::ssl_configuration_error);
 #endif
   }
   if (m_config.m_server_rpk) {
@@ -667,8 +673,9 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     }
 #else
 #ifdef DEBUG_BUILD
-    m_logger->warn("raw public keys functionality (RPK) (RFC7250) is not supported");
+      m_logger->warn("raw public keys functionality (RPK) (RFC7250) is not supported");
 #endif
+    throw boost::system::system_error(error::code::ssl_configuration_error);
 #endif
   }
   if (m_config.m_cert || m_config.m_cert_file) {
@@ -1580,7 +1587,31 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
                              : std::string("pkcs11prov");
   if (!m_pkcs11_provider) {
     ::ERR_clear_error();
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L
+    // Some providers read the module and PIN during OSSL_provider_init.
+    // Parameters added after OSSL_PROVIDER_load are too late for them.
+    const bool standard_provider = provider == "pkcs11";
+    char login_always[]          = "always";
+    char force_login[]           = "1";
+    OSSL_PARAM params[4];
+    size_t count    = 0;
+    params[count++] = ::OSSL_PARAM_construct_utf8_string(
+        standard_provider ? "pkcs11-module-path" : "pkcs11_module",
+        const_cast<char*>(m_config.m_pkcs11_module.get().c_str()), 0);
+    if (pin && !pin.get().empty()) {
+      params[count++] = ::OSSL_PARAM_construct_utf8_string(
+          standard_provider ? "pkcs11-module-token-pin" : "pin",
+          const_cast<char*>(pin.get().c_str()), 0);
+    }
+    params[count++] = ::OSSL_PARAM_construct_utf8_string(
+        standard_provider ? "pkcs11-module-login-behavior" : "force_login",
+        standard_provider ? login_always : force_login, 0);
+    params[count]     = ::OSSL_PARAM_construct_end();
+    m_pkcs11_provider = ::OSSL_PROVIDER_load_ex(nullptr, provider.c_str(), params);
+#else
+    (void)pin;
     m_pkcs11_provider = ::OSSL_PROVIDER_load(nullptr, provider.c_str());
+#endif
     if (!m_pkcs11_provider) {
       error_code = translate_error(::ERR_get_error());
       if (!error_code) {
@@ -1589,56 +1620,6 @@ void stream_socket_ssl::impl::init_pkcs11_provider(const boost::optional<std::st
       return;
     }
   }
-#if OPENSSL_VERSION_NUMBER >= 0x30500000L
-  const bool has_pin = pin && !pin.get().empty();
-  if (provider == "pkcs11") {
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11-module-path",
-            m_config.m_pkcs11_module.get().c_str())
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (has_pin && ::OSSL_PROVIDER_add_conf_parameter(m_pkcs11_provider, "pkcs11-module-token-pin", pin.get().c_str()) != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11-module-login-behavior",
-            "always")
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-  }
-  else {
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "pkcs11_module",
-            m_config.m_pkcs11_module.get().c_str())
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (has_pin && ::OSSL_PROVIDER_add_conf_parameter(m_pkcs11_provider, "pin", pin.get().c_str()) != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-    if (::OSSL_PROVIDER_add_conf_parameter(
-            m_pkcs11_provider,
-            "force_login",
-            "1")
-        != 1) {
-      error_code = error::make_error_code(error::code::ssl_configuration_error);
-      return;
-    }
-  }
-#else
-  (void)provider;
-  (void)pin;
-#endif
 }
 #endif
 
@@ -1667,21 +1648,31 @@ void stream_socket_ssl::impl::async_connect_operation::do_connect()
     sni = m_ptr->m_config.m_sni.get();
   }
   else {
-    const auto host = m_endpoint.get_url().host();
+    const auto host = m_endpoint.get_url().host_address();
     if (!host.empty()) {
       sni = host;
     }
   }
   boost::system::error_code error_code;
   if (sni) {
+    boost::system::error_code address_error;
+    (void)boost::asio::ip::make_address(sni.get(), address_error);
+    // RFC 6066 permits DNS names only in SNI. IP certificate verification is
+    // still configured below, independently of the server-name extension.
+    const char* server_name = address_error && !sni->empty() ? sni->c_str() : nullptr;
 #ifdef DEBUG_BUILD
-    m_logger->trace("setting SNI extension to '{}'", sni.get());
+    m_logger->trace("setting SNI extension to '{}'", server_name ? server_name : "");
 #endif
-    if (!SSL_set_tlsext_host_name(m_ptr->m_ssl_stream.native_handle(), sni.get().c_str())) {
-      error_code = boost::system::error_code(static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category());
+    ::ERR_clear_error();
+    if (!SSL_set_tlsext_host_name(m_ptr->m_ssl_stream.native_handle(), server_name)) {
+      error_code = translate_error(::ERR_get_error());
+      if (!error_code) {
+        error_code = error::make_error_code(error::code::ssl_configuration_error);
+      }
     }
     if (!error_code && m_ptr->m_config.m_peer_verification && m_ptr->m_type == type::client) {
-      error_code = configure_expected_peer_identity(m_ptr->m_ssl_stream.native_handle(), sni.get());
+      const std::string identity = sni->empty() ? m_endpoint.get_url().host_address() : sni.get();
+      error_code = configure_expected_peer_identity(m_ptr->m_ssl_stream.native_handle(), identity);
     }
   }
   else {

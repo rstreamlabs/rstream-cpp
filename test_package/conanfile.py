@@ -20,7 +20,10 @@ class TestPackageConan(ConanFile):
         # distribution-build component pruning on the root dependency graph.
         self.requires(self.tested_reference_str)
         boost_ref = self.conf.get("user.rstream:test_boost_ref", default=None)
-        self.requires(boost_ref or "boost/[>=1.83 <2]")
+        self.requires(boost_ref or "boost/[>=1.83 <2]", force=bool(boost_ref))
+        openssl_ref = self.conf.get("user.rstream:test_openssl_ref", default=None)
+        if openssl_ref:
+            self.requires(openssl_ref)
 
     def layout(self):
         conan.tools.cmake.cmake_layout(self, build_folder=os.getenv("TEST_BUILD_FOLDER", "build"))
@@ -36,6 +39,9 @@ class TestPackageConan(ConanFile):
         cmake_toolchain.variables["RSTREAM_TEST_EXPECT_STATIC_PLUGINS"] = (
             "ON" if str(dependency_options.static_plugins).lower() == "true" else "OFF"
         )
+        cmake_toolchain.variables["RSTREAM_TEST_FULLY_STATIC"] = (
+            "ON" if str(dependency_options.static_libstdcxx).lower() == "true" else "OFF"
+        )
         cmake_toolchain.generate()
         cmake_deps = conan.tools.cmake.CMakeDeps(self)
         cmake_deps.generate()
@@ -46,5 +52,9 @@ class TestPackageConan(ConanFile):
         cmake.build()
 
     def test(self):
-        if not conan.tools.build.cross_building(self) and conan.tools.build.can_run(self):
-            self.run(os.path.join(self.cpp.build.bindirs[0], "test_package"), env="conanrun")
+        # can_run() keeps foreign targets disabled by default and honors an
+        # explicit qualification environment (native static binary or emulator).
+        if conan.tools.build.can_run(self):
+            conan.tools.cmake.CMake(self).ctest(
+                cli_args=["--parallel", "1", "--output-on-failure", "--no-tests=error"]
+            )
