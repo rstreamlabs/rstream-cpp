@@ -17,6 +17,34 @@ spec.loader.exec_module(pilot)
 
 
 class YoctoQualificationTest(unittest.TestCase):
+    def test_library_only_plan_keeps_public_dependencies_and_tests_without_cli(self):
+        import shlex
+        for host in ('x86_64', 'aarch64'):
+            for libc in ('musl', 'glibc'):
+                result = subprocess.run([
+                    sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                    '--arch', 'arm64', '--libc', libc, '--sdk-host', host,
+                    '--library-only', '--plan', '--conan', '/does/not/exist'],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args = shlex.split(result.stdout)
+                for option in ('build_bins=False', 'with_ncurses=False', 'enable_testing=True',
+                               'enable_strict_warnings=True', 'warnings_as_errors=True'):
+                    self.assertIn('rstream/*:' + option, args)
+                self.assertIn('tools.build:skip_test=False', args)
+                for option in ('build_os', 'build_arch', 'build_channel', 'ncurses_ref', 'boost_ref'):
+                    self.assertFalse(any(arg.startswith(f'rstream/*:{option}=') for arg in args))
+
+    def test_library_only_cannot_enable_private_packaging_exception(self):
+        result = subprocess.run([
+            sys.executable, str(ROOT / 'conan/qualify_yocto.py'), '--arch', 'arm64',
+            '--libc', 'musl', '--library-only', '--arm-ncurses-exception',
+            '--plan', '--conan', '/does/not/exist'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('not allowed with argument', result.stderr)
+        with self.assertRaisesRegex(ValueError, 'private packaging dependencies'):
+            pilot.build_arguments('arm64', 'musl', '6.0.3', 2, True, library_only=True)
+
     def test_extended_targets_use_valid_conan_settings_and_distinct_sdk_abis(self):
         from conan.internal.model.settings import Settings
         identities = set()

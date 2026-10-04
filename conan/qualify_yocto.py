@@ -75,7 +75,9 @@ def ncurses_generation(version):
     return 'scarthgap' if version == '5.0.10' else 'wrynose'
 
 
-def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64'):
+def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64', library_only=False):
+    if library_only and arm_exception:
+        raise ValueError('Library-only qualification cannot select private packaging dependencies')
     conan_arch = CONAN_ARCHES[arch]
     args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={conan_arch}',
             '-s:h', f'os.sdk=yocto-toolchain-{version}-{arch}-{libc}', '-s:b', 'compiler.cppstd=20',
@@ -85,8 +87,12 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64')
             '-c:h', 'tools.build.cross_building:can_run=True',
             '-c:h', 'tools.build:skip_test=False']
     options = dict(shared=False, static_plugins=True, static_libstdcxx=libc == 'musl',
-                   enable_testing=True, enable_strict_warnings=True, warnings_as_errors=True,
-                   build_os='linux', build_arch=arch, build_channel='dev')
+                   enable_testing=True, enable_strict_warnings=True, warnings_as_errors=True)
+    if library_only:
+        # ncurses is used by the tunnel CLI; it is not a library dependency.
+        options.update(build_bins=False, with_ncurses=False)
+    else:
+        options.update(build_os='linux', build_arch=arch, build_channel='dev')
     if arm_exception:
         options['ncurses_ref'] = f'ncurses/6.5@rstream/{ncurses_generation(version)}'
     for key, value in options.items():
@@ -162,8 +168,11 @@ def main():
                         help='Maximum duration of each CTest test')
     parser.add_argument('--conan', default='conan')
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--arm-ncurses-exception', action='store_true',
-                        help='Explicitly use a scoped private ARM packaging candidate; never a library default')
+    qualification = parser.add_mutually_exclusive_group()
+    qualification.add_argument('--arm-ncurses-exception', action='store_true',
+                               help='Explicitly use a scoped private ARM packaging candidate; never a library default')
+    qualification.add_argument('--library-only', action='store_true',
+                               help='Qualify the library without CLI tools, ncurses or distribution identity; public recipes only')
     parser.add_argument('--plan', action='store_true', help='Print the package build command without running Conan')
     args = parser.parse_args()
     if args.test_timeout_scale < 1 or args.test_timeout_seconds < 1:
@@ -174,7 +183,7 @@ def main():
             args.arch == 'armv7hf' and args.sdk_version == '5.0.10' and args.sdk_host == 'x86_64')):
         parser.error('The ncurses packaging exception requires ARM64 or x86_64-host Scarthgap 5.0.10 ARMv7hf')
     build_args = build_arguments(args.arch, args.libc, args.sdk_version, args.jobs,
-                                 args.arm_ncurses_exception, args.sdk_host)
+                                 args.arm_ncurses_exception, args.sdk_host, args.library_only)
     create = [args.conan, 'create', str(ROOT), '--build=missing', '--build=rstream/*', *build_args]
     if args.plan:
         create += test_cmake_arguments(shlex.split(args.runner_command) if args.runner_command else [],
@@ -193,6 +202,8 @@ def main():
     default_output = ROOT / 'out/yocto-pilot' / args.sdk_version
     if args.sdk_host != 'x86_64':
         default_output /= args.sdk_host
+    if args.library_only:
+        default_output /= 'library'
     output = (args.output or default_output / f'{args.arch}-{args.libc}').resolve()
     output.mkdir(parents=True, exist_ok=True)
     os.environ['LINUX_TOOLCHAIN_VERSION'] = args.sdk_version
@@ -245,6 +256,7 @@ def main():
         'test_timeout_scale': args.test_timeout_scale,
         'test_timeout_seconds': args.test_timeout_seconds,
         'compiler_cache': os.environ['CCACHE_DIR'],
+        'qualification_mode': 'library' if args.library_only else 'distribution',
         'private_ncurses_packaging_exception': args.arm_ncurses_exception}, indent=2) + '\n')
     print(shlex.join(create), flush=True)
     subprocess.run(create, check=True,

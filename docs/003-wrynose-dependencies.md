@@ -180,6 +180,28 @@ package build command without running Conan. `--output` selects the evidence
 directory; the default is `out/yocto-pilot/<sdk-version>/<architecture>-<libc>`
 so Scarthgap and Wrynose results do not overwrite one another.
 
+To qualify the library and its external consumer without the command-line tools:
+
+```sh
+python3 conan/qualify_yocto.py --arch arm64 --libc musl --jobs 4 --library-only
+```
+
+This selects the existing `build_bins=False` and `with_ncurses=False` options.
+ncurses is used by the tunnel CLI, so this library configuration has no ncurses
+dependency. It retains C++ tests, strict warnings and public-recipe integrity
+checks, omits distribution build identity, and rejects
+`--arm-ncurses-exception`. Recipe defaults are unchanged. Library evidence uses
+a separate `library/` subdirectory under the version and optional SDK-host
+directory. Its graph resolution must not be reported as a compiled or tested
+library until the package build and external consumer actually pass.
+
+The driver accepts all 18 historical SDK target names, including ARMv6/v7,
+32-bit x86, both MIPS byte orders, PPC64 and RISC-V. It keeps target identities
+distinct in `os.sdk` and selects the corresponding QEMU CPU and sysroot.
+These additional dispatch paths still require per-target binary qualification.
+LoongArch needs separate Conan architecture/recipe work; it remains part of
+the modern SDK extension scope.
+
 The driver also accepts `--arch armv7hf`, preserving the Conan hard-float
 architecture and using `qemu-arm -cpu cortex-a15` with the exact SDK sysroot
 for both libcs. Its opt-in private ncurses candidate is restricted to the
