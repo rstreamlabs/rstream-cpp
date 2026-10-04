@@ -14,6 +14,31 @@ from check_public_dependencies import private_dependencies, verify_public_recipe
 
 ROOT = Path(__file__).resolve().parents[1]
 X86_TARGETS = ('x86_64', 'x86_64_v2', 'x86_64_v3', 'x86_64_v4')
+# SDK target names retain ABI and tuning distinctions even when Conan groups
+# them under one architecture. os.sdk keeps their package identities separate.
+CONAN_ARCHES = {
+    **dict.fromkeys(X86_TARGETS, 'x86_64'),
+    'x86_i686': 'x86', 'x86_core2': 'x86',
+    'armv6': 'armv6', 'armv6hf': 'armv6',
+    'armv7': 'armv7', 'armv7hf': 'armv7hf', 'arm64': 'armv8',
+    'mips': 'mips', 'mipsle': 'mips',
+    'mips64': 'mips64', 'mips64le': 'mips64',
+    'ppc64': 'ppc64', 'ppc64le': 'ppc64le', 'riscv64': 'riscv64',
+}
+TARGET_EMULATORS = {
+    **dict.fromkeys(X86_TARGETS, ('qemu-x86_64',)),
+    'x86_i686': ('qemu-i386', '-cpu', 'pentium3'),
+    'x86_core2': ('qemu-i386', '-cpu', 'core2duo'),
+    'armv6': ('qemu-arm', '-cpu', 'arm1176'),
+    'armv6hf': ('qemu-arm', '-cpu', 'arm1176'),
+    'armv7': ('qemu-arm', '-cpu', 'cortex-a15'),
+    'armv7hf': ('qemu-arm', '-cpu', 'cortex-a15'),
+    'arm64': ('qemu-aarch64',),
+    'mips': ('qemu-mips',), 'mipsle': ('qemu-mipsel',),
+    'mips64': ('qemu-mips64',), 'mips64le': ('qemu-mips64el',),
+    'ppc64': ('qemu-ppc64',), 'ppc64le': ('qemu-ppc64le',),
+    'riscv64': ('qemu-riscv64',),
+}
 
 
 def native_x86_features():
@@ -51,7 +76,7 @@ def ncurses_generation(version):
 
 
 def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64'):
-    conan_arch = {**dict.fromkeys(X86_TARGETS, 'x86_64'), 'arm64': 'armv8', 'armv7hf': 'armv7hf'}[arch]
+    conan_arch = CONAN_ARCHES[arch]
     args = ['-pr:h', 'yocto-toolchain', '-s:h', f'arch={conan_arch}',
             '-s:h', f'os.sdk=yocto-toolchain-{version}-{arch}-{libc}', '-s:b', 'compiler.cppstd=20',
             '-s:b', f'arch={"armv8" if sdk_host == "aarch64" else sdk_host}',
@@ -82,13 +107,12 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64')
 
 def runtime_command(arch, libc, sysroot, sdk_host='x86_64', explicit=None):
     prefix = validate_runner(arch, sdk_host, explicit)
-    if explicit is None and (arch in ('arm64', 'armv7hf') or sdk_host == 'aarch64'):
-        emulator = {'arm64': 'qemu-aarch64', 'armv7hf': 'qemu-arm'}.get(arch, 'qemu-x86_64')
+    if explicit is None and (arch not in X86_TARGETS or sdk_host == 'aarch64'):
+        emulator, *options = TARGET_EMULATORS[arch]
         qemu = shutil.which(emulator)
         if not qemu:
             raise RuntimeError(f'{emulator} is required for this target runtime qualification')
-        cpu = ['-cpu', 'cortex-a15'] if arch == 'armv7hf' else []
-        return [qemu, *cpu, '-L', str(sysroot)]
+        return [qemu, *options, '-L', str(sysroot)]
     if libc == 'glibc':
         loader = sysroot / 'lib/ld-linux-x86-64.so.2'
         if not loader.is_file():
@@ -123,7 +147,7 @@ def test_cmake_arguments(runner, scale, seconds):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--arch', choices=[*X86_TARGETS, 'arm64', 'armv7hf'], required=True)
+    parser.add_argument('--arch', choices=list(CONAN_ARCHES), required=True)
     parser.add_argument('--libc', choices=['musl', 'glibc'], required=True)
     parser.add_argument('--sdk-version', default='6.0.3')
     parser.add_argument('--sdk-host', choices=['x86_64', 'aarch64'], default='x86_64')

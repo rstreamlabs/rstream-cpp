@@ -17,6 +17,66 @@ spec.loader.exec_module(pilot)
 
 
 class YoctoQualificationTest(unittest.TestCase):
+    def test_extended_targets_use_valid_conan_settings_and_distinct_sdk_abis(self):
+        from conan.internal.model.settings import Settings
+        identities = set()
+        for arch in pilot.CONAN_ARCHES:
+            for libc in ('musl', 'glibc'):
+                args = pilot.build_arguments(arch, libc, '6.0.3', 2, False)
+                values = [args[i + 1].split('=', 1)
+                          for i, arg in enumerate(args) if arg == '-s:h']
+                settings = Settings.loads((ROOT / 'conan/config/settings.yml').read_text())
+                settings.update_values([
+                    ('os', 'Linux'), ('compiler', 'gcc'), ('compiler.version', '15'),
+                    ('compiler.cppstd', '20'), ('compiler.libcxx', 'libstdc++11'),
+                    ('build_type', 'Release'), *values])
+                settings.validate()
+                identity = (settings.get_safe('arch'), settings.get_safe('os.sdk'))
+                self.assertNotIn(identity, identities)
+                identities.add(identity)
+                self.assertIn(f'yocto-toolchain/*:arch={arch}', args)
+                self.assertIn('tools.build:skip_test=False', args)
+                self.assertFalse(any('ncurses_ref=' in arg or 'boost_ref=' in arg for arg in args))
+
+    def test_extended_runtime_selects_endianness_cpu_and_target_sysroot(self):
+        cases = {
+            'x86_i686': ('qemu-i386', '-cpu', 'pentium3'),
+            'x86_core2': ('qemu-i386', '-cpu', 'core2duo'),
+            'armv6': ('qemu-arm', '-cpu', 'arm1176'),
+            'armv6hf': ('qemu-arm', '-cpu', 'arm1176'),
+            'armv7': ('qemu-arm', '-cpu', 'cortex-a15'),
+            'mips': ('qemu-mips',), 'mipsle': ('qemu-mipsel',),
+            'mips64': ('qemu-mips64',), 'mips64le': ('qemu-mips64el',),
+            'ppc64': ('qemu-ppc64',), 'ppc64le': ('qemu-ppc64le',),
+            'riscv64': ('qemu-riscv64',),
+        }
+        for arch, (emulator, *options) in cases.items():
+            for host in ('x86_64', 'aarch64'):
+                for libc in ('musl', 'glibc'):
+                    with self.subTest(arch=arch, host=host, libc=libc), \
+                            patch.object(pilot.shutil, 'which', side_effect=lambda exe: '/runner/' + exe):
+                        self.assertEqual(
+                            pilot.runtime_command(arch, libc, Path('/target sdk'), host),
+                            ['/runner/' + emulator, *options, '-L', '/target sdk'])
+            with patch.object(pilot.shutil, 'which', return_value=None):
+                with self.assertRaisesRegex(RuntimeError, emulator):
+                    pilot.runtime_command(arch, 'glibc', Path('/target sdk'))
+
+    def test_extended_cli_plans_preserve_architecture_without_running_conan(self):
+        import shlex
+        for arch in pilot.CONAN_ARCHES:
+            command = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                       '--arch', arch, '--libc', 'glibc', '--sdk-host', 'aarch64',
+                       '--sdk-version', '5.0.10', '--plan', '--conan', '/does/not/exist']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            arguments = shlex.split(result.stdout)
+            self.assertIn(f'os.sdk=yocto-toolchain-5.0.10-{arch}-glibc', arguments)
+            build = [arguments[i + 1] for i, arg in enumerate(arguments) if arg == '-s:b']
+            self.assertIn('arch=armv8', build)
+            self.assertIn('rstream/*:enable_testing=True', arguments)
+            self.assertNotIn('upload', arguments)
+
     def test_instrumented_plan_configures_real_cmake_test_limits_and_runner(self):
         import json
         import shlex
