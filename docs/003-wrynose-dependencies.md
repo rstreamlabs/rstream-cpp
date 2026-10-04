@@ -196,12 +196,19 @@ directory. Its graph resolution must not be reported as a compiled or tested
 library until the package build and external consumer actually pass.
 
 With CLI tools disabled, CMake runs the core and I/O tests without registering
-tests that depend on ncat, nperf, tunnel or webtty targets. The x86_64/musl
-Wrynose library passed 30 tests and its external consumer using 11 verified
-public target recipes. The other three public-library pilots remain separate
-qualification work. The Linux static/static CI job also builds this library-only
-configuration from a verified and locked public dependency graph, then runs its
-package and external-consumer tests.
+tests that depend on ncat, nperf, tunnel or webtty targets. On source `2e4c3cb`,
+all four x86_64-host Wrynose public-library pilots passed: x86_64 and ARM64
+targets, each with musl and glibc. Each uses 11 verified public target recipes;
+musl runs 30 tests, glibc runs 31, and every configuration passes an external
+consumer. ARM64 target execution uses QEMU. These library results exclude CLI
+archive qualification, which is tracked separately. Exact graphs, source
+revisions and test evidence are indexed in
+`../.yocto-pilot/public-library-progress.json`.
+
+The Linux static/static CI job also builds this library-only configuration from
+a verified and locked public dependency graph, then runs its package and
+external-consumer tests. CI initializes its Conan cache outside the checkout;
+Conan source exports exclude local `.conan2` and `.ccache` directories.
 
 The driver accepts all 18 historical SDK target names, including ARMv6/v7,
 32-bit x86, both MIPS byte orders, PPC64 and RISC-V. It keeps target identities
@@ -228,6 +235,17 @@ This OpenSSL target retains the SDK's explicit ARMv7/VFP/hard-float tuning;
 the target name does not replace it with ARMv4 compiler settings. The public
 OpenSSL package builds and passes the rstream ARM32/musl runtime tests.
 Public library defaults are unchanged.
+
+OpenSSL 4's public recipe only selects the Linux x86_64 and ARM64 targets
+automatically. For Scarthgap 5.0.10 and Wrynose 6.0.3, the qualification driver
+and packaging script share `conan/yocto_openssl_target.py` to supply the public
+`user.openssl:target` configuration for 32-bit x86, ARM32, MIPS, PowerPC64 and
+RISC-V. MIPS64 uses `linux64-mips64`, matching Yocto's n64 ABI; the similarly
+named `linux-mips64` would select n32. SDK compiler tuning and endianness remain
+in effect, and explicit packaging options can override the default target.
+These 13 target-name selections were checked against the unmodified public
+recipe and upstream `Configure LIST`. That control does not qualify their
+actual cross builds; the per-SDK compiler and runtime tests are still required.
 
 ARMv7hf/glibc qualification uses QEMU 11.1.2. The workstation's QEMU 8.2.2
 rejects the 64-bit-time `SO_RCVTIMEO_NEW` socket option with `ENOPROTOOPT`,
@@ -296,20 +314,28 @@ in emulated ARM64 userspace, followed by the complete rstream chain.
 `build-conan-cross.sh` also selects public Boost for exactly 5.0.10; other
 legacy SDK versions retain their prior settings. No SDK or package is uploaded.
 
-As of 2026-10-04, ten Scarthgap 5.0.10 SDK/package combinations are qualified:
+As of 2026-10-04, eleven Scarthgap 5.0.10 SDK/package combinations are qualified:
 
 | SDK host | Targets | Qualified libc |
 | --- | --- | --- |
-| x86_64 | x86_64, arm64, armv7hf | musl and glibc |
-| x86_64 | x86_64_v2, x86_64_v3, x86_64_v4 | musl |
+| x86_64 | x86_64, x86_64_v2, arm64, armv7hf | musl and glibc |
+| x86_64 | x86_64_v3, x86_64_v4 | musl |
 | aarch64, emulated | arm64 | musl |
 
 Each passed its package tests, external library consumer, both distribution
 archives and local CE tunnel suites. The v4 build uses verified Intel SDE,
 explicit AVX-512 SDK checks and test timeout scale 4; this is functional
 qualification under emulation, not a hardware performance result. The other
-62 legacy SDK combinations and their C++ packages remain unqualified.
+61 legacy SDK combinations and their C++ packages remain unqualified.
 Local evidence is indexed in `../.yocto-pilot/scarthgap-build-matrix.json`.
+
+Completed local SDK installations may be retired to make space for the next
+builds. Their verified distribution archives and recipe backups are retained.
+Reinstallation relocates an SDK to a new prefix and creates a new Conan package
+revision; regenerate dependency graphs before using it again. Historical graph
+paths are qualification evidence, not a promise that cache directories remain
+installed. The ten retired legacy installations and their exact recovery commands
+are indexed in `../.yocto-pilot/scarthgap-sdk-installation-retirement-summary.json`.
 
 The script verifies public target recipe revisions, records a locked input
 graph, validates the installed SDK provenance, forces package tests and the

@@ -354,7 +354,30 @@ add_subdirectory(webtty)
         for arch, version in (('arm64', '5.0.10'), ('x86_64_v4', '5.0.10'), ('armv7hf', '6.0.3')):
             args = pilot.build_arguments(arch, 'musl', version, 2, False)
             self.assertFalse(any('extra_b2_flags=' in arg for arg in args))
-            self.assertFalse(any('user.openssl:target=' in arg for arg in args))
+            targets = [arg for arg in args if 'user.openssl:target=' in arg]
+            self.assertEqual(targets, ['openssl/*:user.openssl:target=linux-armv4']
+                             if arch == 'armv7hf' else [])
+
+    def test_openssl_abi_targets_are_shared_by_library_and_distribution_plans(self):
+        from yocto_openssl_target import openssl_target
+        # Endianness and word size must not collapse onto a different ABI.
+        cases = {'mips': 'linux-mips32', 'mipsle': 'linux-mips32',
+                 'mips64': 'linux64-mips64', 'mips64le': 'linux64-mips64',
+                 'ppc64': 'linux-ppc64', 'ppc64le': 'linux-ppc64le',
+                 'armv6': 'linux-armv4', 'armv7hf': 'linux-armv4',
+                 'x86_core2': 'linux-x86', 'riscv64': 'linux64-riscv64'}
+        for version in ('5.0.10', '6.0.3'):
+            for host in ('x86_64', 'aarch64'):
+                for libc in ('musl', 'glibc'):
+                    for arch, target in cases.items():
+                        for library_only in (True, False):
+                            args = pilot.build_arguments(arch, libc, version, 2, False,
+                                                         host, library_only=library_only)
+                            self.assertIn('openssl/*:user.openssl:target=' + target, args)
+                            self.assertFalse(any('openssl_ref=' in arg for arg in args))
+        self.assertIsNone(openssl_target('armv7hf', '5.0.2'))
+        self.assertIsNone(openssl_target('x86_64', '6.0.3'))
+        self.assertIsNone(openssl_target('arm64', '6.0.3'))
 
     def test_arm32_private_recipe_is_rejected_outside_its_sdk_scope(self):
         for version, host in (('6.0.3', 'x86_64'), ('5.0.10', 'aarch64')):

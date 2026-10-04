@@ -120,7 +120,22 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
                 'boost/*:extra_b2_flags=asmflags=-march=armv7-a '
                 'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard'
             ] if version == '5.0.10' else [])
-            self.assertEqual('openssl/*:user.openssl:target=linux-armv4' in builds[0], version == '5.0.10')
+            self.assertIn('openssl/*:user.openssl:target=linux-armv4', builds[0])
+
+    def test_public_openssl_targets_reach_cross_packaging_without_recipe_overrides(self):
+        targets = {'x86_i686': 'linux-x86', 'armv6hf': 'linux-armv4',
+                   'mipsle': 'linux-mips32', 'mips64le': 'linux64-mips64',
+                   'ppc64': 'linux-ppc64', 'ppc64le': 'linux-ppc64le',
+                   'riscv64': 'linux64-riscv64'}
+        for version in ('5.0.10', '6.0.3'):
+            calls = self.commands(LINUX_TOOLCHAIN_VERSION=version,
+                                  LINUX_ARCHS=' '.join(targets), USE_PATCHED_CONAN_DEPS='off')
+            self.assertFalse(any(c['args'][0] == 'export' for c in calls))
+            builds = [c['args'] for c in calls if c['args'][0] == 'create']
+            self.assertEqual(len(builds), len(targets))
+            for command, target in zip(builds, targets.values()):
+                self.assertIn('openssl/*:user.openssl:target=' + target, command)
+                self.assertFalse(any('_ref=' in arg for arg in command))
 
     def test_wrynose_x86_does_not_export_unused_recipes(self):
         self.assertFalse(any(c['args'][0] == 'export' for c in self.commands(LINUX_ARCHS='x86_64')))

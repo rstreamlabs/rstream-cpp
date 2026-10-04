@@ -11,6 +11,7 @@ import shutil
 import subprocess
 
 from check_public_dependencies import private_dependencies, verify_public_recipes
+from yocto_openssl_target import openssl_target
 
 ROOT = Path(__file__).resolve().parents[1]
 X86_TARGETS = ('x86_64', 'x86_64_v2', 'x86_64_v3', 'x86_64_v4')
@@ -107,7 +108,9 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64',
         # B2 assembly does not inherit the compiler's C/C++ tuning flags.
         args += ['-o:h', 'boost/*:extra_b2_flags=asmflags=-march=armv7-a '
                  'asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard']
-        args += ['-c:h', 'openssl/*:user.openssl:target=linux-armv4']
+    target = openssl_target(arch, version)
+    if target:
+        args += ['-c:h', f'openssl/*:user.openssl:target={target}']
     return args
 
 
