@@ -4,10 +4,12 @@
 
 add_subdirectory(core)
 add_subdirectory(io)
-add_subdirectory(ncat)
-add_subdirectory(nperf)
-add_subdirectory(tunnel)
-add_subdirectory(webtty)
+if(BUILD_BINS)
+  add_subdirectory(ncat)
+  add_subdirectory(nperf)
+  add_subdirectory(tunnel)
+  add_subdirectory(webtty)
+endif()
 
 if(TARGET ${PROJECT_NAME}-inspect)
   add_test(
