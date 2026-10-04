@@ -86,11 +86,16 @@ class NCursesConan(ConanFile):
                 self.requires("naive-tsearch/0.1.1")
 
     def validate(self):
-        # Packaging-only exception for the Wrynose Linux ARM64 SDK.
+        # Packaging-only exceptions for the Wrynose Linux ARM64 SDK.
         wrynose_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
                          and self.settings_build.arch == "x86_64" and self.settings.arch == "armv8"
                          and str(self.settings.get_safe("os.sdk", "")).startswith("yocto-toolchain-6.0."))
-        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not wrynose_arm64:
+        wrynose_arm64_host = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
+                             and self.settings_build.arch == "armv8" and self.settings.arch == "armv8"
+                             and str(self.settings.get_safe("os.sdk", "")) in (
+                                 "yocto-toolchain-6.0.3-arm64-musl",
+                                 "yocto-toolchain-6.0.3-arm64-glibc"))
+        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not (wrynose_arm64 or wrynose_arm64_host):
             # FIXME: Cannot build ncurses from x86_64 to armv8 (Apple M1).  Cross building from Linux/x86_64 to Mingw/x86_64 works flawless.
             # FIXME: Need access to environment of build profile to set build compiler (BUILD_CC/CC_FOR_BUILD)
             raise ConanInvalidConfiguration("Cross building to/from arm is (currently) not supported")

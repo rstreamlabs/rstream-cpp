@@ -8,9 +8,13 @@ The base is `ncurses/6.5#d35d5bc6bbe86cf25c10957df6302f8f` from
 `upstream.diff` records the complete recipe delta. No ncurses source is patched.
 
 The public recipe rejects every cross-build to or from ARM before compilation.
-The exception permits only Linux x86_64 to Linux ARM64 using Yocto 6.0.x, while
-preserving the rejection for other configurations. Upstream's native build
-compiler detection is retained and must be verified in the build log.
+The exception permits Linux x86_64 to Linux ARM64 using Yocto 6.0.x. It also
+permits Linux ARM64 to Linux ARM64 for exactly the Yocto 6.0.3 ARM64 musl/glibc
+SDK identities. Other ARM build-host combinations remain rejected. Upstream's
+native build compiler detection is retained and must be verified in the build log.
+The ARM64-host extension has separate graph acceptance/rejection controls;
+its SDK build and executable consumer qualification remain pending. Existing
+x86_64-host qualification does not establish ARM64-host support by itself.
 
 The first ARM64 build compiled successfully, then installation failed because
 `install -s` invoked the workstation's x86_64 `strip` on an ARM64 `tic`. The
