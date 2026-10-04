@@ -516,6 +516,28 @@ add_subdirectory(webtty)
         for option in ('build_os=linux', 'build_arch=arm64', 'build_channel=dev'):
             self.assertIn('rstream/*:' + option, result.stdout)
 
+    def test_arm_host_intel_exception_is_exact_and_never_a_library_default(self):
+        for libc in ('musl', 'glibc'):
+            for version, host, target, allowed in (
+                    ('6.0.3', 'aarch64', 'x86_64', True),
+                    ('6.0.2', 'aarch64', 'x86_64', False),
+                    ('5.0.10', 'aarch64', 'x86_64', False),
+                    ('6.0.3', 'x86_64', 'x86_64', False),
+                    ('6.0.3', 'aarch64', 'x86_64_v2', False)):
+                with self.subTest(libc=libc, version=version, host=host, target=target):
+                    base = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                            '--arch', target, '--libc', libc, '--sdk-host', host,
+                            '--sdk-version', version, '--plan', '--conan', '/does/not/exist']
+                    result = subprocess.run([*base, '--arm-ncurses-exception'], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0 if allowed else 2, result.stderr)
+                    if allowed:
+                        self.assertIn('ncurses/6.5@rstream/wrynose', result.stdout)
+                        self.assertIn('arch=armv8', result.stdout)
+                    public = subprocess.run([*base, '--library-only'], capture_output=True, text=True)
+                    self.assertEqual(public.returncode, 0, public.stderr)
+                    self.assertNotIn('ncurses_ref=', public.stdout)
+                    self.assertNotIn('boost_ref=', public.stdout)
+
     def test_invalid_scope_fails_before_conan(self):
         for arguments in (['--arch', 'x86_64', '--arm-ncurses-exception'],
                           ['--arch', 'arm64', '--sdk-version', '5.0.2'],

@@ -54,7 +54,7 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
 ''')
             conan.chmod(0o755)
             uname = work / 'uname'
-            uname.write_text('#!/bin/sh\necho "${TEST_OS_NAME:-Linux}"\n')
+            uname.write_text('#!/bin/sh\nif [ "$1" = "-m" ]; then echo "${TEST_HOST_ARCH:-x86_64}"; else echo "${TEST_OS_NAME:-Linux}"; fi\n')
             uname.chmod(0o755)
             log = work / 'commands.jsonl'
             env = dict(os.environ, PATH=str(work) + os.pathsep + os.environ['PATH'],
@@ -81,6 +81,34 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
             self.assertIn('rstream/*:build_os=linux', command)
         self.assertFalse(any('ncurses_ref=' in arg for arg in builds[0]))
         self.assertIn('rstream/*:ncurses_ref=ncurses/6.5@rstream/wrynose', builds[1])
+
+    def test_arm_host_intel_packaging_exception_is_scoped(self):
+        for version, target, host, patched, expected in (
+                ('6.0.3', 'x86_64', 'aarch64', 'on', True),
+                ('6.0.3', 'x86_64', 'aarch64', 'off', False),
+                ('6.0.3', 'x86_64', 'x86_64', 'on', False),
+                ('6.0.3', 'x86_64_v2', 'aarch64', 'on', False),
+                ('6.0.2', 'x86_64', 'aarch64', 'on', False),
+                ('5.0.10', 'x86_64', 'aarch64', 'on', False)):
+            with self.subTest(version=version, target=target, host=host, patched=patched):
+                calls = self.commands(LINUX_TOOLCHAIN_VERSION=version, LINUX_ARCHS=target,
+                                      TEST_HOST_ARCH=host, USE_PATCHED_CONAN_DEPS=patched)
+                exports = [c for c in calls if c['args'][0] == 'export']
+                self.assertEqual(len(exports), int(expected))
+                builds = [c['args'] for c in calls if c['args'][0] == 'create']
+                self.assertEqual(len(builds), 1)
+                self.assertEqual('rstream/*:ncurses_ref=ncurses/6.5@rstream/wrynose' in builds[0], expected)
+                self.assertFalse(any('boost_ref=' in arg for arg in builds[0]))
+
+    def test_docker_sdk_host_follows_builder_platform(self):
+        for platform, expected in (('linux/amd64', 'x86_64'), ('linux/arm64', 'aarch64'),
+                                   ('linux/arm64/v8', 'aarch64'), ('linux/ppc64le', 'unknown')):
+            result = subprocess.run(['bash', '-c', 'source "$1" help >/dev/null; linux_sdk_host',
+                                     'bash', str(ROOT / 'build-conan-cross.sh')],
+                                    env=dict(os.environ, USE_DOCKER='on', CONAN_DOCKER_PLATFORM=platform),
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
 
     def test_scarthgap_maintenance_uses_public_boost_and_separate_arm_ncurses(self):
         calls = self.commands(LINUX_TOOLCHAIN_VERSION='5.0.10')

@@ -181,7 +181,7 @@ def main():
     parser.add_argument('--output', type=Path)
     qualification = parser.add_mutually_exclusive_group()
     qualification.add_argument('--arm-ncurses-exception', action='store_true',
-                               help='Explicitly use a scoped private ARM packaging candidate; never a library default')
+                               help='Explicitly use a scoped private ARM target/host packaging candidate; never a library default')
     qualification.add_argument('--library-only', action='store_true',
                                help='Qualify the library without CLI tools, ncurses or distribution identity; public recipes only')
     parser.add_argument('--plan', action='store_true', help='Print the package build command without running Conan')
@@ -191,8 +191,10 @@ def main():
     if not (re.fullmatch(r'6\.0\.\d+', args.sdk_version) or args.sdk_version == '5.0.10') or args.jobs < 1:
         parser.error('This pilot requires Yocto 6.0.x or pinned Scarthgap 5.0.10 and a positive job count')
     if args.arm_ncurses_exception and not (args.arch == 'arm64' or (
-            args.arch == 'armv7hf' and args.sdk_version == '5.0.10' and args.sdk_host == 'x86_64')):
-        parser.error('The ncurses packaging exception requires ARM64 or x86_64-host Scarthgap 5.0.10 ARMv7hf')
+            args.arch == 'armv7hf' and args.sdk_version == '5.0.10' and args.sdk_host == 'x86_64') or (
+            args.arch == 'x86_64' and args.sdk_version == '6.0.3' and args.sdk_host == 'aarch64')):
+        parser.error('The ncurses packaging exception requires ARM64, x86_64-host Scarthgap 5.0.10 ARMv7hf, '
+                     'or ARM64-host Wrynose 6.0.3 x86_64')
     build_args = build_arguments(args.arch, args.libc, args.sdk_version, args.jobs,
                                  args.arm_ncurses_exception, args.sdk_host, args.library_only)
     create = [args.conan, 'create', str(ROOT), '--build=missing', '--build=rstream/*', *build_args]

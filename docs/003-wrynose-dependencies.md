@@ -33,7 +33,7 @@ the newest public recipe; do not modify public dependency recipes to force it.
 | spdlog / fmt | 1.17.0 / 12.1.0 | fmt 12.2.0 is available, but the unchanged spdlog 1.17.0 recipe pins 12.1.0. Retain that supported pair during the pilot. |
 | yaml-cpp | 0.9.0 | Passed the local matrix; shared library/plugin configurations are also checked by native CI. |
 | libmaxminddb | 1.12.2 | Public recipe passed on both target architectures and libcs. |
-| ncurses | 6.5 | Public recipe used on x86_64; the documented private ARM64 packaging exception passed both libc consumers. |
+| ncurses | 6.5 | Public recipe used for x86_64-host/x86_64 targets; scoped ARM host/target packaging exceptions and their validation status are documented below. |
 | docopt.cpp | 0.6.3 | Latest available public recipe; retain Windows Boost.Regex qualification. |
 | LibreSSL (optional provider) | 3.9.1 | Latest available public recipe; retain the alternate-provider contract. |
 | Abseil | 20260107.1 | 20260526.0 is available, but the unchanged Protobuf 7.35.0 recipe caps its dependency at 20260107.1. Keep compiler and runtime graphs compatible. |
@@ -318,6 +318,22 @@ full rstream qualification for this sixth combination remains pending.
 The qualification driver and both private ncurses test packages now select
 that explicit loader for glibc. Missing, ambiguous or external loader paths
 fail before executing tests. Static musl execution is unchanged.
+
+The Wrynose packaging candidate also permits exactly the ARM64-host/x86_64-target
+combination for 6.0.3, with either libc. Its consumer selects `qemu-x86_64`
+and uses the same explicit SDK loader for glibc. The qualification command
+requires `--sdk-host aarch64 --arch x86_64 --arm-ncurses-exception`;
+`--library-only` continues to select only public dependencies and excludes
+ncurses. Other SDK versions and x86 ISA levels are not included in this
+new exception. Fourteen actual Conan graph policy controls and the command
+selection tests pass; the real Intel SDK builds and their binary consumers
+remain pending, so this preparation does not qualify either new combination.
+
+The packaging script chooses the SDK host from `uname -m` for a local build,
+or from `CONAN_DOCKER_PLATFORM` for its Docker builder (default `linux/amd64`).
+The build profile and a custom Compose configuration must describe that same
+host. `USE_PATCHED_CONAN_DEPS=off` continues to disable all private packaging
+overrides. This host selection does not alter the public library recipe.
 
 The same driver accepts the pinned Scarthgap maintenance candidate with
 `--sdk-version 5.0.10`, after creating its local tool package from a verified

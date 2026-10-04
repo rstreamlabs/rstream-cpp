@@ -201,8 +201,21 @@ function ncurses_packaging_generation {
   fi
 }
 
+function linux_sdk_host {
+  if [ "${use_docker}" = "on" ]; then
+    case "${CONAN_DOCKER_PLATFORM:-linux/amd64}" in
+      linux/arm64|linux/arm64/v8) echo aarch64 ;;
+      linux/amd64) echo x86_64 ;;
+      *) echo unknown ;;
+    esac
+  else
+    uname -m
+  fi
+}
+
 function modern_ncurses_target {
-  [[ "$1" = "arm64" || ( "${linux_toolchain_version}" = "5.0.10" && "$1" = "armv7hf" ) ]]
+  [[ "$1" = "arm64" || ( "${linux_toolchain_version}" = "5.0.10" && "$1" = "armv7hf" ) ||
+     ( "${linux_toolchain_version}" = "6.0.3" && "$1" = "x86_64" && "$(linux_sdk_host)" = "aarch64" ) ]]
 }
 
 function patched_conan_conf {
@@ -793,7 +806,7 @@ function show_help {
   echo "  WINDOWS_PLUGIN_MODES    : Use auto, static, or dynamic plugin loading (windows)."
   echo "  OSS                     : Set the operating systems to build for."
   echo "  USE_PATCHED_CONAN_DEPS  : Allow target-specific packaging overrides (default: ${default_use_patched_conan_deps})."
-  echo "                           Wrynose and Scarthgap 5.0.10 use public Boost; ARM64 and Scarthgap ARMv7hf use scoped ncurses exceptions. macOS uses public recipes."
+  echo "                           Wrynose and Scarthgap 5.0.10 use public Boost; ARM64, Scarthgap ARMv7hf and Wrynose 6.0.3 ARM64-host Intel builds use scoped ncurses exceptions. macOS uses public recipes."
   echo "  WARNINGS_AS_ERRORS      : Treat project warnings as errors (default: ${default_warnings_as_errors})."
   echo "  PATCHED_CONAN_CHANNEL   : Channel used for patched deps (default: ${default_patched_conan_channel})."
   echo "  PATCHED_BOOST_VERSION   : Override Boost version (default: ${default_patched_boost_version})."
