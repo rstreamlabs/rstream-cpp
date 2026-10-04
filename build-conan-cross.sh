@@ -303,6 +303,8 @@ function conan_arch {
     echo "armv8"
   elif [[ "${ARCH}" == armv6* ]]; then
     echo "armv6"
+  elif [[ "${ARCH}" == loong64 ]]; then
+    echo "loongarch64"
   else
     echo "${ARCH}"
   fi

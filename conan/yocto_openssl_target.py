@@ -25,6 +25,8 @@ OPENSSL_TARGETS = {
 def openssl_target(arch, version):
     if version not in ('5.0.10', '6.0.3'):
         return None
+    if arch == 'loong64':
+        return 'linux64-loongarch64' if version == '6.0.3' else None
     # The public recipe already maps x86_64 and ARM64 correctly.
     return OPENSSL_TARGETS.get(arch)
 

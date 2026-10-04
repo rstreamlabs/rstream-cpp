@@ -82,6 +82,17 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
         self.assertFalse(any('ncurses_ref=' in arg for arg in builds[0]))
         self.assertIn('rstream/*:ncurses_ref=ncurses/6.5@rstream/wrynose', builds[1])
 
+    def test_loongarch_packaging_selects_public_openssl_target(self):
+        calls = self.commands(LINUX_ARCHS='loong64', LINUX_TCLIBCS='musl glibc')
+        builds = [c['args'] for c in calls if c['args'][0] == 'create']
+        self.assertEqual(len(builds), 2)
+        self.assertFalse(any(c['args'][0] == 'export' for c in calls))
+        for command in builds:
+            self.assertIn('arch=loongarch64', command)
+            self.assertIn('yocto-toolchain/6.0.3:arch=loong64', command)
+            self.assertIn('openssl/*:user.openssl:target=linux64-loongarch64', command)
+            self.assertFalse(any('ncurses_ref=' in arg or 'boost_ref=' in arg for arg in command))
+
     def test_arm_host_intel_packaging_exception_is_scoped(self):
         for version, target, host, patched, expected in (
                 ('6.0.3', 'x86_64', 'aarch64', 'on', True),

@@ -335,6 +335,18 @@ probe passes inside the pinned ARM64 container. Other SDK versions and
 x86 ISA levels remain excluded from this private exception. Actual v2
 SDK, consumer, package and archive qualification is still pending.
 
+LoongArch64 is included in the Wrynose qualification driver and project Conan
+settings. The SDK target name `loong64` maps to Conan’s `loongarch64`.
+Select `--arch loong64 --library-only` with the 6.0.3 SDK; the
+Scarthgap qualification driver rejects this additional target. The public
+OpenSSL recipe receives its upstream `linux64-loongarch64` target, and target
+execution uses `qemu-loongarch64` plus the SDK loader for glibc. No dependency
+recipe or Conan client is modified. Boost retains compiler architecture
+auto-detection until an actual build establishes whether an override is needed.
+Graph resolution and driver controls are preparation only: GNU triplets from
+the installed SDK, dependency compilation, consumers and archives still require
+real LoongArch builds. No new private ARM-host packaging exception is enabled.
+
 The packaging script chooses the SDK host from `uname -m` for a local build,
 or from `CONAN_DOCKER_PLATFORM` for its Docker builder (default `linux/amd64`).
 The build profile and a custom Compose configuration must describe that same

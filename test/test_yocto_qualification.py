@@ -77,6 +77,7 @@ class YoctoQualificationTest(unittest.TestCase):
             'mips64': ('qemu-mips64',), 'mips64le': ('qemu-mips64el',),
             'ppc64': ('qemu-ppc64',), 'ppc64le': ('qemu-ppc64le',),
             'riscv64': ('qemu-riscv64',),
+            'loong64': ('qemu-loongarch64',),
         }
         for arch, (emulator, *options) in cases.items():
             for host in ('x86_64', 'aarch64'):
@@ -94,13 +95,14 @@ class YoctoQualificationTest(unittest.TestCase):
     def test_extended_cli_plans_preserve_architecture_without_running_conan(self):
         import shlex
         for arch in pilot.CONAN_ARCHES:
+            version = '6.0.3' if arch == 'loong64' else '5.0.10'
             command = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
                        '--arch', arch, '--libc', 'glibc', '--sdk-host', 'aarch64',
-                       '--sdk-version', '5.0.10', '--plan', '--conan', '/does/not/exist']
+                       '--sdk-version', version, '--plan', '--conan', '/does/not/exist']
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             arguments = shlex.split(result.stdout)
-            self.assertIn(f'os.sdk=yocto-toolchain-5.0.10-{arch}-glibc', arguments)
+            self.assertIn(f'os.sdk=yocto-toolchain-{version}-{arch}-glibc', arguments)
             build = [arguments[i + 1] for i, arg in enumerate(arguments) if arg == '-s:b']
             self.assertIn('arch=armv8', build)
             self.assertIn('rstream/*:enable_testing=True', arguments)
@@ -380,6 +382,29 @@ add_subdirectory(webtty)
         self.assertIsNone(openssl_target('armv7hf', '5.0.2'))
         self.assertIsNone(openssl_target('x86_64', '6.0.3'))
         self.assertIsNone(openssl_target('arm64', '6.0.3'))
+
+    def test_loongarch_uses_public_recipes_and_stays_out_of_legacy_matrix(self):
+        from yocto_openssl_target import openssl_target
+        for host in ('x86_64', 'aarch64'):
+            for libc in ('musl', 'glibc'):
+                args = pilot.build_arguments('loong64', libc, '6.0.3', 2, False,
+                                             host, library_only=True)
+                self.assertIn('arch=loongarch64', args)
+                self.assertIn('yocto-toolchain/*:arch=loong64', args)
+                self.assertIn('openssl/*:user.openssl:target=linux64-loongarch64', args)
+                self.assertIn('rstream/*:build_bins=False', args)
+                self.assertIn('rstream/*:with_ncurses=False', args)
+                self.assertFalse(any('_ref=' in value or 'extra_b2_flags=' in value for value in args))
+                with self.assertRaisesRegex(ValueError, 'only in the Wrynose'):
+                    pilot.build_arguments('loong64', libc, '5.0.10', 2, False, host)
+                result = subprocess.run([
+                    sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
+                    '--arch', 'loong64', '--libc', libc, '--sdk-host', host,
+                    '--sdk-version', '5.0.10', '--plan', '--conan', '/does/not/exist'],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('only in the Wrynose', result.stderr)
+        self.assertIsNone(openssl_target('loong64', '5.0.10'))
 
     def test_arm32_private_recipe_is_rejected_outside_its_sdk_scope(self):
         for version, host in (('6.0.3', 'x86_64'), ('5.0.10', 'aarch64')):

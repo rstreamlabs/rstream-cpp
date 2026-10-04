@@ -25,6 +25,7 @@ CONAN_ARCHES = {
     'mips': 'mips', 'mipsle': 'mips',
     'mips64': 'mips64', 'mips64le': 'mips64',
     'ppc64': 'ppc64', 'ppc64le': 'ppc64le', 'riscv64': 'riscv64',
+    'loong64': 'loongarch64',
 }
 TARGET_EMULATORS = {
     **dict.fromkeys(X86_TARGETS, ('qemu-x86_64',)),
@@ -39,6 +40,7 @@ TARGET_EMULATORS = {
     'mips64': ('qemu-mips64',), 'mips64le': ('qemu-mips64el',),
     'ppc64': ('qemu-ppc64',), 'ppc64le': ('qemu-ppc64le',),
     'riscv64': ('qemu-riscv64',),
+    'loong64': ('qemu-loongarch64',),
 }
 
 
@@ -77,6 +79,8 @@ def ncurses_generation(version):
 
 
 def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64', library_only=False):
+    if arch == 'loong64' and not version.startswith('6.0.'):
+        raise ValueError('LoongArch is available only in the Wrynose SDK matrix')
     if library_only and arm_exception:
         raise ValueError('Library-only qualification cannot select private packaging dependencies')
     conan_arch = CONAN_ARCHES[arch]
@@ -190,6 +194,8 @@ def main():
         parser.error('Test timeout scale and seconds must be positive integers')
     if not (re.fullmatch(r'6\.0\.\d+', args.sdk_version) or args.sdk_version == '5.0.10') or args.jobs < 1:
         parser.error('This pilot requires Yocto 6.0.x or pinned Scarthgap 5.0.10 and a positive job count')
+    if args.arch == 'loong64' and not args.sdk_version.startswith('6.0.'):
+        parser.error('LoongArch is available only in the Wrynose SDK matrix')
     if args.arm_ncurses_exception and not (args.arch == 'arm64' or (
             args.arch == 'armv7hf' and args.sdk_version == '5.0.10' and args.sdk_host == 'x86_64') or (
             args.arch in ('x86_64', 'x86_64_v2') and args.sdk_version == '6.0.3' and args.sdk_host == 'aarch64')):
