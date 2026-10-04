@@ -15,7 +15,8 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: ubuntu-latest
     env:
-      CCACHE_BASEDIR: ${{ github.workspace }}
+      # Conan compiles in its temporary cache, outside the checkout.
+      CCACHE_BASEDIR: ${{ runner.temp }}/rstream-conan
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
@@ -80,11 +81,11 @@ jobs:
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          key: ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Install Conan
         shell: bash
         run: |
@@ -203,7 +204,8 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: macos-latest
     env:
-      CCACHE_BASEDIR: ${{ github.workspace }}
+      # Conan compiles in its temporary cache, outside the checkout.
+      CCACHE_BASEDIR: ${{ runner.temp }}/rstream-conan
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
@@ -252,11 +254,11 @@ jobs:
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          key: ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Install compiler cache
         shell: bash
         run: brew list ccache >/dev/null 2>&1 || brew install ccache
@@ -315,7 +317,8 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: windows-2022
     env:
-      CCACHE_BASEDIR: ${{ github.workspace }}
+      # Conan compiles in its temporary cache, outside the checkout.
+      CCACHE_BASEDIR: ${{ runner.temp }}/rstream-conan
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     strategy:
@@ -350,10 +353,10 @@ jobs:
         id: compiler-cache
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
+          key: ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'CMakeLists.txt', 'cmake/**') }}
           restore-keys: |
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
-            ccache-v1-${{ runner.os }}-${{ runner.arch }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.linkage }}-
+            ccache-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Install compiler cache
         shell: pwsh
         run: |
