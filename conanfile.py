@@ -66,6 +66,8 @@ class ConanPackage(ConanFile):
     }
     exports = "version.txt"
     exports_sources = (
+        "!.ccache",
+        "!.conan2",
         "!.devcontainer",
         "!.env*",
         "!.git",

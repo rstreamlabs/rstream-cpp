@@ -1,4 +1,6 @@
 __pycache__
+.ccache/
+.conan2/
 .DS_Store
 .env.local
 .vscode/

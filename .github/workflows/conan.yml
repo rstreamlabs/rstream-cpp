@@ -9,13 +9,13 @@ permissions:
   contents: read
 env:
   CONAN_VERSION: "2.31.2"
-  CONAN_HOME: ${{ github.workspace }}/.conan2
 jobs:
   build:
     name: Linux ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: ubuntu-latest
     env:
+      CONAN_HOME: ${{ runner.temp }}/rstream-conan
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -201,6 +201,7 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: macos-latest
     env:
+      CONAN_HOME: ${{ runner.temp }}/rstream-conan
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -310,6 +311,7 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: windows-2022
     env:
+      CONAN_HOME: ${{ runner.temp }}/rstream-conan
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
