@@ -115,9 +115,9 @@ def test_cmake_arguments(runner, scale, seconds):
     if runner:
         variables['CMAKE_CROSSCOMPILING_EMULATOR'] = ';'.join(runner)
     if scale != 1:
-        variables['RSTREAM_TEST_TIMEOUT_SCALE'] = scale
+        variables['RSTREAM_TEST_TIMEOUT_SCALE'] = {'value': scale, 'cache': True, 'type': 'STRING'}
     if seconds != 120:
-        variables['RSTREAM_TEST_TIMEOUT_SECONDS'] = seconds
+        variables['RSTREAM_TEST_TIMEOUT_SECONDS'] = {'value': seconds, 'cache': True, 'type': 'STRING'}
     return ['-c:h', 'tools.cmake.cmaketoolchain:extra_variables=' + json.dumps(variables)] if variables else []
 
 
@@ -165,6 +165,7 @@ def main():
         parser.error(str(error))
     if not os.environ.get('CONAN_HOME'):
         parser.error('Set an isolated CONAN_HOME before running the pilot')
+    os.environ.setdefault('CCACHE_DIR', str(Path(os.environ['CONAN_HOME']).resolve() / 'ccache'))
     default_output = ROOT / 'out/yocto-pilot' / args.sdk_version
     if args.sdk_host != 'x86_64':
         default_output /= args.sdk_host
@@ -219,6 +220,7 @@ def main():
         'target_arch': args.arch, 'explicit_runner': args.runner_command,
         'test_timeout_scale': args.test_timeout_scale,
         'test_timeout_seconds': args.test_timeout_seconds,
+        'compiler_cache': os.environ['CCACHE_DIR'],
         'private_ncurses_packaging_exception': args.arm_ncurses_exception}, indent=2) + '\n')
     print(shlex.join(create), flush=True)
     subprocess.run(create, check=True,

@@ -20,6 +20,7 @@ class YoctoQualificationTest(unittest.TestCase):
     def test_instrumented_plan_configures_real_cmake_test_limits_and_runner(self):
         import json
         import shlex
+        from conan.tools.cmake.utils import parse_extra_variable
         with tempfile.TemporaryDirectory(prefix='runner with spaces ') as directory:
             source = Path(directory)
             runner = source / 'sde64'
@@ -33,15 +34,21 @@ class YoctoQualificationTest(unittest.TestCase):
             variables = json.loads(next(arg.split('=', 1)[1] for arg in args
                                         if arg.startswith('tools.cmake.cmaketoolchain:extra_variables=')))
             self.assertIn('tools.build:skip_test=False', args)
+            # Exercise the same toolchain set() statements as Conan, not -D
+            # command-line cache entries, which would hide scalar resets.
+            toolchain = source / 'conan_toolchain.cmake'
+            toolchain.write_text('\n'.join(
+                f'set({key} {parse_extra_variable("tools.cmake.cmaketoolchain:extra_variables", key, value)})'
+                for key, value in variables.items()) + '\n')
             (source / 'CMakeLists.txt').write_text(
-                'cmake_minimum_required(VERSION 3.20)\nproject(timeout_control LANGUAGES NONE)\n'
+                'cmake_minimum_required(VERSION 3.10)\nproject(timeout_control LANGUAGES NONE)\n'
                 f'include("{ROOT / "cmake/tests.cmake"}")\n'
                 'if(NOT RSTREAM_TEST_TIMEOUT_SCALE EQUAL 4)\nmessage(FATAL_ERROR "Scale lost")\nendif()\n'
                 'add_test(NAME control COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} /fixture)\n'
                 'rstream_configure_test(control)\n')
             build = source / 'build'
             subprocess.run(['cmake', '-S', str(source), '-B', str(build),
-                            *[f'-D{key}={value}' for key, value in variables.items()]],
+                            f'-DCMAKE_TOOLCHAIN_FILE={toolchain}'],
                            check=True, capture_output=True)
             test = json.loads(subprocess.check_output(
                 ['ctest', '--test-dir', str(build), '--show-only=json-v1'], text=True))['tests'][0]
