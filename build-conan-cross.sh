@@ -215,7 +215,7 @@ function linux_sdk_host {
 
 function modern_ncurses_target {
   [[ "$1" = "arm64" || ( "${linux_toolchain_version}" = "5.0.10" && "$1" = "armv7hf" ) ||
-     ( "${linux_toolchain_version}" = "6.0.3" && "$1" = "x86_64" && "$(linux_sdk_host)" = "aarch64" ) ]]
+     ( "${linux_toolchain_version}" = "6.0.3" && ( "$1" = "x86_64" || "$1" = "x86_64_v2" ) && "$(linux_sdk_host)" = "aarch64" ) ]]
 }
 
 function patched_conan_conf {

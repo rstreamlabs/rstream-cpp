@@ -87,7 +87,11 @@ elif sys.argv[1] == 'inspect': print(json.dumps({'name': 'rstream', 'version': '
                 ('6.0.3', 'x86_64', 'aarch64', 'on', True),
                 ('6.0.3', 'x86_64', 'aarch64', 'off', False),
                 ('6.0.3', 'x86_64', 'x86_64', 'on', False),
-                ('6.0.3', 'x86_64_v2', 'aarch64', 'on', False),
+                ('6.0.3', 'x86_64_v2', 'aarch64', 'on', True),
+                ('6.0.3', 'x86_64_v2', 'aarch64', 'off', False),
+                ('6.0.3', 'x86_64_v2', 'x86_64', 'on', False),
+                ('5.0.10', 'x86_64_v2', 'aarch64', 'on', False),
+                ('6.0.3', 'x86_64_v3', 'aarch64', 'on', False),
                 ('6.0.2', 'x86_64', 'aarch64', 'on', False),
                 ('5.0.10', 'x86_64', 'aarch64', 'on', False)):
             with self.subTest(version=version, target=target, host=host, patched=patched):

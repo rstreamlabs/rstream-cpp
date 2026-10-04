@@ -523,7 +523,11 @@ add_subdirectory(webtty)
                     ('6.0.2', 'aarch64', 'x86_64', False),
                     ('5.0.10', 'aarch64', 'x86_64', False),
                     ('6.0.3', 'x86_64', 'x86_64', False),
-                    ('6.0.3', 'aarch64', 'x86_64_v2', False)):
+                    ('6.0.3', 'aarch64', 'x86_64_v2', True),
+                    ('6.0.3', 'x86_64', 'x86_64_v2', False),
+                    ('6.0.2', 'aarch64', 'x86_64_v2', False),
+                    ('5.0.10', 'aarch64', 'x86_64_v2', False),
+                    ('6.0.3', 'aarch64', 'x86_64_v3', False)):
                 with self.subTest(libc=libc, version=version, host=host, target=target):
                     base = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
                             '--arch', target, '--libc', libc, '--sdk-host', host,
@@ -537,6 +541,22 @@ add_subdirectory(webtty)
                     self.assertEqual(public.returncode, 0, public.stderr)
                     self.assertNotIn('ncurses_ref=', public.stdout)
                     self.assertNotIn('boost_ref=', public.stdout)
+
+    def test_arm_host_v2_requires_explicit_runner_and_preserves_sdk_loader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'lib').mkdir()
+            loader = root / 'lib/ld-linux-x86-64.so.2'
+            loader.touch()
+            with self.assertRaisesRegex(RuntimeError, 'verified explicit runner'):
+                pilot.runtime_command('x86_64_v2', 'musl', root, 'aarch64')
+            with patch.object(pilot.shutil, 'which', return_value='/usr/local/bin/qemu-x86_64'):
+                runner = 'qemu-x86_64 -cpu Nehalem'
+                musl = pilot.runtime_command('x86_64_v2', 'musl', root, 'aarch64', runner)
+                self.assertEqual(musl, ['qemu-x86_64', '-cpu', 'Nehalem'])
+                glibc = pilot.runtime_command('x86_64_v2', 'glibc', root, 'aarch64', runner)
+                self.assertEqual(glibc[:6], musl + [str(loader), '--inhibit-cache', '--library-path'])
+                self.assertEqual(glibc[6].split(':'), [str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64')])
 
     def test_invalid_scope_fails_before_conan(self):
         for arguments in (['--arch', 'x86_64', '--arm-ncurses-exception'],
