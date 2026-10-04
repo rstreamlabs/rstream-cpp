@@ -9,6 +9,7 @@ permissions:
   contents: read
 env:
   CONAN_VERSION: "2.31.2"
+  CONAN_HOME: ${{ github.workspace }}/.conan2
 jobs:
   build:
     name: Linux ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
@@ -64,7 +65,7 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
@@ -127,6 +128,34 @@ jobs:
             -o "rstream/*:enable_strict_warnings=True" \
             -o "rstream/*:warnings_as_errors=True" \
             .
+      - name: Check public library without CLI tools
+        if: ${{ matrix.linkage == 'static' && matrix.plugin_mode == 'static' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          library_args=(
+            -pr:b default -pr:h default -pr:h qualification
+            -s:b compiler.cppstd=20 -s:h compiler.cppstd=20
+            -o "rstream/*:shared=False" -o "rstream/*:static_plugins=True"
+            -o "rstream/*:build_bins=False" -o "rstream/*:with_ncurses=False"
+            -o "rstream/*:enable_testing=True"
+            -o "rstream/*:enable_strict_warnings=True"
+            -o "rstream/*:warnings_as_errors=True"
+          )
+          conan graph info . "${library_args[@]}" --build=missing \
+            --format=json --out-file public-library-graph.json \
+            --lockfile-out public-library.lock
+          python conan/check_public_dependencies.py public-library-graph.json --verify-recipes
+          python - <<'PY'
+          import json
+          graph = json.load(open("public-library-graph.json"))["graph"]["nodes"]
+          options = graph["0"]["options"]
+          assert options["build_bins"] == options["with_ncurses"] == "False"
+          assert all(options[key] is None for key in ("build_os", "build_arch", "build_channel", "boost_ref", "ncurses_ref"))
+          assert not any(node.get("name") == "ncurses" for node in graph.values())
+          PY
+          conan create . "${library_args[@]}" --build=missing --build="rstream/*" \
+            --lockfile public-library.lock
       - name: Check OpenSSL 3 and LibreSSL consumers
         if: ${{ matrix.linkage == 'static' && matrix.plugin_mode == 'static' }}
         shell: bash
@@ -160,7 +189,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
@@ -205,7 +234,7 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ matrix.plugin_mode }}-
@@ -269,7 +298,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}
@@ -302,7 +331,7 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: conan-cache
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-${{ hashFiles('conanfile.py', 'conan/config/**', 'conan/recipes/**') }}
           restore-keys: |
             conan2-v2-${{ env.CONAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ matrix.linkage }}-
@@ -385,7 +414,7 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.conan-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.conan2/p
+          path: ${{ env.CONAN_HOME }}/p
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ always() && !cancelled() && steps.compiler-cache.outputs.cache-hit != 'true' }}

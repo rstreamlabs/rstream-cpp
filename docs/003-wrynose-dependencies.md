@@ -195,6 +195,14 @@ a separate `library/` subdirectory under the version and optional SDK-host
 directory. Its graph resolution must not be reported as a compiled or tested
 library until the package build and external consumer actually pass.
 
+With CLI tools disabled, CMake runs the core and I/O tests without registering
+tests that depend on ncat, nperf, tunnel or webtty targets. The x86_64/musl
+Wrynose library passed 30 tests and its external consumer using 11 verified
+public target recipes. The other three public-library pilots remain separate
+qualification work. The Linux static/static CI job also builds this library-only
+configuration from a verified and locked public dependency graph, then runs its
+package and external-consumer tests.
+
 The driver accepts all 18 historical SDK target names, including ARMv6/v7,
 32-bit x86, both MIPS byte orders, PPC64 and RISC-V. It keeps target identities
 distinct in `os.sdk` and selects the corresponding QEMU CPU and sysroot.
