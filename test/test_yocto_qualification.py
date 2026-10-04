@@ -82,10 +82,11 @@ class YoctoQualificationTest(unittest.TestCase):
             for host in ('x86_64', 'aarch64'):
                 for libc in ('musl', 'glibc'):
                     with self.subTest(arch=arch, host=host, libc=libc), \
-                            patch.object(pilot.shutil, 'which', side_effect=lambda exe: '/runner/' + exe):
+                            patch.object(pilot.shutil, 'which', side_effect=lambda exe: '/runner/' + exe), \
+                            patch.object(pilot, 'glibc_loader_arguments', return_value=['/sdk-loader']):
                         self.assertEqual(
                             pilot.runtime_command(arch, libc, Path('/target sdk'), host),
-                            ['/runner/' + emulator, *options, '-L', '/target sdk'])
+                            ['/runner/' + emulator, *options, '-L', '/target sdk'] + (['/sdk-loader'] if libc == 'glibc' else []))
             with patch.object(pilot.shutil, 'which', return_value=None):
                 with self.assertRaisesRegex(RuntimeError, emulator):
                     pilot.runtime_command(arch, 'glibc', Path('/target sdk'))
@@ -295,8 +296,8 @@ add_subdirectory(webtty)
                                                        explicit=explicit), prefix)
                 dynamic = pilot.runtime_command('x86_64_v4', 'glibc', sysroot,
                                                 'aarch64', explicit)
-                self.assertEqual(dynamic[:5], [*prefix, str(loader), '--library-path'])
-                self.assertIn(str(sysroot / 'usr/lib'), dynamic[5].split(':'))
+                self.assertEqual(dynamic[:6], [*prefix, str(loader), '--inhibit-cache', '--library-path'])
+                self.assertIn(str(sysroot / 'usr/lib'), dynamic[6].split(':'))
 
     def test_unverified_arm_host_x86_isa_runner_is_rejected(self):
         for arch in pilot.X86_TARGETS[1:]:
@@ -322,14 +323,15 @@ add_subdirectory(webtty)
             with self.assertRaisesRegex(RuntimeError, 'qemu-aarch64'):
                 pilot.runtime_command('arm64', 'musl', Path('/sdk/sysroot'))
         with patch.object(pilot.shutil, 'which', return_value='/usr/bin/qemu-aarch64'):
-            self.assertEqual(pilot.runtime_command('arm64', 'glibc', Path('/sdk/sysroot')),
+            self.assertEqual(pilot.runtime_command('arm64', 'musl', Path('/sdk/sysroot')),
                              ['/usr/bin/qemu-aarch64', '-L', '/sdk/sysroot'])
 
     def test_arm32_runner_uses_target_cpu_and_sdk_runtime_for_both_libcs(self):
         for libc in ('musl', 'glibc'):
-            with patch.object(pilot.shutil, 'which', return_value='/usr/bin/qemu-arm'):
+            with patch.object(pilot.shutil, 'which', return_value='/usr/bin/qemu-arm'), \
+                    patch.object(pilot, 'glibc_loader_arguments', return_value=['/sdk-loader']):
                 self.assertEqual(pilot.runtime_command('armv7hf', libc, Path('/sdk target')),
-                                 ['/usr/bin/qemu-arm', '-cpu', 'cortex-a15', '-L', '/sdk target'])
+                                 ['/usr/bin/qemu-arm', '-cpu', 'cortex-a15', '-L', '/sdk target'] + (['/sdk-loader'] if libc == 'glibc' else []))
         with patch.object(pilot.shutil, 'which', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'qemu-arm'):
                 pilot.runtime_command('armv7hf', 'musl', Path('/sdk'))
@@ -403,10 +405,11 @@ add_subdirectory(webtty)
         with patch.object(pilot.shutil, 'which', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'qemu-x86_64'):
                 pilot.runtime_command('x86_64', 'musl', Path('/sdk'), 'aarch64')
-        with patch.object(pilot.shutil, 'which', return_value='/runner/qemu-x86_64'):
+        with patch.object(pilot.shutil, 'which', return_value='/runner/qemu-x86_64'), \
+                patch.object(pilot, 'glibc_loader_arguments', return_value=['/sdk-loader']):
             for libc in ('musl', 'glibc'):
                 self.assertEqual(pilot.runtime_command('x86_64', libc, Path('/sdk'), 'aarch64'),
-                                 ['/runner/qemu-x86_64', '-L', '/sdk'])
+                                 ['/runner/qemu-x86_64', '-L', '/sdk'] + (['/sdk-loader'] if libc == 'glibc' else []))
 
     def test_sysroot_selection_excludes_the_actual_sdk_host(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -433,6 +436,42 @@ add_subdirectory(webtty)
         plan = subprocess.run([*command, '--plan'], capture_output=True, text=True)
         self.assertEqual(plan.returncode, 0, plan.stderr)
 
+    def test_emulated_glibc_uses_explicit_sdk_loader_and_ignores_host_cache(self):
+        with tempfile.TemporaryDirectory(prefix='SDK with spaces ') as directory:
+            root = Path(directory)
+            (root / 'lib').mkdir()
+            loader = root / 'lib/ld-linux-aarch64.so.1'
+            loader.touch()
+            for host in ('x86_64', 'aarch64'):
+                with self.subTest(host=host), patch.object(pilot.shutil, 'which', return_value='/runner/qemu-aarch64'):
+                    command = pilot.runtime_command('arm64', 'glibc', root, host)
+                    self.assertEqual(command[:6], ['/runner/qemu-aarch64', '-L', str(root), str(loader),
+                                                  '--inhibit-cache', '--library-path'])
+                    self.assertEqual(command[6].split(':'), [str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64')])
+
+    def test_glibc_loader_rejects_ambiguous_or_host_link_and_accepts_sdk_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'sdk'
+            (root / 'lib').mkdir(parents=True)
+            with self.assertRaisesRegex(RuntimeError, 'dynamic loader'):
+                pilot.glibc_loader_arguments(root)
+            loader = root / 'lib/ld-linux-aarch64.so.1'
+            loader.touch()
+            alias = root / 'lib/ld-alias.so.1'
+            alias.symlink_to(loader.name)
+            self.assertEqual(pilot.glibc_loader_arguments(root)[0], str(loader))
+            alias.unlink()
+            alias.touch()
+            with self.assertRaisesRegex(RuntimeError, 'dynamic loader'):
+                pilot.glibc_loader_arguments(root)
+            alias.unlink()
+            loader.unlink()
+            host_loader = Path(directory) / 'host-loader'
+            host_loader.touch()
+            loader.symlink_to(host_loader)
+            with self.assertRaisesRegex(RuntimeError, 'dynamic loader'):
+                pilot.glibc_loader_arguments(root)
+
     def test_glibc_execution_uses_sdk_loader(self):
         with tempfile.TemporaryDirectory() as directory:
             sysroot = Path(directory)
@@ -442,8 +481,8 @@ add_subdirectory(webtty)
             loader = sysroot / 'lib/ld-linux-x86-64.so.2'
             loader.touch()
             command = pilot.runtime_command('x86_64', 'glibc', sysroot)
-            self.assertEqual(command[:2], [str(loader), '--library-path'])
-            self.assertIn(str(sysroot / 'usr/lib'), command[2].split(':'))
+            self.assertEqual(command[:3], [str(loader), '--inhibit-cache', '--library-path'])
+            self.assertIn(str(sysroot / 'usr/lib'), command[3].split(':'))
         self.assertEqual(pilot.runtime_command('x86_64', 'musl', Path('/sdk')), [])
 
     def test_plan_cannot_execute_conan(self):

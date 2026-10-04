@@ -307,6 +307,18 @@ Together with the four x86_64-host pilots, five modern SDK/C++ combinations
 are qualified; the remaining 71 SDK combinations still need full qualification.
 Local evidence is indexed in `../.yocto-pilot/wrynose-build-matrix.json`.
 
+The sixth modern SDK, ARM64-host/ARM64-target glibc, passed installation,
+compiler identity, C++20 execution, Perl and component checks. Its first
+ncurses consumer exposed a runtime isolation issue: QEMU `-L` alone still
+allowed the ARM64 container's `ld.so.cache` to select its older libc.
+The unchanged binary passes when the runner explicitly invokes the SDK
+loader with `--inhibit-cache` and its library directories. The corrected
+Conan consumer also passes against the exact existing ncurses package;
+full rstream qualification for this sixth combination remains pending.
+The qualification driver and both private ncurses test packages now select
+that explicit loader for glibc. Missing, ambiguous or external loader paths
+fail before executing tests. Static musl execution is unchanged.
+
 The same driver accepts the pinned Scarthgap maintenance candidate with
 `--sdk-version 5.0.10`, after creating its local tool package from a verified
 archive. That path preserves GCC 13.3 and starts with public dependency recipes;

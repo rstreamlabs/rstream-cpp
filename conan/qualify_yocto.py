@@ -114,6 +114,19 @@ def build_arguments(arch, libc, version, jobs, arm_exception, sdk_host='x86_64',
     return args
 
 
+def glibc_loader_arguments(sysroot):
+    # QEMU -L relocates the ELF interpreter, but a same-architecture host's
+    # ld.so.cache can still select its libc. Use only the SDK loader and paths.
+    root = sysroot.resolve()
+    loaders = {path.resolve() for directory in ('lib', 'lib64')
+               for path in (sysroot / directory).glob('ld*.so*') if path.is_file()}
+    if len(loaders) != 1 or not all(path.is_relative_to(root) for path in loaders):
+        raise RuntimeError(f'Expected exactly one SDK dynamic loader inside: {sysroot}')
+    libraries = ':'.join(str(sysroot / directory)
+                         for directory in ('lib', 'usr/lib', 'lib64', 'usr/lib64'))
+    return [str(next(iter(loaders))), '--inhibit-cache', '--library-path', libraries]
+
+
 def runtime_command(arch, libc, sysroot, sdk_host='x86_64', explicit=None):
     prefix = validate_runner(arch, sdk_host, explicit)
     if explicit is None and (arch not in X86_TARGETS or sdk_host == 'aarch64'):
@@ -121,14 +134,9 @@ def runtime_command(arch, libc, sysroot, sdk_host='x86_64', explicit=None):
         qemu = shutil.which(emulator)
         if not qemu:
             raise RuntimeError(f'{emulator} is required for this target runtime qualification')
-        return [qemu, *options, '-L', str(sysroot)]
+        prefix = [qemu, *options, '-L', str(sysroot)]
     if libc == 'glibc':
-        loader = sysroot / 'lib/ld-linux-x86-64.so.2'
-        if not loader.is_file():
-            raise RuntimeError(f'SDK dynamic loader is missing: {loader}')
-        libraries = ':'.join(str(sysroot / directory)
-                             for directory in ('lib', 'usr/lib', 'lib64', 'usr/lib64'))
-        return [*prefix, str(loader), '--library-path', libraries]
+        prefix += glibc_loader_arguments(sysroot)
     return prefix
 
 

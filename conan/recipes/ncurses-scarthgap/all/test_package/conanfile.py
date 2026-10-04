@@ -1,3 +1,4 @@
+from pathlib import Path
 import shutil
 
 from conan import ConanFile
@@ -25,7 +26,17 @@ class TestPackage(ConanFile):
             sysroot = self.conf.get("tools.build:sysroot")
             if not qemu or not sysroot:
                 raise ConanInvalidConfiguration("ARM runtime qualification requires QEMU and the SDK sysroot")
-            toolchain.variables["CMAKE_CROSSCOMPILING_EMULATOR"] = ";".join([qemu, *(["-cpu", "cortex-a15"] if arm32 else []), "-L", sysroot])
+            runner = [qemu, *(["-cpu", "cortex-a15"] if arm32 else []), "-L", sysroot]
+            if str(self.settings.get_safe("os.sdk", "")).endswith("-glibc"):
+                root = Path(sysroot).resolve()
+                loaders = {path.resolve() for directory in ("lib", "lib64")
+                           for path in (root / directory).glob("ld*.so*") if path.is_file()}
+                if len(loaders) != 1 or not all(path.is_relative_to(root) for path in loaders):
+                    raise ConanInvalidConfiguration("Expected exactly one dynamic loader inside the SDK sysroot")
+                libraries = ":".join(str(root / directory)
+                                     for directory in ("lib", "usr/lib", "lib64", "usr/lib64"))
+                runner += [str(next(iter(loaders))), "--inhibit-cache", "--library-path", libraries]
+            toolchain.variables["CMAKE_CROSSCOMPILING_EMULATOR"] = ";".join(runner)
         toolchain.generate()
         CMakeDeps(self).generate()
 
