@@ -15,7 +15,6 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: ubuntu-latest
     env:
-      CONAN_HOME: ${{ runner.temp }}/rstream-conan
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -40,6 +39,9 @@ jobs:
             plugin_mode: dynamic
             static_plugins: "False"
     steps:
+      - name: Select Conan cache outside the checkout
+        shell: bash
+        run: printf 'CONAN_HOME=%s/rstream-conan\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Install dependencies
         shell: bash
         run: |
@@ -201,7 +203,6 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: macos-latest
     env:
-      CONAN_HOME: ${{ runner.temp }}/rstream-conan
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -226,6 +227,9 @@ jobs:
             plugin_mode: dynamic
             static_plugins: "False"
     steps:
+      - name: Select Conan cache outside the checkout
+        shell: bash
+        run: printf 'CONAN_HOME=%s/rstream-conan\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -311,7 +315,6 @@ jobs:
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR }}
     runs-on: windows-2022
     env:
-      CONAN_HOME: ${{ runner.temp }}/rstream-conan
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -324,6 +327,9 @@ jobs:
           - linkage: static
             shared: "False"
     steps:
+      - name: Select Conan cache outside the checkout
+        shell: bash
+        run: printf 'CONAN_HOME=%s/rstream-conan\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
