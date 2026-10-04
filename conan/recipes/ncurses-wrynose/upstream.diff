@@ -7,19 +7,21 @@
 -        copy(self, "*.cmake", src=self.recipe_folder, dst=self.export_sources_folder)
 +        copy(self, "*.cmake", src=os.path.join(self.recipe_folder, "cmake"),
 +             dst=os.path.join(self.export_sources_folder, "cmake"))
-@@ -88 +89,10 @@
+@@ -88 +89,12 @@
 -        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)):
 +        # Packaging-only exceptions for the Wrynose Linux ARM64 SDK.
 +        wrynose_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
 +                         and self.settings_build.arch == "x86_64" and self.settings.arch == "armv8"
 +                         and str(self.settings.get_safe("os.sdk", "")).startswith("yocto-toolchain-6.0."))
++        arm64_host_targets = {"armv8": ("arm64",), "x86_64": ("x86_64", "x86_64_v2", "x86_64_v3")}
++        sdk_targets = arm64_host_targets.get(str(self.settings.arch), ())
 +        wrynose_arm64_host = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
-+                             and self.settings_build.arch == "armv8" and self.settings.arch == "armv8"
++                             and self.settings_build.arch == "armv8" and sdk_targets
 +                             and str(self.settings.get_safe("os.sdk", "")) in (
-+                                 "yocto-toolchain-6.0.3-arm64-musl",
-+                                 "yocto-toolchain-6.0.3-arm64-glibc"))
++                                 f"yocto-toolchain-6.0.3-{sdk_target}-{libc}"
++                                 for sdk_target in sdk_targets for libc in ("musl", "glibc")))
 +        if cross_building(self) and ("arm" in str(self.settings.arch) or "arm" in str(self.settings_build.arch)) and not (wrynose_arm64 or wrynose_arm64_host):
-@@ -137,0 +148,3 @@
+@@ -137,0 +150,3 @@
 +        if cross_building(self):
 +            # Native install -s calls the host strip on target executables.
 +            tc.configure_args.append("--disable-stripping")

@@ -31,6 +31,10 @@ class TestPackage(ConanFile):
                     "yocto-toolchain-6.0.3-x86_64_v2-musl",
                     "yocto-toolchain-6.0.3-x86_64_v2-glibc"):
                 runner += ["-cpu", "Nehalem"]
+            elif str(self.settings.get_safe("os.sdk", "")) in (
+                    "yocto-toolchain-6.0.3-x86_64_v3-musl",
+                    "yocto-toolchain-6.0.3-x86_64_v3-glibc"):
+                runner += ["-cpu", "Haswell,-hle,-rtm"]
             runner += ["-L", sysroot]
             if str(self.settings.get_safe("os.sdk", "")).endswith("-glibc"):
                 root = Path(sysroot).resolve()

@@ -90,7 +90,7 @@ class NCursesConan(ConanFile):
         wrynose_arm64 = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
                          and self.settings_build.arch == "x86_64" and self.settings.arch == "armv8"
                          and str(self.settings.get_safe("os.sdk", "")).startswith("yocto-toolchain-6.0."))
-        arm64_host_targets = {"armv8": ("arm64",), "x86_64": ("x86_64", "x86_64_v2")}
+        arm64_host_targets = {"armv8": ("arm64",), "x86_64": ("x86_64", "x86_64_v2", "x86_64_v3")}
         sdk_targets = arm64_host_targets.get(str(self.settings.arch), ())
         wrynose_arm64_host = (self.settings.os == "Linux" and self.settings_build.os == "Linux"
                              and self.settings_build.arch == "armv8" and sdk_targets

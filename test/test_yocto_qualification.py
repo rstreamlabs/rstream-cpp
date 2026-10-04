@@ -552,7 +552,11 @@ add_subdirectory(webtty)
                     ('6.0.3', 'x86_64', 'x86_64_v2', False),
                     ('6.0.2', 'aarch64', 'x86_64_v2', False),
                     ('5.0.10', 'aarch64', 'x86_64_v2', False),
-                    ('6.0.3', 'aarch64', 'x86_64_v3', False)):
+                    ('6.0.3', 'aarch64', 'x86_64_v3', True),
+                    ('6.0.3', 'x86_64', 'x86_64_v3', False),
+                    ('6.0.2', 'aarch64', 'x86_64_v3', False),
+                    ('5.0.10', 'aarch64', 'x86_64_v3', False),
+                    ('6.0.3', 'aarch64', 'x86_64_v4', False)):
                 with self.subTest(libc=libc, version=version, host=host, target=target):
                     base = [sys.executable, str(ROOT / 'conan/qualify_yocto.py'),
                             '--arch', target, '--libc', libc, '--sdk-host', host,
@@ -583,13 +587,13 @@ add_subdirectory(webtty)
                 self.assertEqual(glibc[:6], musl + [str(loader), '--inhibit-cache', '--library-path'])
                 self.assertEqual(glibc[6].split(':'), [str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64')])
 
-    def test_private_ncurses_consumer_uses_v2_cpu_and_isolated_sdk_loader(self):
+    def test_private_ncurses_consumer_uses_isa_cpu_and_isolated_sdk_loader(self):
         from types import SimpleNamespace
         path = ROOT / 'conan/recipes/ncurses-wrynose/all/test_package/conanfile.py'
         spec = importlib.util.spec_from_file_location('ncurses_consumer', path)
         consumer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(consumer)
-        for target in ('x86_64', 'x86_64_v2'):
+        for target in ('x86_64', 'x86_64_v2', 'x86_64_v3'):
             for libc in ('musl', 'glibc'):
                 with self.subTest(target=target, libc=libc), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
@@ -611,12 +615,57 @@ add_subdirectory(webtty)
                     expected = ['/runner/qemu-x86_64']
                     if target == 'x86_64_v2':
                         expected += ['-cpu', 'Nehalem']
+                    elif target == 'x86_64_v3':
+                        expected += ['-cpu', 'Haswell,-hle,-rtm']
                     expected += ['-L', str(root)]
                     if libc == 'glibc':
                         expected += [str(loader), '--inhibit-cache', '--library-path',
                                      ':'.join(str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64'))]
                     self.assertEqual(runtime, expected)
                     self.assertEqual(toolchain.variables['TEST_FULLY_STATIC'], libc == 'musl')
+
+    def test_arm_host_v3_requires_explicit_runner_and_preserves_sdk_loader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'lib').mkdir()
+            loader = root / 'lib/ld-linux-x86-64.so.2'
+            loader.touch()
+            with self.assertRaisesRegex(RuntimeError, 'verified explicit runner'):
+                pilot.runtime_command('x86_64_v3', 'musl', root, 'aarch64')
+            with patch.object(pilot.shutil, 'which', return_value='/usr/bin/qemu-x86_64'):
+                runner = 'qemu-x86_64 -cpu Haswell,-hle,-rtm'
+                prefix = ['qemu-x86_64', '-cpu', 'Haswell,-hle,-rtm']
+                self.assertEqual(pilot.runtime_command('x86_64_v3', 'musl', root, 'aarch64', runner), prefix)
+                command = pilot.runtime_command('x86_64_v3', 'glibc', root, 'aarch64', runner)
+                self.assertEqual(command[:6], prefix + [str(loader), '--inhibit-cache', '--library-path'])
+                self.assertEqual(command[6].split(':'), [str(root / d) for d in ('lib', 'usr/lib', 'lib64', 'usr/lib64')])
+
+    def test_private_ncurses_recipe_rejects_unmatched_arm_host_sdk_identities(self):
+        from types import SimpleNamespace
+        path = ROOT / 'conan/recipes/ncurses-wrynose/all/conanfile.py'
+        spec = importlib.util.spec_from_file_location('private_ncurses_recipe', path)
+        recipe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(recipe)
+        for version, target, target_arch, allowed in (
+                ('6.0.3', 'x86_64_v2', 'x86_64', True),
+                ('6.0.3', 'x86_64_v3', 'x86_64', True),
+                ('6.0.2', 'x86_64_v3', 'x86_64', False),
+                ('5.0.10', 'x86_64_v3', 'x86_64', False),
+                ('6.0.3', 'x86_64_v4', 'x86_64', False),
+                ('6.0.3', 'x86_64_v3', 'armv8', False)):
+            for libc in ('musl', 'glibc'):
+                with self.subTest(version=version, target=target, target_arch=target_arch, libc=libc):
+                    sdk = f'yocto-toolchain-{version}-{target}-{libc}'
+                    settings = SimpleNamespace(os='Linux', arch=target_arch, get_safe=lambda *args: sdk)
+                    instance = SimpleNamespace(settings=settings,
+                                               settings_build=SimpleNamespace(os='Linux', arch='armv8'),
+                                               options=SimpleNamespace(shared=False))
+                    with patch.object(recipe, 'cross_building', return_value=True):
+                        if allowed:
+                            recipe.NCursesConan.validate(instance)
+                        else:
+                            with self.assertRaises(recipe.ConanInvalidConfiguration):
+                                recipe.NCursesConan.validate(instance)
 
     def test_invalid_scope_fails_before_conan(self):
         for arguments in (['--arch', 'x86_64', '--arm-ncurses-exception'],
