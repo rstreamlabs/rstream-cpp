@@ -183,9 +183,9 @@ so Scarthgap and Wrynose results do not overwrite one another.
 The driver also accepts `--arch armv7hf`, preserving the Conan hard-float
 architecture and using `qemu-arm -cpu cortex-a15` with the exact SDK sysroot
 for both libcs. Its opt-in private ncurses candidate is restricted to the
-x86_64-host Scarthgap 5.0.10 SDK. The ARM32/musl SDK, focused ncurses
-consumer and full rstream package/archive/local-engine chain pass under QEMU.
-ARM32/glibc still requires its own SDK and package qualification.
+x86_64-host Scarthgap 5.0.10 SDK. Both ARM32 libcs pass SDK validation, the
+focused ncurses consumer and the full rstream package/archive/local-engine
+chain under QEMU.
 Boost.Context assembly requires the SDK tuning flags through the public recipe
 option `boost/*:extra_b2_flags=asmflags=-march=armv7-a asmflags=-mfpu=vfp asmflags=-mfloat-abi=hard`.
 Both the production packaging command and this driver apply that option for
@@ -198,6 +198,20 @@ This OpenSSL target retains the SDK's explicit ARMv7/VFP/hard-float tuning;
 the target name does not replace it with ARMv4 compiler settings. The public
 OpenSSL package builds and passes the rstream ARM32/musl runtime tests.
 Public library defaults are unchanged.
+
+ARMv7hf/glibc qualification uses QEMU 11.1.2. The workstation's QEMU 8.2.2
+rejects the 64-bit-time `SO_RCVTIMEO_NEW` socket option with `ENOPROTOOPT`,
+causing the plain-server runtime test to fail. Place the separately verified
+QEMU 11.1.2 `qemu-arm` binary first in the qualification process's `PATH`;
+the driver records its absolute path. The system emulator need not be replaced.
+With this runner, all 52 package tests, the external consumer, both distribution
+archives and both local CE tunnel suites pass without product or test changes.
+The original failed binary also passes three repeated untraced runs. A diagnostic
+`QEMU_STRACE` run gets past the socket option but later fails a plaintext-rejection
+check; that diagnostic run is retained as a failure, not counted as qualification.
+The signed upstream QEMU source and runner hashes are recorded in local evidence
+under `../.yocto-pilot/qemu-11.1.2-arm-runner/` and the investigation is indexed by
+`../.yocto-pilot/armv7hf-glibc-time64-investigation.json`.
 
 The driver also accepts `--arch x86_64_v2`, `x86_64_v3`, or `x86_64_v4`.
 Each selects its exact SDK identity and distribution architecture while keeping
@@ -252,19 +266,19 @@ in emulated ARM64 userspace, followed by the complete rstream chain.
 `build-conan-cross.sh` also selects public Boost for exactly 5.0.10; other
 legacy SDK versions retain their prior settings. No SDK or package is uploaded.
 
-As of 2026-10-04, nine Scarthgap 5.0.10 SDK/package combinations are qualified:
+As of 2026-10-04, ten Scarthgap 5.0.10 SDK/package combinations are qualified:
 
 | SDK host | Targets | Qualified libc |
 | --- | --- | --- |
-| x86_64 | x86_64, arm64 | musl and glibc |
-| x86_64 | x86_64_v2, x86_64_v3, x86_64_v4, armv7hf | musl |
+| x86_64 | x86_64, arm64, armv7hf | musl and glibc |
+| x86_64 | x86_64_v2, x86_64_v3, x86_64_v4 | musl |
 | aarch64, emulated | arm64 | musl |
 
 Each passed its package tests, external library consumer, both distribution
 archives and local CE tunnel suites. The v4 build uses verified Intel SDE,
 explicit AVX-512 SDK checks and test timeout scale 4; this is functional
 qualification under emulation, not a hardware performance result. The other
-63 legacy SDK combinations and their C++ packages remain unqualified.
+62 legacy SDK combinations and their C++ packages remain unqualified.
 Local evidence is indexed in `../.yocto-pilot/scarthgap-build-matrix.json`.
 
 The script verifies public target recipe revisions, records a locked input
