@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.8](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.7...1.14.8) (2026-10-09)
+
+
+### Bug Fixes
+
+* **config:** reject external mTLS signers explicitly ([5837e37](https://github.com/rstreamlabs/rstream-cpp/commit/5837e3705aac3a9fbaf54f117f7415cd2d749797))
+
 ## [1.14.7](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.6...1.14.7) (2026-09-28)
 
 
