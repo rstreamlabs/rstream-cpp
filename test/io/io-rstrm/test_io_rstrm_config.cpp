@@ -998,6 +998,45 @@ static void check_tunnel_transport_mode_resolution()
   assert(invalid.error().value() == static_cast<int>(rstream::io_rstrm::error::code::invalid_configuration));
 }
 
+static void check_external_mtls_signer_is_explicitly_unsupported()
+{
+  env_guard engine_address("RSTREAM_ENGINE_ADDRESS");
+  env_guard engine("RSTREAM_ENGINE");
+  env_guard cert_file("RSTREAM_MTLS_CERT_FILE");
+  env_guard key_file("RSTREAM_MTLS_KEY_FILE");
+  env_guard config_path("RSTREAM_CONFIG");
+  env_guard context("RSTREAM_CONTEXT");
+  env_guard api_url("RSTREAM_API_URL");
+  engine_address.unset();
+  engine.unset();
+  cert_file.unset();
+  key_file.unset();
+  api_url.unset();
+  for (bool environment : {false, true}) {
+    auto path = write_config_file(
+        std::string(environment ? "environments:\n  - apiUrl: https://rstream.io\n" : "contexts:\n  - name: external\n    engine: engine.example:443\n") +
+        "    auth:\n"
+        "      mtls:\n"
+        "        storage:\n"
+        "          kind: exec\n"
+        "          certificateSHA256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+        "          exec:\n"
+        "            command: /nonexistent/identity-helper\n"
+        "            args: [--slot, device]\n" +
+        (environment ? "contexts:\n  - name: external\n    apiUrl: https://rstream.io\n    engine: engine.example:443\n" : "") +
+        "  - name: software\n    apiUrl: https://other.example\n    engine: software.example:443\n");
+    config_path.set(path.string());
+    context.set("external");
+    auto result = rstream::io_rstrm::get_rstream_engine_address();
+    assert(!result);
+    assert(result.error() == rstream::io_rstrm::error::make_error_code(rstream::io_rstrm::error::code::unsupported_mtls_exec));
+    assert(result.error().message() == "mTLS storage kind 'exec' is not supported by rstream-cpp");
+    context.set("software");
+    assert(rstream::io_rstrm::get_rstream_engine_address());
+    boost::filesystem::remove(path);
+  }
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -1021,6 +1060,7 @@ int main(int argc, char** argv)
   check_engine_resolution_rejects_invalid_mtls_auth_config();
   check_engine_resolution_from_pkcs11_mtls_auth_config();
   check_engine_resolution_rejects_unsupported_mtls_storage();
+  check_external_mtls_signer_is_explicitly_unsupported();
   check_config_rejects_unsupported_transport_proxy();
   check_tunnel_transport_mode_resolution();
   return 0;

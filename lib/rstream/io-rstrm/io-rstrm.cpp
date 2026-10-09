@@ -1285,6 +1285,9 @@ static boost::system::result<std::string> append_mtls_auth_params(std::string ad
       return error::make_error_code(error::code::invalid_configuration);
     }
     const auto& storage = mtls.value().storage;
+    if (storage.kind == "exec") {
+      return error::make_error_code(error::code::unsupported_mtls_exec);
+    }
     if (storage.kind == "keychain") {
       return error::make_error_code(error::code::invalid_configuration);
     }
