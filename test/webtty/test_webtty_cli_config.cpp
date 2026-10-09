@@ -210,6 +210,22 @@ static void check_runtime_config_rejects_unsupported_options_and_documents()
       assert(rejected);
     }
   }
+  for (const auto& suffix : {"# trailing comment\n", "...\n"}) {
+    write_text(path,
+               std::string("version: 1\n"
+                           "server:\n"
+                           "  labels:\n"
+                           "    original: &label '001'\n"
+                           "    alias: *label\n"
+                           "    multiline: |\n"
+                           "      first\n"
+                           "      second\n")
+                   + suffix);
+    auto config = cli::load_server_runtime_config(path.string());
+    assert(config.m_labels.at("original") == "001");
+    assert(config.m_labels.at("alias") == "001");
+    assert(config.m_labels.at("multiline") == "first\nsecond\n");
+  }
   std::filesystem::remove_all(dir);
 }
 
