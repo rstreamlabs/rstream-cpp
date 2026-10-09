@@ -27,6 +27,7 @@
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/x509.h>
+#include <yaml-cpp/eventhandler.h>
 #include <yaml-cpp/yaml.h>
 
 #include <rstream/core/system.hpp>
@@ -876,10 +877,40 @@ inline void ensure_known_fields(const YAML::Node& node, const std::set<std::stri
   }
 }
 
+class yaml_document_probe final : public YAML::EventHandler {
+ public:
+  void OnDocumentStart(const YAML::Mark&) override {}
+  void OnDocumentEnd() override {}
+  void OnNull(const YAML::Mark&, YAML::anchor_t) override {}
+  void OnAlias(const YAML::Mark&, YAML::anchor_t) override {}
+  void OnScalar(const YAML::Mark&, const std::string&, YAML::anchor_t, const std::string&) override {}
+  void OnSequenceStart(const YAML::Mark&, const std::string&, YAML::anchor_t, YAML::EmitterStyle::value) override {}
+  void OnSequenceEnd() override {}
+  void OnMapStart(const YAML::Mark&, const std::string&, YAML::anchor_t, YAML::EmitterStyle::value) override {}
+  void OnMapEnd() override {}
+};
+
+inline YAML::Node load_single_yaml_document(const std::string& path)
+{
+  std::ifstream file(path);
+  if (!file) {
+    throw YAML::BadFile(path);
+  }
+  std::stringstream content;
+  content << file.rdbuf();
+  YAML::Parser parser(content);
+  yaml_document_probe document;
+  // Check remaining tokens before yaml-cpp discards empty trailing documents.
+  if (!parser.HandleNextDocument(document) || parser) {
+    throw std::runtime_error("WebTTY configuration requires exactly one YAML document");
+  }
+  return YAML::Load(content.str());
+}
+
 inline server_enrollment load_server_enrollment(const std::string& raw_path)
 {
   auto path = expand_path(raw_path);
-  auto root = YAML::LoadFile(path);
+  auto root = load_single_yaml_document(path);
   server_enrollment enrollment;
   enrollment.m_version = root["version"].as<int>();
   if (enrollment.m_version != 1) {
@@ -960,7 +991,7 @@ inline void validate_identity_matches_enrollment(const endpoint_identity& identi
 inline server_runtime_config load_server_runtime_config(const std::string& raw_path)
 {
   auto path = expand_path(raw_path);
-  auto root = YAML::LoadFile(path);
+  auto root = load_single_yaml_document(path);
   ensure_known_fields(root, {"version", "server", "e2e"}, "runtime config");
   if (root["version"] && root["version"].as<int>() != 1) {
     throw std::runtime_error("unsupported WebTTY runtime config version");

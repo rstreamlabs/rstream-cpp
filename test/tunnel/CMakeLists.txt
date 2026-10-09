@@ -6,3 +6,13 @@ add_test_target(${PROJECT_NAME}-test-tunnel-status test_tunnel_status.cpp ${PROJ
 add_test_target(${PROJECT_NAME}-test-tunnel-proxy test_tunnel_proxy.cpp ${PROJECT_NAME}::tunnel ${PROJECT_NAME}::io-rstrm-protobuf ${PROJECT_NAME}::${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME}-test-tunnel-proxy SYSTEM PRIVATE ${PROJECT_BINARY_DIR}/lib/rstream/io-rstrm/generated-cpp-sources)
 rstream_enable_runtime_plugins(${PROJECT_NAME}-test-tunnel-proxy ${PROJECT_NAME}-plugin-io-generic ${PROJECT_NAME}-plugin-io-rstrm)
+
+if(TARGET ${PROJECT_NAME}-tunnel)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  math(EXPR TUNNEL_STARTUP_TIMEOUT "10 * ${RSTREAM_TEST_TIMEOUT_SCALE}")
+  add_test(NAME ${PROJECT_NAME}-test-tunnel-cli-options
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_tunnel_cli_options.py
+      $<TARGET_FILE:${PROJECT_NAME}-tunnel> ${TUNNEL_STARTUP_TIMEOUT})
+  rstream_configure_test(${PROJECT_NAME}-test-tunnel-cli-options)
+  set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS ${PROJECT_NAME}-tunnel)
+endif()
