@@ -27,6 +27,7 @@
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/x509.h>
+#include <yaml-cpp/emitfromevents.h>
 #include <yaml-cpp/yaml.h>
 
 #include <rstream/core/system.hpp>
@@ -876,10 +877,29 @@ inline void ensure_known_fields(const YAML::Node& node, const std::set<std::stri
   }
 }
 
+inline YAML::Node load_single_yaml_document(const std::string& path)
+{
+  std::ifstream file(path);
+  if (!file) {
+    throw YAML::BadFile(path);
+  }
+  YAML::Parser parser(file);
+  YAML::Emitter emitter;
+  YAML::EmitFromEvents document(emitter);
+  // Check remaining tokens before yaml-cpp discards empty trailing documents.
+  if (!parser.HandleNextDocument(document) || parser) {
+    throw std::runtime_error("WebTTY configuration requires exactly one YAML document");
+  }
+  if (!emitter.good()) {
+    throw std::runtime_error(emitter.GetLastError());
+  }
+  return YAML::Load(emitter.c_str());
+}
+
 inline server_enrollment load_server_enrollment(const std::string& raw_path)
 {
   auto path = expand_path(raw_path);
-  auto root = YAML::LoadFile(path);
+  auto root = load_single_yaml_document(path);
   server_enrollment enrollment;
   enrollment.m_version = root["version"].as<int>();
   if (enrollment.m_version != 1) {
@@ -960,7 +980,7 @@ inline void validate_identity_matches_enrollment(const endpoint_identity& identi
 inline server_runtime_config load_server_runtime_config(const std::string& raw_path)
 {
   auto path = expand_path(raw_path);
-  auto root = YAML::LoadFile(path);
+  auto root = load_single_yaml_document(path);
   ensure_known_fields(root, {"version", "server", "e2e"}, "runtime config");
   if (root["version"] && root["version"].as<int>() != 1) {
     throw std::runtime_error("unsupported WebTTY runtime config version");

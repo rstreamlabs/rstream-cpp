@@ -37,3 +37,9 @@ The label is included before the registered server admission signature.
 Lightweight `plain` tunnels are private raw bytestreams; `--publish` is rejected
 for this combination. Both supported transports work through a private
 `rstrm://` dial. C++ WebTransport is not implemented and is rejected explicitly.
+
+Runtime and enrollment YAML files must each contain exactly one document.
+Runtime fields outside the C++ tool's supported subset fail with an explicit
+`unsupported WebTTY runtime config` error. In particular, `server.host` and
+`filesystem` belong to the Go CLI runtime surface and are not accepted by the
+C++ WebTTY server.
