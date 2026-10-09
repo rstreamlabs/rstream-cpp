@@ -33,6 +33,7 @@ enum class code {
   server_error            = 9,
   stream_not_found        = 10,
   authentication_conflict = 11,
+  unsupported_mtls_exec   = 12,
 
   // Server-mapped error codes
   unauthorized                  = 1000,

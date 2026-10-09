@@ -62,6 +62,8 @@ std::string to_string(error::code code)
       return "stream not found";
     case error::code::authentication_conflict:
       return "token and mTLS authentication cannot be used together";
+    case error::code::unsupported_mtls_exec:
+      return "mTLS storage kind 'exec' is not supported by rstream-cpp";
     case error::code::tunnel_not_found:
       return "tunnel not found";
     case error::code::unauthorized:

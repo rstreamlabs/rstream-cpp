@@ -257,6 +257,11 @@ currently implements TLS only, so the default `auto` mode resolves to TLS.
 Explicit `quic`, invalid values, and legacy `transport.useQuic: true` fail
 during resolution instead of being silently ignored.
 
+The external mTLS signer backend (`auth.mtls.storage.kind: exec`) is supported
+by the Go SDK and CLI. Selecting it in C++ returns `unsupported_mtls_exec` with
+an explicit unsupported-mode message before connecting; C++ never launches the
+helper. Other contexts in the same file remain usable.
+
 Contexts can authenticate an agent control-channel connection with mTLS instead of a token:
 
 ```yaml
