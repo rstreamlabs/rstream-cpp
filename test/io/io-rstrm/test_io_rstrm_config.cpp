@@ -1022,9 +1022,8 @@ static void check_external_mtls_signer_is_explicitly_unsupported()
         "          certificateSHA256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
         "          exec:\n"
         "            command: /nonexistent/identity-helper\n"
-        "            args: [--slot, device]\n" +
-        (environment ? "contexts:\n  - name: external\n    apiUrl: https://rstream.io\n    engine: engine.example:443\n" : "") +
-        "  - name: software\n    apiUrl: https://other.example\n    engine: software.example:443\n");
+        "            args: [--slot, device]\n"
+        + (environment ? "contexts:\n  - name: external\n    apiUrl: https://rstream.io\n    engine: engine.example:443\n" : "") + "  - name: software\n    apiUrl: https://other.example\n    engine: software.example:443\n");
     config_path.set(path.string());
     context.set("external");
     auto result = rstream::io_rstrm::get_rstream_engine_address();
