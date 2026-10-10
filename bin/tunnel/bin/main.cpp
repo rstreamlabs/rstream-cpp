@@ -88,7 +88,6 @@ publishing (terminated tunnels) options:
 
 http tunnel options:
   --http-version=ARG                    specify the HTTP version (http/1.1, h2c)
-  --http-use-tls                        proxy HTTP upstream using TLS (deprecated; use --upstream-tls)
   --token-auth                          enable token based authentication
   --rstream-auth                        require rstream account authentication
   --challenge-mode                      require an interactive challenge before access
@@ -337,7 +336,6 @@ int run(int argc, char** argv)
         || option_is_set("--tls-min-version")
         || option_is_set("--tls-ciphers")
         || option_is_set("--http-version")
-        || option_is_set("--http-use-tls")
         || option_is_set("--token-auth")
         || option_is_set("--rstream-auth")
         || option_is_set("--challenge-mode")) {
@@ -462,22 +460,11 @@ int run(int argc, char** argv)
     }
   }
   if (publish) {
-    bool is_http_protocol = !tunnel_properties.m_protocol
-                            || tunnel_properties.m_protocol.value() == rstream::io_rstrm::protocol::http;
     {
       auto it = args.find("--http-version");
       if (it != args.end() && it->second.operator bool()) {
         tunnel_properties.m_http_version = it->second.asString();
       }
-    }
-    {
-      auto it = args.find("--http-use-tls");
-      if (it != args.end() && it->second.asBool()) {
-        tunnel_properties.m_http_use_tls = true;
-      }
-    }
-    if (is_http_protocol && tunnel_properties.m_upstream_tls && !tunnel_properties.m_http_use_tls) {
-      tunnel_properties.m_http_use_tls = tunnel_properties.m_upstream_tls;
     }
     {
       auto it = args.find("--token-auth");
@@ -509,7 +496,7 @@ int run(int argc, char** argv)
       .m_read_downstream_buffer_size_bytes = buffer_size,
       .m_read_upstream_buffer_size_bytes   = buffer_size,
       .m_timeouts_ms                       = {
-                                .m_open = 5000,
+          .m_open = 5000,
       },
   };
   rstream::tunnel::proxy proxy(io_context.get_executor(), config_proxy, settings_proxy);
@@ -567,7 +554,7 @@ int run(int argc, char** argv)
     auto n = jobs - 1;
     threads.reserve(n);
     for (decltype(n) i = 0; i < n; ++i) {
-      threads.emplace_back(std::bind((boost::asio::io_context::count_type(boost::asio::io_context::*)()) & boost::asio::io_context::run, &io_context));
+      threads.emplace_back(std::bind((boost::asio::io_context::count_type (boost::asio::io_context::*)())&boost::asio::io_context::run, &io_context));
     }
   }
 #ifdef RSTREAM_WITH_NCURSES

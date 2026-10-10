@@ -175,6 +175,60 @@ static void check_runtime_config_validation()
   assert(throws_runtime_error([&contradictory_path]() { cli::load_server_runtime_config(contradictory_path.string()); }));
 }
 
+static void check_runtime_config_rejects_unsupported_options_and_documents()
+{
+  auto dir  = temp_dir();
+  auto path = dir / "unsupported.yaml";
+  for (const auto& content : {
+           "version: 1\nserver:\n  host: shell.example.com\n",
+           "version: 1\nfilesystem:\n  root: /exports\n  backend: webrtc\n"}) {
+    write_text(path, content);
+    auto rejected = false;
+    try {
+      cli::load_server_runtime_config(path.string());
+    }
+    catch (const std::runtime_error& error) {
+      rejected = std::string(error.what()).find("unsupported WebTTY runtime config") != std::string::npos;
+    }
+    assert(rejected);
+  }
+  for (const auto& suffix : {"---\n", "---\nversion: 2\n"}) {
+    write_text(path, std::string("version: 1\n") + suffix);
+    for (bool enrollment : {false, true}) {
+      auto rejected = false;
+      try {
+        if (enrollment) {
+          cli::load_server_enrollment(path.string());
+        }
+        else {
+          cli::load_server_runtime_config(path.string());
+        }
+      }
+      catch (const std::runtime_error& error) {
+        rejected = std::string(error.what()).find("exactly one YAML document") != std::string::npos;
+      }
+      assert(rejected);
+    }
+  }
+  for (const auto& suffix : {"# trailing comment\n", "...\n"}) {
+    write_text(path,
+               std::string("version: 1\n"
+                           "server:\n"
+                           "  labels:\n"
+                           "    original: &label '001'\n"
+                           "    alias: *label\n"
+                           "    multiline: |\n"
+                           "      first\n"
+                           "      second\n")
+                   + suffix);
+    auto config = cli::load_server_runtime_config(path.string());
+    assert(config.m_labels.at("original") == "001");
+    assert(config.m_labels.at("alias") == "001");
+    assert(config.m_labels.at("multiline") == "first\nsecond\n");
+  }
+  std::filesystem::remove_all(dir);
+}
+
 static void check_auth_token_resolution()
 {
   auto dir  = temp_dir();
@@ -333,9 +387,9 @@ static void check_enrollment_validation()
   uri_options.m_labels            = {{"env", "prod"}};
   auto admission_labels           = rstream::webtty::build_webtty_labels(uri_options);
   assert(admission_labels.at("rstream.webtty.server_name") == "Production shell");
-  auto admission_label            = cli::create_server_admission_label(admission_enrollment, identity, admission_labels);
-  auto admission_raw              = cli::base64url_decode(admission_label, 0, "server admission label");
-  auto admission_json             = nlohmann::json::parse(std::string(admission_raw.begin(), admission_raw.end()));
+  auto admission_label = cli::create_server_admission_label(admission_enrollment, identity, admission_labels);
+  auto admission_raw   = cli::base64url_decode(admission_label, 0, "server admission label");
+  auto admission_json  = nlohmann::json::parse(std::string(admission_raw.begin(), admission_raw.end()));
   assert(admission_json.at("workspace_id").get<std::string>() == "workspace-1");
   assert(admission_json.at("project_id").get<std::string>() == "project-1");
   assert(admission_json.at("server_id").get<std::string>() == "prod-shell");
@@ -499,6 +553,7 @@ int main()
   check_authorized_client_key_validation();
   check_known_server_entries_file();
   check_runtime_config_validation();
+  check_runtime_config_rejects_unsupported_options_and_documents();
   check_enrollment_validation();
   check_workspace_approved_client_credential();
   return 0;
