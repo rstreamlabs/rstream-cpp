@@ -111,6 +111,8 @@ static void check_tunnel_properties_roundtrip()
   properties.m_challenge_mode               = true;
   properties.m_datagram_guaranteed_delivery = true;
   properties.m_allow_cross_region_routing   = false;
+  properties.m_http_cors = rstream::io_rstrm::http_cors{
+      {"https://dashboard.example"}, {"GET", "PUT"}, {"Authorization"}, {"ETag"}, true, 600};
   protobuf::TunnelProperties proto;
   rstream::io_rstrm::detail::convert(proto, properties);
   assert(proto.has_publish());
@@ -142,6 +144,15 @@ static void check_tunnel_properties_roundtrip()
   assert(decoded.m_challenge_mode == properties.m_challenge_mode);
   assert(decoded.m_datagram_guaranteed_delivery == properties.m_datagram_guaranteed_delivery);
   assert(decoded.m_allow_cross_region_routing == properties.m_allow_cross_region_routing);
+  assert(decoded.m_http_cors);
+  assert(decoded.m_http_cors->m_allowed_origins == properties.m_http_cors->m_allowed_origins);
+  assert(decoded.m_http_cors->m_allowed_methods == properties.m_http_cors->m_allowed_methods);
+  assert(decoded.m_http_cors->m_allowed_headers == properties.m_http_cors->m_allowed_headers);
+  assert(decoded.m_http_cors->m_exposed_headers == properties.m_http_cors->m_exposed_headers);
+  assert(decoded.m_http_cors->m_allow_credentials);
+  assert(decoded.m_http_cors->m_max_age == 600);
+  rstream::io_rstrm::detail::convert(decoded, protobuf::TunnelProperties{});
+  assert(!decoded.m_http_cors);
 }
 
 int main(int argc, char** argv)

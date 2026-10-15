@@ -3,6 +3,7 @@
 #include "io-rstrm.hpp"
 
 #include <cctype>
+#include <charconv>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -267,6 +268,52 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
   PARSE_PARAMS_VIEW_BOOLEAN(params, properties, "rstrm.", error_code, allow_cross_region_routing)
   PARSE_PARAMS_VIEW_STRING(params, properties, "rstrm.", error_code, tls_mode)
   PARSE_PARAMS_VIEW_STRING_VEC(params, properties, "rstrm.", error_code, tls_alpns, ',')
+  for (const auto param : params) {
+    const std::string key = param.key;
+    if (key.rfind("rstrm.http_cors.", 0) != 0 || error_code) {
+      continue;
+    }
+    if (!properties.m_http_cors) {
+      properties.m_http_cors = http_cors{};
+    }
+    auto& cors = properties.m_http_cors.value();
+    if (key == "rstrm.http_cors.allow_credentials") {
+      rstream::io::detail::stream::parse_url_param_value(cors.m_allow_credentials, param, error_code);
+      continue;
+    }
+    boost::optional<std::string> value;
+    rstream::io::detail::stream::parse_url_param_value(value, param, error_code);
+    if (error_code) {
+      return;
+    }
+    if (key == "rstrm.http_cors.allowed_origins") {
+      cors.m_allowed_origins = split(value.value(), ',');
+    }
+    else if (key == "rstrm.http_cors.allowed_methods") {
+      cors.m_allowed_methods = split(value.value(), ',');
+    }
+    else if (key == "rstrm.http_cors.allowed_headers") {
+      cors.m_allowed_headers = split(value.value(), ',');
+    }
+    else if (key == "rstrm.http_cors.exposed_headers") {
+      cors.m_exposed_headers = split(value.value(), ',');
+    }
+    else if (key == "rstrm.http_cors.max_age") {
+      const auto& text = value.value();
+      const auto parsed = std::from_chars(text.data(), text.data() + text.size(), cors.m_max_age);
+      if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || cors.m_max_age < 0 || cors.m_max_age > 86400) {
+        error_code = error::code::invalid_configuration;
+      }
+    }
+    else {
+      error_code = error::code::invalid_configuration;
+    }
+  }
+  if (properties.m_http_cors && (properties.m_http_cors->m_allowed_origins.empty()
+      || (properties.m_publish && !properties.m_publish.value())
+      || (properties.m_protocol && properties.m_protocol.value() != protocol::http))) {
+    error_code = error::code::invalid_configuration;
+  }
 }
 
 void parse_config(const boost::urls::url& url, config& config, boost::system::error_code& error_code)

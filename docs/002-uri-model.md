@@ -154,3 +154,28 @@ tcp://engine.example:443?rstream.retry=true&rstream.no_token=false&rstream.token
 Reference checks:
 
 - `lib/rstream/io-rstrm/client.cpp` (type validation around `async_create_tunnel` and tunnel response handling)
+
+## HTTP CORS
+
+A published HTTP tunnel can carry an optional `http_cors` policy. The C++ API uses `tunnel_properties::m_http_cors` (`boost::optional<http_cors>`), with `m_allowed_origins`, `m_allowed_methods`, `m_allowed_headers`, `m_exposed_headers`, `m_allow_credentials` and `m_max_age` (seconds).
+
+URI parameters use `rstrm.http_cors.allowed_origins`, `.allowed_methods`, `.allowed_headers`, `.exposed_headers` (comma-separated lists), `.allow_credentials` and `.max_age`. Origins must be explicit HTTP(S) origins without paths or wildcards. The absent policy preserves upstream CORS. Engine validates the complete policy and keeps authentication on all actual operations; preflights do not open upstream streams.
+
+The native CLI accepts the same options and defaults as the Go CLI:
+
+| Option | Meaning |
+| --- | --- |
+| `--cors-allow-origin <origin>` | Enable CORS for an explicit HTTP(S) origin; repeat for each origin. No wildcard, path, credentials, query or fragment. |
+| `--cors-allow-method <method>` | Repeatable allowed method. Default: GET, HEAD, POST. |
+| `--cors-allow-header <header>` | Repeatable allowed request header. Default: Authorization, Content-Type. |
+| `--cors-expose-header <header>` | Repeatable response header made readable by browser scripts. Default: none beyond browser defaults. |
+| `--cors-allow-credentials` | Allow browser-managed credentials for the listed origins. Default: false. |
+| `--cors-max-age <seconds>` | Preflight cache lifetime, 0–86400 seconds. Default: 0. |
+
+```sh
+rstream-tunnel 8080 --http --token-auth \
+  --cors-allow-origin=https://dashboard.example \
+  --cors-allow-method=GET --cors-allow-method=PUT
+```
+
+This uses protocol patch 1.4.6. Upgrade Engine before using the updated SDK; existing SDK binaries remain compatible with the new Engine. Rebuild native applications when adopting the updated C++ headers and library.

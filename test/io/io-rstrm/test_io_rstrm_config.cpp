@@ -1036,8 +1036,31 @@ static void check_external_mtls_signer_is_explicitly_unsupported()
   }
 }
 
+static void check_cors_uri()
+{
+  rstream::io_rstrm::settings_acceptor settings;
+  boost::system::error_code ec;
+  rstream::io_rstrm::parse_settings_acceptor(parse_url("rstrm://edge?rstrm.protocol=http&rstrm.http_cors.allowed_origins=https%3A%2F%2Fdashboard.example&rstrm.http_cors.allowed_methods=GET,PUT&rstrm.http_cors.allowed_headers=Authorization&rstrm.http_cors.exposed_headers=ETag&rstrm.http_cors.allow_credentials=true&rstrm.http_cors.max_age=600"), settings, ec);
+  assert(!ec);
+  assert(settings.m_tunnel_properties.m_http_cors);
+  const auto& cors = settings.m_tunnel_properties.m_http_cors.value();
+  assert(cors.m_allowed_origins == std::vector<std::string>{"https://dashboard.example"});
+  assert(cors.m_allowed_methods.size() == 2);
+  assert(cors.m_allowed_headers == std::vector<std::string>{"Authorization"});
+  assert(cors.m_exposed_headers == std::vector<std::string>{"ETag"});
+  assert(cors.m_allow_credentials);
+  assert(cors.m_max_age == 600);
+  for (const auto* query : {"rstrm.http_cors.max_age=-1", "rstrm.http_cors.max_age=10junk", "rstrm.http_cors.typo=value", "rstrm.http_cors.allow_credentials=true", "rstrm.protocol=tls&rstrm.http_cors.allowed_origins=https%3A%2F%2Fdashboard.example"}) {
+    rstream::io_rstrm::settings_acceptor invalid;
+    ec.clear();
+    rstream::io_rstrm::parse_settings_acceptor(parse_url(std::string("rstrm://edge?") + query), invalid, ec);
+    assert(ec);
+  }
+}
+
 int main(int argc, char** argv)
 {
+  check_cors_uri();
   (void)argc;
   (void)argv;
   check_parse_settings_rejects_token_conflict();
