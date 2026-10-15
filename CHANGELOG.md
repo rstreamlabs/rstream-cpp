@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.8...1.15.0) (2026-10-15)
+
+
+### Features
+
+* **http:** expose tunnel CORS options in SDK and CLI ([#55](https://github.com/rstreamlabs/rstream-cpp/issues/55)) ([061c4fc](https://github.com/rstreamlabs/rstream-cpp/commit/061c4fc1534f8364d2be86409921b0bd49cde6f3))
+
 ## [1.14.8](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.7...1.14.8) (2026-10-09)
 
 
