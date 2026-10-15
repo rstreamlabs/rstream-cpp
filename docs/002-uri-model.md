@@ -177,5 +177,3 @@ rstream-tunnel 8080 --http --token-auth \
   --cors-allow-origin=https://dashboard.example \
   --cors-allow-method=GET --cors-allow-method=PUT
 ```
-
-This uses protocol patch 1.4.6. Upgrade Engine before using the updated SDK; existing SDK binaries remain compatible with the new Engine. Rebuild native applications when adopting the updated C++ headers and library.
