@@ -20,6 +20,23 @@ def main():
         raise RuntimeError("Canonical upstream TLS option was rejected")
     if "--http-use-tls" in canonical.stdout:
         raise RuntimeError("Help still advertises the removed upstream TLS option")
+    cors_options = [
+        "--cors-allow-origin=https://dashboard.example",
+        "--cors-allow-origin=https://second.example",
+        "--cors-allow-method=GET", "--cors-allow-method=PUT",
+        "--cors-allow-header=Authorization", "--cors-expose-header=ETag",
+        "--cors-max-age=600",
+        "--cors-allow-credentials",
+    ]
+    cors = subprocess.run(
+        [str(binary), "--http", *cors_options, "--help"],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if cors.returncode != 0:
+        raise RuntimeError("Shared Go/C++ CORS options were rejected: " + cors.stderr)
+    for option in cors_options:
+        if option.split("=")[0] not in cors.stdout:
+            raise RuntimeError("CORS option missing from CLI help: " + option)
     removed = subprocess.run(
         [str(binary), "--http-use-tls"],
         capture_output=True, text=True, timeout=timeout,

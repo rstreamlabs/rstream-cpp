@@ -113,6 +113,25 @@ void convert(client_details& dst, const protobuf::ClientDetails& src)
 
 void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
 {
+  dst.clear_http_cors();
+  if (src.m_http_cors) {
+    const auto& policy = src.m_http_cors.value();
+    auto* cors = dst.mutable_http_cors();
+    for (const auto& value : policy.m_allowed_origins) {
+      cors->add_allowed_origins(value);
+    }
+    for (const auto& value : policy.m_allowed_methods) {
+      cors->add_allowed_methods(value);
+    }
+    for (const auto& value : policy.m_allowed_headers) {
+      cors->add_allowed_headers(value);
+    }
+    for (const auto& value : policy.m_exposed_headers) {
+      cors->add_exposed_headers(value);
+    }
+    cors->set_allow_credentials(policy.m_allow_credentials);
+    cors->set_max_age(policy.m_max_age);
+  }
   if (src.m_id) {
     google::protobuf::StringValue val;
     val.set_value(*src.m_id);
@@ -232,6 +251,18 @@ void convert(protobuf::TunnelProperties& dst, const tunnel_properties& src)
 
 void convert(tunnel_properties& dst, const protobuf::TunnelProperties& src)
 {
+  dst.m_http_cors = boost::none;
+  if (src.has_http_cors()) {
+    const auto& cors = src.http_cors();
+    http_cors policy;
+    policy.m_allowed_origins.assign(cors.allowed_origins().begin(), cors.allowed_origins().end());
+    policy.m_allowed_methods.assign(cors.allowed_methods().begin(), cors.allowed_methods().end());
+    policy.m_allowed_headers.assign(cors.allowed_headers().begin(), cors.allowed_headers().end());
+    policy.m_exposed_headers.assign(cors.exposed_headers().begin(), cors.exposed_headers().end());
+    policy.m_allow_credentials = cors.allow_credentials();
+    policy.m_max_age = cors.max_age();
+    dst.m_http_cors = std::move(policy);
+  }
   if (src.has_id()) {
     dst.m_id = src.id().value();
   }

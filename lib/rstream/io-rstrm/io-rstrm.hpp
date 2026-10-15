@@ -66,6 +66,15 @@ std::ostream& operator<<(std::ostream& os, const status_extd& status);
 
 nlohmann::json& operator<<(nlohmann::json& json, const status_extd& status);
 
+struct http_cors {
+  std::vector<std::string> m_allowed_origins;
+  std::vector<std::string> m_allowed_methods;
+  std::vector<std::string> m_allowed_headers;
+  std::vector<std::string> m_exposed_headers;
+  bool m_allow_credentials = false;
+  std::int64_t m_max_age = 0;
+};
+
 struct tunnel_properties {
   // tunnel properties
   boost::optional<std::string> m_id;
@@ -99,6 +108,7 @@ struct tunnel_properties {
   boost::optional<bool> m_challenge_mode;
   boost::optional<bool> m_datagram_guaranteed_delivery;
   boost::optional<bool> m_allow_cross_region_routing;
+  boost::optional<http_cors> m_http_cors;
 };
 
 struct config {

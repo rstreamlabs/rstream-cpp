@@ -43,7 +43,7 @@ description:
   It is based on the rstream C++ SDK and provides a simple way to create a secure tunnel to the global network.
 
 usage:
-  rstream-tunnel [<target>] [--publish|--no-publish] [--http|--tls|--tcp] [--label=ARG]... [--no-token|--token=ARG] [--retry|--no-retry] [options]
+  rstream-tunnel [<target>] [--publish|--no-publish] [--http|--tls|--tcp] [--label=ARG]... [--cors-allow-origin=ARG]... [--cors-allow-method=ARG]... [--cors-allow-header=ARG]... [--cors-expose-header=ARG]... [--no-token|--token=ARG] [--retry|--no-retry] [options]
   rstream-tunnel (-h|--help)
   rstream-tunnel --version
 
@@ -91,6 +91,14 @@ http tunnel options:
   --token-auth                          enable token based authentication
   --rstream-auth                        require rstream account authentication
   --challenge-mode                      require an interactive challenge before access
+
+CORS options (published HTTP tunnels):
+  --cors-allow-origin=ARG               allow an explicit HTTP(S) browser origin (repeatable)
+  --cors-allow-method=ARG               allow a CORS method (repeatable)
+  --cors-allow-header=ARG               allow a CORS request header (repeatable)
+  --cors-expose-header=ARG              expose a response header to browsers (repeatable)
+  --cors-allow-credentials              allow browser credentials for the configured origins
+  --cors-max-age=ARG                    preflight cache lifetime in seconds (0-86400)
 
 authentication options:
   --no-token                            disable token based authentication
@@ -484,6 +492,30 @@ int run(int argc, char** argv)
         tunnel_properties.m_challenge_mode = true;
       }
     }
+  }
+  rstream::io_rstrm::http_cors cors;
+  cors.m_allowed_origins = args.at("--cors-allow-origin").asStringList();
+  cors.m_allowed_methods = args.at("--cors-allow-method").asStringList();
+  cors.m_allowed_headers = args.at("--cors-allow-header").asStringList();
+  cors.m_exposed_headers = args.at("--cors-expose-header").asStringList();
+  cors.m_allow_credentials = args.at("--cors-allow-credentials").asBool();
+  const bool cors_max_age_set = option_is_set("--cors-max-age");
+  if (cors_max_age_set) {
+    cors.m_max_age = args.at("--cors-max-age").asLong();
+  }
+  if (!cors.m_allowed_origins.empty() || !cors.m_allowed_methods.empty()
+      || !cors.m_allowed_headers.empty() || !cors.m_exposed_headers.empty()
+      || cors.m_allow_credentials || cors_max_age_set) {
+    if (!publish || flag_tls || flag_tcp) {
+      throw std::runtime_error("CORS requires a published HTTP tunnel");
+    }
+    if (cors.m_allowed_origins.empty()) {
+      throw std::runtime_error("CORS requires at least one allowed origin");
+    }
+    if (cors.m_max_age < 0 || cors.m_max_age > 86400) {
+      throw std::runtime_error("CORS max age must be between 0 and 86400 seconds");
+    }
+    tunnel_properties.m_http_cors = std::move(cors);
   }
   settings_acceptor.m_tunnel_properties       = tunnel_properties;
   rstream::tunnel::proxy::config config_proxy = {
