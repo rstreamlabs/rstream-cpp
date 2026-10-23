@@ -16,6 +16,8 @@
 #include <memory>
 #include <vector>
 
+#include <boost/core/noncopyable.hpp>
+
 #if __has_include(<boost/process/v1/child.hpp>)
 #include <boost/process/v1/child.hpp>
 #include <boost/process/v1/io.hpp>
@@ -39,8 +41,67 @@ namespace detail {
 
 namespace process {
 
+class group : private boost::noncopyable {
+ public:
+  group();
+  ~group() noexcept;
+  bool released() const noexcept { return m_released; }
+  void release() noexcept { m_released = true; }
+#ifdef _WIN32
+  void assign_and_resume(void* process, void* thread, std::error_code& error_code);
+  void terminate(std::error_code& error_code);
+#endif
+ private:
+  bool m_released = false;
+#ifdef _WIN32
+  void* m_job = nullptr;
+#endif
+};
+
+class group_handler : public boost::process::extend::handler {
+ public:
+  group_handler(const std::shared_ptr<group>& owner, bool using_pty)
+      : m_owner(owner),
+        m_using_pty(using_pty)
+  {
+  }
+#ifdef _WIN32
+  template <class Executor>
+  void on_setup(Executor& executor) const
+  {
+    executor.creation_flags |= CREATE_SUSPENDED;
+  }
+  template <class Executor>
+  void on_success(Executor& executor) const
+  {
+    std::error_code error_code;
+    m_owner->assign_and_resume(executor.proc_info.hProcess, executor.proc_info.hThread, error_code);
+    if (error_code) {
+      executor.set_error(error_code, "cannot own WebTTY process before execution");
+    }
+  }
+#else
+  template <class Executor>
+  void on_exec_setup(Executor& executor) const
+  {
+    if (!m_using_pty && ::setpgid(0, 0) != 0) {
+      executor.set_error(std::error_code(errno, std::system_category()), "setpgid() failed");
+    }
+  }
+#endif
+ private:
+  [[maybe_unused]] std::shared_ptr<group> m_owner;
+  [[maybe_unused]] bool m_using_pty;
+};
+
+void request_termination(const boost::process::child& child, group& owner, bool using_pty, bool force, std::error_code& error_code);
+
+#ifndef _WIN32
+bool recover_exit(boost::process::child& child, group& owner, std::error_code& error_code);
+#endif
+
 template <typename... Args>
-std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&... args);
+std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const std::shared_ptr<group>& owner, Args&&... args);
 
 namespace pty {
 
@@ -95,7 +156,7 @@ class handler : public boost::process::detail::posix::handler_base_ext, public b
 #endif
 
 template <typename... Args>
-std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&... args)
+std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const std::shared_ptr<group>& owner, Args&&... args)
 {
   std::shared_ptr<boost::process::child> child = nullptr;
   if (stream_ptr->backend() == stream::backend::tty) {
@@ -105,11 +166,11 @@ std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&
     if (error_code) {
       throw std::system_error(error_code);
     }
-    child = std::make_shared<boost::process::child>(pty::handler(stream_ptr_pty), std::forward<Args>(args)...);
+    child = std::make_shared<boost::process::child>(pty::handler(stream_ptr_pty), group_handler(owner, true), std::forward<Args>(args)...);
   }
   else {
     auto stream_ptr_pipe = std::dynamic_pointer_cast<stream::pipe>(stream_ptr);
-    child                = std::make_shared<boost::process::child>(boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
+    child                = std::make_shared<boost::process::child>(group_handler(owner, false), boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
                                                                    boost::process::std_err > stream_ptr_pipe->stream(stream::type::std_err),
                                                                    boost::process::std_in < stream_ptr_pipe->stream(stream::type::std_in),
                                                                    std::forward<Args>(args)...);

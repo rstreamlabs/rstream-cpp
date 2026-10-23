@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -957,6 +958,54 @@ static void check_websocket_server_e2e_rejects_unauthorized_client_proof()
   assert(rejected);
 }
 
+static void check_websocket_server_termination_keeps_final_output_and_result(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, port);
+  write_message(socket, open_message({"/bin/sh", "-c", "trap 'printf final-out; printf final-err >&2; exit 23' INT; printf ready; while :; do :; done"}));
+  auto ack = read_message(socket);
+  assert(ack && ack->has_ack());
+  bool termination_requested = false;
+  bool stdout_eos            = false;
+  bool stderr_eos            = false;
+  std::string stdout_data;
+  std::string stderr_data;
+  while (true) {
+    auto message = read_message(socket);
+    assert(message);
+    if (message->has_data()) {
+      const auto& data = message->data();
+      if (data.type() == protobuf::Data::TYPE_STDOUT) {
+        stdout_data += data.data();
+        stdout_eos = stdout_eos || data.has_eos();
+      }
+      else if (data.type() == protobuf::Data::TYPE_STDERR) {
+        stderr_data += data.data();
+        stderr_eos = stderr_eos || data.has_eos();
+      }
+      if (!termination_requested && stdout_data == "ready") {
+        protobuf::Message request;
+        request.mutable_terminate();
+        write_message(socket, request);
+        write_message(socket, request);
+        termination_requested = true;
+      }
+    }
+    else if (message->has_close()) {
+      assert(termination_requested);
+      assert(message->close().return_code() == 23);
+      assert(stdout_data == "readyfinal-out");
+      assert(stderr_data == "final-err");
+      assert(stdout_eos && stderr_eos);
+      assert(std::find(ack->ack().capabilities().begin(), ack->ack().capabilities().end(), protobuf::SESSION_CAPABILITY_TERMINATE) != ack->ack().capabilities().end());
+      return;
+    }
+    else {
+      assert(message->has_heartbeat());
+    }
+  }
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -964,6 +1013,7 @@ int main(int argc, char** argv)
   websocket_webtty_server server;
   server.start();
   check_websocket_server_runs_child_and_closes_normally(server.port());
+  check_websocket_server_termination_keeps_final_output_and_result(server.port());
   check_websocket_server_reports_child_exit_without_stdin_eos(server.port());
   check_websocket_server_cancel_gracefully_closes_tty();
   check_websocket_server_e2e_forwards_stdin_and_closes_normally();

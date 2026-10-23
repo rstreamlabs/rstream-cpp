@@ -1,7 +1,9 @@
 // See LICENSE file in the project root for license information.
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <ctime>
 #include <exception>
@@ -569,7 +571,7 @@ static void check_plain_server_runs_child_and_streams_stdout_stderr(unsigned sho
       case protobuf::Message::PayloadCase::kHeartbeat:
         break;
       default:
-        std::cerr << "unexpected webtty message type: " << message.payload_case() << std::endl;
+        std::cerr << "unexpected webtty message type: " << message.payload_case() << ", error: " << message.error().msg() << std::endl;
         assert(false);
         break;
     }
@@ -613,6 +615,53 @@ static void check_plain_server_cancel_interrupts_final_frame_wait()
   const auto bytes = socket.read_some(boost::asio::buffer(&byte, sizeof(byte)), error_code);
   assert(bytes == 0);
   assert(error_code == boost::asio::error::eof || error_code == boost::asio::error::connection_reset);
+}
+
+static void check_plain_server_termination_keeps_final_output_and_result(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, port);
+  write_message(socket, open_message({"/bin/sh", "-c", "trap 'printf final-out; printf final-err >&2; exit 23' INT; printf ready; while :; do :; done"}));
+  auto ack = read_message(socket);
+  assert(ack.has_ack());
+  bool termination_requested = false;
+  bool stdout_eos            = false;
+  bool stderr_eos            = false;
+  std::string stdout_data;
+  std::string stderr_data;
+  while (true) {
+    auto message = read_message(socket);
+    if (message.has_data()) {
+      const auto& data = message.data();
+      if (data.type() == protobuf::Data::TYPE_STDOUT) {
+        stdout_data += data.data();
+        stdout_eos = stdout_eos || data.has_eos();
+      }
+      else if (data.type() == protobuf::Data::TYPE_STDERR) {
+        stderr_data += data.data();
+        stderr_eos = stderr_eos || data.has_eos();
+      }
+      if (!termination_requested && stdout_data == "ready") {
+        protobuf::Message request;
+        request.mutable_terminate();
+        write_message(socket, request);
+        write_message(socket, request);
+        termination_requested = true;
+      }
+    }
+    else if (message.has_close()) {
+      assert(termination_requested);
+      assert(message.close().return_code() == 23);
+      assert(stdout_data == "readyfinal-out");
+      assert(stderr_data == "final-err");
+      assert(stdout_eos && stderr_eos);
+      assert(std::find(ack.ack().capabilities().begin(), ack.ack().capabilities().end(), protobuf::SESSION_CAPABILITY_TERMINATE) != ack.ack().capabilities().end());
+      return;
+    }
+    else {
+      assert(message.has_heartbeat());
+    }
+  }
 }
 
 static void check_plain_server_bounds_final_frame_wait()
@@ -1266,15 +1315,111 @@ static void run_check(const char* name, check_type&& check)
   }
 }
 
+static int run_termination_parent(unsigned short monitor_port, const std::string& mode)
+{
+  sigset_t blocked;
+  sigemptyset(&blocked);
+  sigaddset(&blocked, SIGINT);
+  assert(sigprocmask(SIG_BLOCK, &blocked, nullptr) == 0);
+  int readiness[2]{};
+  assert(pipe(readiness) == 0);
+  const auto pid = fork();
+  assert(pid >= 0);
+  if (pid == 0) {
+    close(readiness[0]);
+    assert(signal(SIGINT, SIG_IGN) != SIG_ERR);
+    assert(sigprocmask(SIG_UNBLOCK, &blocked, nullptr) == 0);
+    if (mode == "quiet") {
+      close(STDOUT_FILENO);
+      close(STDERR_FILENO);
+    }
+    boost::asio::io_context monitor_context;
+    tcp::socket monitor(monitor_context);
+    monitor.connect(tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), monitor_port));
+    assert(write(readiness[1], "r", 1) == 1);
+    close(readiness[1]);
+    char release = 0;
+    boost::system::error_code ignored;
+    monitor.read_some(boost::asio::buffer(&release, 1), ignored);
+    _exit(0);
+  }
+  close(readiness[1]);
+  char ready = 0;
+  assert(read(readiness[0], &ready, 1) == 1);
+  close(readiness[0]);
+  std::cout << "parent-ready\n"
+            << std::flush;
+  if (mode == "terminate") {
+    int received = 0;
+    assert(sigwait(&blocked, &received) == 0 && received == SIGINT);
+  }
+  std::cout << "parent-final\n"
+            << std::flush;
+  return 23;
+}
+
+static void check_plain_server_owns_descendants(unsigned short port, const char* executable, const std::string& mode)
+{
+  boost::asio::io_context io_context;
+  tcp::acceptor monitor_acceptor(io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
+  auto socket = connect_with_retry(io_context, port);
+  write_message(socket, open_message({executable, "--termination-parent", std::to_string(monitor_acceptor.local_endpoint().port()), mode}));
+  tcp::socket monitor(io_context);
+  monitor_acceptor.accept(monitor);
+  set_receive_timeout(monitor);
+  std::string output;
+  bool requested  = false;
+  bool stdout_eos = false;
+  bool stderr_eos = false;
+  while (true) {
+    const auto message = read_message(socket);
+    if (message.has_data()) {
+      const auto& data = message.data();
+      if (data.type() == protobuf::Data::TYPE_STDOUT) {
+        output += data.data();
+        stdout_eos = stdout_eos || data.has_eos();
+      }
+      else if (data.type() == protobuf::Data::TYPE_STDERR) {
+        stderr_eos = stderr_eos || data.has_eos();
+      }
+      if (mode == "terminate" && !requested && output.find("parent-ready\n") != std::string::npos) {
+        protobuf::Message request;
+        request.mutable_terminate();
+        write_message(socket, request);
+        write_message(socket, request);
+        requested = true;
+      }
+    }
+    else if (message.has_close()) {
+      assert(message.close().return_code() == 23);
+      assert(stdout_eos && stderr_eos);
+      assert(output == "parent-ready\nparent-final\n");
+      break;
+    }
+    else {
+      assert(message.has_ack() || message.has_heartbeat());
+    }
+  }
+  char released = 0;
+  boost::system::error_code error_code;
+  assert(monitor.read_some(boost::asio::buffer(&released, 1), error_code) == 0);
+  assert(error_code == boost::asio::error::eof);
+}
+
 int main(int argc, char** argv)
 {
-  (void)argc;
-  (void)argv;
+  if (argc == 4 && std::string(argv[1]) == "--termination-parent") {
+    return run_termination_parent(static_cast<unsigned short>(std::stoul(argv[2])), argv[3]);
+  }
   plain_webtty_server server;
   server.start();
   run_check("invalid command", [&server] { check_invalid_command_returns_protocol_error_message(server.port()); });
   run_check("managed attach rejection", [&server] { check_managed_attach_is_rejected(server.port()); });
   run_check("stdout and stderr streaming", [&server] { check_plain_server_runs_child_and_streams_stdout_stderr(server.port()); });
+  run_check("explicit termination result", [&server] { check_plain_server_termination_keeps_final_output_and_result(server.port()); });
+  run_check("explicit termination owns descendants", [&] { check_plain_server_owns_descendants(server.port(), argv[0], "terminate"); });
+  run_check("natural exit owns inherited-pipe descendants", [&] { check_plain_server_owns_descendants(server.port(), argv[0], "natural"); });
+  run_check("natural exit owns quiet descendants", [&] { check_plain_server_owns_descendants(server.port(), argv[0], "quiet"); });
   run_check("cancellation during final frame delivery", check_plain_server_cancel_interrupts_final_frame_wait);
   run_check("bounded final frame delivery", check_plain_server_bounds_final_frame_wait);
   run_check("cancellation during partial open", check_plain_server_cancel_closes_partial_open);

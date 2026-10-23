@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include <boost/asio/async_result.hpp>
 #include <boost/core/noncopyable.hpp>
 
 #include <rstream/core/completion_handler.hpp>
@@ -31,9 +32,25 @@ class client : private boost::noncopyable {
 
   void async_run(async_run_completion_handler&& handler);
 
+  // Sends one capability-checked stop request. Completion confirms the write,
+  // not the process result; async_run still drains output and receives Close.
+  // While connecting, the request waits for Ack. Cancellation before the write
+  // leaves the session open; cancellation during a write closes the transport
+  // because a partially written frame cannot safely be retried.
+  template <typename CompletionToken>
+  auto async_request_termination(CompletionToken&& token)
+  {
+    return boost::asio::async_initiate<CompletionToken, void(const std::error_code&)>(
+        [this](auto&& handler) { request_termination(std::forward<decltype(handler)>(handler)); }, token);
+  }
+
   void cancel();
 
  private:
+  using termination_completion_handler = rstream::core::completion_handler<void(const std::error_code&)>;
+
+  void request_termination(termination_completion_handler&& handler);
+
   class impl;
 
   std::shared_ptr<impl> m_impl;

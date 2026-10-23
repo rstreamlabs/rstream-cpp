@@ -76,8 +76,10 @@ static void check_windows_pty_console_io(const char* executable)
   boost::asio::io_context io_context;
   auto work       = boost::asio::make_work_guard(io_context);
   auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::tty);
-  auto child      = rstream::webtty::detail::process::make_child(
+  auto process_group = std::make_shared<rstream::webtty::detail::process::group>();
+  auto child         = rstream::webtty::detail::process::make_child(
       stream_ptr,
+      process_group,
       boost::process::exe(executable),
       boost::process::args(std::vector<std::string>{"--conpty-console-child"}));
   char buffer[4096]  = {};
@@ -161,8 +163,10 @@ static void check_windows_pty_rejects_overlapping_writes()
 
   const auto command_shell = rstream::core::get_environment_variable("COMSPEC");
   assert(command_shell.has_value());
-  auto child = rstream::webtty::detail::process::make_child(
+  auto process_group = std::make_shared<rstream::webtty::detail::process::group>();
+  auto child         = rstream::webtty::detail::process::make_child(
       stream_ptr,
+      process_group,
       boost::process::exe(*command_shell),
       boost::process::args(std::vector<std::string>{"/d", "/s", "/c", "ping -n 30 127.0.0.1 >nul"}));
 
@@ -208,8 +212,10 @@ static void check_windows_pty_cancel_resize_and_close_are_serialized()
 
   const auto command_shell = rstream::core::get_environment_variable("COMSPEC");
   assert(command_shell.has_value());
-  auto child = rstream::webtty::detail::process::make_child(
+  auto process_group = std::make_shared<rstream::webtty::detail::process::group>();
+  auto child         = rstream::webtty::detail::process::make_child(
       stream_ptr,
+      process_group,
       boost::process::exe(*command_shell),
       boost::process::args(std::vector<std::string>{"/d", "/s", "/c", "ping -n 30 127.0.0.1 >nul"}));
 
@@ -335,8 +341,10 @@ static void check_pty_stream_lifecycle_and_window_size()
   assert(!error_code);
 
   stream_ptr->close();
-  auto child = rstream::webtty::detail::process::make_child(
+  auto process_group = std::make_shared<rstream::webtty::detail::process::group>();
+  auto child         = rstream::webtty::detail::process::make_child(
       stream_ptr,
+      process_group,
       boost::process::exe("/bin/sleep"),
       boost::process::args(std::vector<std::string>{"30"}));
   pty->set_window_size({.m_row = 50, .m_col = 150, .m_xpixel = 0, .m_ypixel = 0}, error_code);
