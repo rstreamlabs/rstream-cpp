@@ -1006,6 +1006,53 @@ static void check_websocket_server_termination_keeps_final_output_and_result(uns
   }
 }
 
+static void check_websocket_server_preserves_other_sessions(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto survivor = connect_with_retry(io_context, port);
+  write_message(survivor, open_message({"/bin/cat"}, true));
+  const auto ack = read_message(survivor);
+  assert(ack && ack->has_ack());
+  const auto echo = [&survivor](const std::string& expected) {
+    std::cerr << "isolation echo: " << expected << std::flush;
+    write_message(survivor, data_message(protobuf::Data::TYPE_STDIN, expected));
+    std::string output;
+    while (output.size() < expected.size()) {
+      const auto message = read_message(survivor);
+      assert(message);
+      assert(message->has_data() || message->has_heartbeat());
+      if (message->has_data()) {
+        assert(message->data().type() == protobuf::Data::TYPE_STDOUT && !message->data().has_eos());
+        output += message->data().data();
+      }
+    }
+    assert(output == expected);
+  };
+  echo("before termination\n");
+  check_websocket_server_termination_keeps_final_output_and_result(port);
+  echo("after termination\n");
+  {
+    auto disconnected = connect_with_retry(io_context, port);
+    write_message(disconnected, open_message({"/bin/cat"}, true));
+    const auto ack = read_message(disconnected);
+    assert(ack && ack->has_ack());
+  }
+  echo("after reader disconnection\n");
+  check_websocket_server_reports_child_exit_without_stdin_eos(port);
+  echo("after new session admission\n");
+  std::cerr << "isolation survivor EOF" << std::endl;
+  write_message(survivor, eos_message(protobuf::Data::TYPE_STDIN));
+  while (true) {
+    const auto message = read_message(survivor);
+    assert(message);
+    if (message->has_close()) {
+      assert(message->close().return_code() == 0);
+      return;
+    }
+    assert(message->has_data() || message->has_heartbeat());
+  }
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -1029,6 +1076,7 @@ int main(int argc, char** argv)
   };
   check("normal child exit", [&] { check_websocket_server_runs_child_and_closes_normally(server.port()); });
   check("explicit termination", [&] { check_websocket_server_termination_keeps_final_output_and_result(server.port()); });
+  check("active session isolation and new admission", [&] { check_websocket_server_preserves_other_sessions(server.port()); });
   check("child exit without stdin EOF", [&] { check_websocket_server_reports_child_exit_without_stdin_eos(server.port()); });
   check("server cancellation with PTY", check_websocket_server_cancel_gracefully_closes_tty);
   check("E2E stdin", check_websocket_server_e2e_forwards_stdin_and_closes_normally);

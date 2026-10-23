@@ -512,6 +512,13 @@ This ownership does not create a Unix sandbox for descendants that deliberately
 leave the process group. Managed readers must also check the Engine's
 `explicit_termination` capability and obtain control before requesting a stop.
 
+On Unix, child commands inherit only their redirected standard input, output
+and error. Other open descriptors in the server are closed in the child before
+execution, for both pipe and PTY sessions. This keeps a command from retaining
+another session's pipes, client connections or the persistent server's listener.
+Stopping or disconnecting a session leaves other sessions and new admission
+available on that server.
+
 `rstream-runpy` and `rstream-gping` are available when Python bindings are enabled, and `rstream-inspect` is built in Debug configurations.
 
 ## rstream-tunnel command examples

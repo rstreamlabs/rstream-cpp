@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -25,8 +26,10 @@
 #include <boost/asio/write.hpp>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <openssl/sha.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <rstream/test/time.hpp>
 #include <rstream/webtty/error.hpp>
@@ -1407,8 +1410,86 @@ static void check_plain_server_owns_descendants(unsigned short port, const char*
   assert(error_code == boost::asio::error::eof);
 }
 
+static void check_child_does_not_inherit_server_descriptors(unsigned short port, const char* executable)
+{
+  for (const auto allocate_tty : {false, true}) {
+    const auto original = ::open("/dev/null", O_RDONLY);
+    assert(original >= 0);
+    const auto descriptor = ::fcntl(original, F_DUPFD, 64);
+    ::close(original);
+    assert(descriptor >= 64 && ::fcntl(descriptor, F_GETFD) == 0);
+    boost::asio::io_context io_context;
+    auto socket = connect_with_retry(io_context, port);
+    auto open   = open_message({executable, "--check-inherited-descriptor", std::to_string(descriptor)});
+    open.mutable_open()->mutable_config()->mutable_options()->set_allocate_tty(allocate_tty);
+    write_message(socket, open);
+    const auto ack = read_message(socket);
+    ::close(descriptor);
+    assert(ack.has_ack());
+    while (true) {
+      const auto message = read_message(socket);
+      if (message.has_close()) {
+        assert(message.close().return_code() == 0);
+        break;
+      }
+      assert(message.has_data() || message.has_heartbeat());
+    }
+  }
+}
+
+static void check_plain_server_preserves_other_sessions(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto survivor = connect_with_retry(io_context, port);
+  write_message(survivor, open_message({"/bin/cat"}, true));
+  const auto ack = read_message(survivor);
+  assert(ack.has_ack());
+  const auto echo = [&survivor](const std::string& expected) {
+    std::cerr << "isolation echo: " << expected << std::flush;
+    write_message(survivor, data_message(protobuf::Data::TYPE_STDIN, expected));
+    std::string output;
+    while (output.size() < expected.size()) {
+      const auto message = read_message(survivor);
+      assert(message.has_data() || message.has_heartbeat());
+      if (message.has_data()) {
+        assert(message.data().type() == protobuf::Data::TYPE_STDOUT && !message.data().has_eos());
+        output += message.data().data();
+      }
+    }
+    assert(output == expected);
+  };
+  echo("before termination\n");
+  check_plain_server_termination_keeps_final_output_and_result(port);
+  echo("after termination\n");
+  {
+    auto disconnected = connect_with_retry(io_context, port);
+    write_message(disconnected, open_message({"/bin/cat"}, true));
+    const auto ack = read_message(disconnected);
+    assert(ack.has_ack());
+  }
+  echo("after reader disconnection\n");
+  check_plain_server_reports_child_exit_without_stdin_eos(port);
+  echo("after new session admission\n");
+  std::cerr << "isolation survivor EOF" << std::endl;
+  write_message(survivor, eos_message(protobuf::Data::TYPE_STDIN));
+  while (true) {
+    const auto message = read_message(survivor);
+    if (message.has_close()) {
+      assert(message.close().return_code() == 0);
+      return;
+    }
+    assert(message.has_data() || message.has_heartbeat());
+  }
+}
+
 int main(int argc, char** argv)
 {
+  if (argc == 3 && std::string(argv[1]) == "--check-inherited-descriptor") {
+    if (::fcntl(std::stoi(argv[2]), F_GETFD) != -1 || errno != EBADF) {
+      return 31;
+    }
+    return ::fcntl(STDIN_FILENO, F_GETFD) >= 0 && ::fcntl(STDOUT_FILENO, F_GETFD) >= 0 && ::fcntl(STDERR_FILENO, F_GETFD) >= 0 ? 0 : 32;
+  }
   if (argc == 4 && std::string(argv[1]) == "--termination-parent") {
     return run_termination_parent(static_cast<unsigned short>(std::stoul(argv[2])), argv[3]);
   }
@@ -1418,6 +1499,8 @@ int main(int argc, char** argv)
   run_check("managed attach rejection", [&server] { check_managed_attach_is_rejected(server.port()); });
   run_check("stdout and stderr streaming", [&server] { check_plain_server_runs_child_and_streams_stdout_stderr(server.port()); });
   run_check("explicit termination result", [&server] { check_plain_server_termination_keeps_final_output_and_result(server.port()); });
+  run_check("active session isolation and new admission", [&] { check_plain_server_preserves_other_sessions(server.port()); });
+  run_check("pipe and PTY descriptor isolation", [&] { check_child_does_not_inherit_server_descriptors(server.port(), argv[0]); });
   run_check("explicit termination owns descendants", [&] { check_plain_server_owns_descendants(server.port(), argv[0], "terminate"); });
   run_check("natural exit owns inherited-pipe descendants", [&] { check_plain_server_owns_descendants(server.port(), argv[0], "natural"); });
   run_check("natural exit owns quiet descendants", [&] { check_plain_server_owns_descendants(server.port(), argv[0], "quiet"); });

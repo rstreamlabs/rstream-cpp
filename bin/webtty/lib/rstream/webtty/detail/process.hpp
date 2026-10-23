@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -20,9 +21,11 @@
 
 #if __has_include(<boost/process/v1/child.hpp>)
 #include <boost/process/v1/child.hpp>
+#include <boost/process/v1/handles.hpp>
 #include <boost/process/v1/io.hpp>
 #else
 #include <boost/process/child.hpp>
+#include <boost/process/handles.hpp>
 #include <boost/process/io.hpp>
 #endif
 
@@ -105,7 +108,11 @@ std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const 
 
 namespace pty {
 
+#ifdef _WIN32
 class handler : public boost::process::extend::handler {
+#else
+class handler : public boost::process::extend::handler, public boost::process::detail::uses_handles {
+#endif
  public:
   handler(std::shared_ptr<stream::pty> stream_ptr);
 
@@ -121,6 +128,8 @@ class handler : public boost::process::extend::handler {
   void on_success(boost::process::extend::windows_executor<Char, Sequence>& executor) const;
 
 #else
+
+  std::array<int, 3> get_used_handles() const { return {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO}; }
 
   template <class Executor>
   void on_exec_setup(Executor& executor) const;
@@ -140,7 +149,7 @@ class handler : public boost::process::extend::handler {
 
 namespace uid {
 
-class handler : public boost::process::detail::posix::handler_base_ext, public boost::process::detail::uses_handles {
+class handler : public boost::process::detail::posix::handler_base_ext {
  public:
   handler(const protocol::user_info& user_info);
 
@@ -156,6 +165,18 @@ class handler : public boost::process::detail::posix::handler_base_ext, public b
 #endif
 
 template <typename... Args>
+std::shared_ptr<boost::process::child> make_child_process(Args&&... args)
+{
+#ifdef _WIN32
+  return std::make_shared<boost::process::child>(std::forward<Args>(args)...);
+#else
+  // Run after stdio/PTY redirection; keep only explicitly used descriptors.
+  // Other sessions' pipes and sockets must not keep each other alive.
+  return std::make_shared<boost::process::child>(std::forward<Args>(args)..., boost::process::limit_handles);
+#endif
+}
+
+template <typename... Args>
 std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const std::shared_ptr<group>& owner, Args&&... args)
 {
   std::shared_ptr<boost::process::child> child = nullptr;
@@ -166,14 +187,13 @@ std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const 
     if (error_code) {
       throw std::system_error(error_code);
     }
-    child = std::make_shared<boost::process::child>(pty::handler(stream_ptr_pty), group_handler(owner, true), std::forward<Args>(args)...);
+    child = make_child_process(pty::handler(stream_ptr_pty), group_handler(owner, true), std::forward<Args>(args)...);
   }
   else {
     auto stream_ptr_pipe = std::dynamic_pointer_cast<stream::pipe>(stream_ptr);
-    child                = std::make_shared<boost::process::child>(group_handler(owner, false), boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
-                                                                   boost::process::std_err > stream_ptr_pipe->stream(stream::type::std_err),
-                                                                   boost::process::std_in < stream_ptr_pipe->stream(stream::type::std_in),
-                                                                   std::forward<Args>(args)...);
+    child                = make_child_process(group_handler(owner, false), boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
+                                              boost::process::std_err > stream_ptr_pipe->stream(stream::type::std_err),
+                                              boost::process::std_in < stream_ptr_pipe->stream(stream::type::std_in), std::forward<Args>(args)...);
   }
   return child;
 }
