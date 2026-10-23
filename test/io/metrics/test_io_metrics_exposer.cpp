@@ -15,7 +15,6 @@
 #include <thread>
 #include <type_traits>
 
-#include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
@@ -43,9 +42,8 @@ static unsigned short unused_tcp_port()
 static boost::beast::http::response<boost::beast::http::string_body> request(unsigned short port, boost::beast::http::verb verb, const std::string& target)
 {
   boost::asio::io_context io_context;
-  tcp::resolver resolver(io_context);
   tcp::socket socket(io_context);
-  boost::asio::connect(socket, resolver.resolve("127.0.0.1", std::to_string(port)));
+  socket.connect(tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), port));
 
   boost::beast::http::request<boost::beast::http::string_body> req{verb, target, 11};
   req.set(boost::beast::http::field::host, "127.0.0.1");

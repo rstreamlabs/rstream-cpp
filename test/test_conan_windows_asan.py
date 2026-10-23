@@ -99,6 +99,7 @@ class WindowsAsanRequirementTest(unittest.TestCase):
             result = subprocess.run(
                 [
                     "cmake",
+                    "-G", "Ninja",
                     "-S", str(path),
                     "-B", str(path / "build"),
                     "-DCMAKE_TOOLCHAIN_FILE=" + str(path / "toolchain.cmake"),
