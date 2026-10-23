@@ -663,7 +663,7 @@ static void check_websocket_server_cancel_gracefully_closes_tty()
   }
 
   const auto stop_started = std::chrono::steady_clock::now();
-  std::thread stopper([&server] { server.stop(); });
+  std::jthread stopper([&server] { server.stop(); });
   bool saw_close = false;
   while (!saw_close) {
     auto message = read_message(websocket);
@@ -1010,17 +1010,32 @@ int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  auto sink = std::make_shared<capture_log_sink>();
+  rstream::core::log::subscribe(sink);
   websocket_webtty_server server;
   server.start();
-  check_websocket_server_runs_child_and_closes_normally(server.port());
-  check_websocket_server_termination_keeps_final_output_and_result(server.port());
-  check_websocket_server_reports_child_exit_without_stdin_eos(server.port());
-  check_websocket_server_cancel_gracefully_closes_tty();
-  check_websocket_server_e2e_forwards_stdin_and_closes_normally();
-  check_websocket_server_e2e_accepts_client_credential_verifier();
-  check_websocket_server_logs_audit_fields_for_authenticated_e2e_session();
-  check_websocket_server_e2e_rejects_missing_client_proof();
-  check_websocket_server_e2e_rejects_expired_client_proof();
-  check_websocket_server_e2e_rejects_unauthorized_client_proof();
+  const auto check = [&sink](const char* name, auto&& run) {
+    std::cerr << "checking " << name << std::endl;
+    try {
+      run();
+    }
+    catch (const std::exception& exception) {
+      std::cerr << name << ": " << exception.what() << std::endl;
+      for (const auto& message : sink->messages()) {
+        std::cerr << message << std::endl;
+      }
+      throw;
+    }
+  };
+  check("normal child exit", [&] { check_websocket_server_runs_child_and_closes_normally(server.port()); });
+  check("explicit termination", [&] { check_websocket_server_termination_keeps_final_output_and_result(server.port()); });
+  check("child exit without stdin EOF", [&] { check_websocket_server_reports_child_exit_without_stdin_eos(server.port()); });
+  check("server cancellation with PTY", check_websocket_server_cancel_gracefully_closes_tty);
+  check("E2E stdin", check_websocket_server_e2e_forwards_stdin_and_closes_normally);
+  check("client credential", check_websocket_server_e2e_accepts_client_credential_verifier);
+  check("audit fields", check_websocket_server_logs_audit_fields_for_authenticated_e2e_session);
+  check("missing client proof", check_websocket_server_e2e_rejects_missing_client_proof);
+  check("expired client proof", check_websocket_server_e2e_rejects_expired_client_proof);
+  check("unauthorized client proof", check_websocket_server_e2e_rejects_unauthorized_client_proof);
   return 0;
 }

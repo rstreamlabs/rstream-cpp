@@ -727,7 +727,7 @@ static void check_plain_server_handles_simultaneous_peer_and_server_shutdown()
     while (read_message(socket).payload_case() != protobuf::Message::PayloadCase::kClose) {
     }
 
-    std::thread stopper([&server] { server.stop(); });
+    std::jthread stopper([&server] { server.stop(); });
     boost::system::error_code ignored;
     socket.shutdown(tcp::socket::shutdown_both, ignored);
     socket.close(ignored);
@@ -1211,7 +1211,7 @@ static void check_plain_server_cancel_gracefully_closes_tty()
   }
 
   const auto stop_started = std::chrono::steady_clock::now();
-  std::thread stopper([&server] { server.stop(); });
+  std::jthread stopper([&server] { server.stop(); });
   bool saw_close = false;
   while (!saw_close) {
     auto message = read_message(socket);
@@ -1306,6 +1306,7 @@ static void check_plain_server_completes_rapid_multithreaded_child_exits()
 template <typename check_type>
 static void run_check(const char* name, check_type&& check)
 {
+  std::cerr << "checking " << name << std::endl;
   try {
     std::forward<check_type>(check)();
   }
