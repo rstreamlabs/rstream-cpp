@@ -577,7 +577,7 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   void cancel_resources();
 
-  void close_resources();
+  bool close_resources();
 
   void do_read_http_request();
 
@@ -639,6 +639,12 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   void on_child_exit(const std::error_code& error_code, int code);
 
+  void request_termination();
+
+  void arm_termination_timer(bool forced);
+
+  void on_termination_timeout(const std::error_code& error_code, bool forced);
+
   void do_close_websocket();
 
   void on_close_websocket(const std::error_code& error_code);
@@ -691,7 +697,11 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
 
   child_ptr_type m_child;
 
+  std::shared_ptr<detail::process::group> m_process_group;
+
   boost::asio::steady_timer m_child_exit_timer;
+
+  boost::asio::steady_timer m_termination_timer;
 
   boost::beast::http::request<boost::beast::http::string_body> m_http_request;
 
@@ -718,6 +728,8 @@ class RSTREAM_GNUC_INTERNAL server::impl::session : public std::enable_shared_fr
   bool m_authenticated = false;
 
   bool m_child_done = false;
+
+  bool m_termination_requested = false;
 
   int m_child_exit_code = 0;
 
@@ -1158,6 +1170,7 @@ server::impl::session::session(const executor_type& executor, socket_type&& sock
       m_buffer_std_err(rstream::core::make_buffer_allocated(m_settings.m_std_err_buffer_size)),
       m_http_buffers_adaptor(core::helpers::mutable_memory_sequence(m_buffer_socket)),
       m_child_exit_timer(executor),
+      m_termination_timer(executor),
       m_protocol_type(protocol_type),
       m_accepted_at(std::chrono::steady_clock::now())
 {
@@ -1269,11 +1282,13 @@ void server::impl::session::log_session_closed(const std::error_code& error_code
          << ", opened: " << m_opened
          << ", authenticated: " << m_authenticated
          << ", child_done: " << m_child_done
-         << ", exit_code: " << m_child_exit_code
          << ", e2e: " << (m_settings.m_payload_crypto_resolver != nullptr)
          << ", client_proof_required: " << m_settings.m_require_client_proof
          << ", execution_mode: " << execution_mode_string(m_settings.m_execution_mode)
          << ", error_code: " << (error_code ? error_code.message() : "none");
+  if (m_child_done) {
+    fields << ", exit_code: " << m_child_exit_code;
+  }
   append("reason_code", session_error_reason_code(error_code));
   append("workspace_id", m_settings.m_workspace_id);
   append("project_id", m_settings.m_project_id);
@@ -1358,7 +1373,7 @@ void server::impl::session::cancel_internal(const std::error_code& error_code)
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  auto cause = error_code ? error_code : error::code::operation_aborted;
+  auto cause         = error_code ? error_code : error::code::operation_aborted;
   m_cancel_requested = true;
   if (!m_error_code) {
     m_error_code = cause;
@@ -1385,6 +1400,9 @@ void server::impl::session::on_error(const std::error_code& error_code)
   if (!error_code) {
     return;
   }
+  if (m_cancel_requested && m_state != state::disconnected && error_code != m_error_code) {
+    m_logger->debug("session shutdown error [error_code: {}, error_category: {}, error_value: {}]", error_code.message(), error_code.category().name(), error_code.value());
+  }
   on_close(error_code);
 }
 
@@ -1396,33 +1414,11 @@ void server::impl::session::do_close(const std::error_code& error_code)
   if (m_state != state::connected || !error_code) {
     return;
   }
-#ifdef _WIN32
-  auto do_kill = [child = m_child](int signal, std::error_code& error_code) {
-    if (child->valid() && child->running(error_code)) {
-      if (!error_code) {
-        ::TerminateProcess(child->native_handle(), signal);
-      }
-    }
-  };
-#else
-  auto do_kill = [child = m_child](int signal, std::error_code& error_code) {
-    if (child->valid() && child->running(error_code)) {
-      if (!error_code) {
-        ::kill(child->native_handle(), signal);
-      }
-    }
-  };
-#endif
   arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   std::error_code ec;
-#ifdef _WIN32
-  m_logger->debug("terminating child during session shutdown");
-  do_kill(CTRL_C_EVENT, ec);
-#else
-  const auto signal = m_stream_ptr && m_stream_ptr->backend() == stream::backend::tty ? SIGHUP : SIGINT;
-  m_logger->debug("sending {} to child", signal == SIGHUP ? "SIGHUP" : "SIGINT");
-  do_kill(signal, ec);
-#endif
+  if (!m_child_done) {
+    detail::process::request_termination(*m_child, *m_process_group, m_stream_ptr->backend() == stream::backend::tty, false, ec);
+  }
   if (ec) {
     on_error(ec);
   }
@@ -1436,7 +1432,7 @@ void server::impl::session::on_close(const std::error_code& error_code)
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  auto cause = m_error_code ? m_error_code : error_code;
+  auto cause    = m_error_code ? m_error_code : error_code;
   m_close_cause = cause;
   set_state(state::disconnected);
   // The queue's active cancellation slot refers to the transport's reactor
@@ -1452,7 +1448,15 @@ void server::impl::session::on_queue_cancelled(const boost::system::error_code& 
   assert(m_strand.running_in_this_thread());
 #endif
   (void)error_code;
-  close_resources();
+  if (!close_resources()) {
+    m_child_exit_timer.expires_after(child_exit_poll_interval);
+    m_child_exit_timer.async_wait(boost::asio::bind_executor(m_strand, [self = shared_from_this()](const boost::system::error_code& error_code) {
+      if (!error_code) {
+        self->on_queue_cancelled({});
+      }
+    }));
+    return;
+  }
   log_session_closed(m_close_cause);
   if (m_handler) {
     rstream::core::invoke_completion_handler(m_executor, std::move(m_handler), m_close_cause);
@@ -1477,31 +1481,54 @@ void server::impl::session::cancel_resources()
     m_stream_ptr->close();
   }
   m_child_exit_timer.cancel();
+  m_termination_timer.cancel();
   if (m_child) {
     if (!m_child_done) {
-      boost::system::error_code tmp;
-      m_child->terminate(tmp);
+      std::error_code group_error;
+      detail::process::request_termination(*m_child, *m_process_group, m_stream_ptr->backend() == stream::backend::tty, true, group_error);
+      if (group_error) {
+        m_logger->warn("process group cleanup failed [error: {}]", group_error.message());
+      }
     }
   }
 }
 
-void server::impl::session::close_resources()
+bool server::impl::session::close_resources()
 {
 #ifdef DEBUG_BUILD
   assert(m_strand.running_in_this_thread());
 #endif
   if (m_resources_closed) {
-    return;
+    return true;
   }
   cancel_resources();
   if (m_child) {
     if (!m_child_done) {
-      boost::system::error_code ignored;
-      m_child->wait(ignored);
+      std::error_code error_code;
+#ifdef _WIN32
+      const auto exited = !m_child->running(error_code);
+#else
+      const auto exited = detail::process::recover_exit(*m_child, *m_process_group, error_code);
+#endif
+      if (!exited && !error_code) {
+        return false;
+      }
+      if (error_code) {
+        m_logger->warn("process cleanup result unavailable [error: {}]", error_code.message());
+        if (!m_close_cause) {
+          m_close_cause = error_code;
+        }
+      }
+      else {
+        m_child_done      = true;
+        m_child_exit_code = m_child->exit_code();
+      }
     }
     m_child->detach();
   }
+  m_process_group.reset();
   m_resources_closed = true;
+  return true;
 }
 
 void server::impl::session::do_read_http_request()
@@ -1811,8 +1838,10 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
 #endif
           throw std::system_error(error::code::server_error);
         }
+        m_process_group = std::make_shared<detail::process::group>();
 #ifdef _WIN32
         m_child = detail::process::make_child(m_stream_ptr,
+                                              m_process_group,
                                               boost::process::exe(exe_path),
                                               boost::process::args(args),
                                               environment,
@@ -1821,6 +1850,7 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
                                               m_executor.context());
 #else
         m_child = detail::process::make_child(m_stream_ptr,
+                                              m_process_group,
                                               boost::process::exe(exe_path),
                                               boost::process::args(args),
                                               environment,
@@ -1863,7 +1893,7 @@ void server::impl::session::on_open(const protocol::config& protocol_config)
     m_opened = true;
     set_state(state::connected);
     rstream::webtty::protobuf::Message message;
-    message.mutable_ack();
+    message.mutable_ack()->add_capabilities(rstream::webtty::protobuf::SESSION_CAPABILITY_TERMINATE);
     do_send_message(message, loop::null);
     run_loop();
   }
@@ -1999,11 +2029,15 @@ void server::impl::session::recover_child_exit()
     return;
   }
   std::error_code error_code;
-  const auto running = m_child->running(error_code);
+#ifdef _WIN32
+  const auto exited = !m_child->running(error_code);
+#else
+  const auto exited = detail::process::recover_exit(*m_child, *m_process_group, error_code);
+#endif
   if (error_code) {
     on_child_exit(error_code, 0);
   }
-  else if (!running) {
+  else if (exited) {
     on_child_exit({}, m_child->exit_code());
   }
   else {
@@ -2030,6 +2064,7 @@ void server::impl::session::do_send_error(const std::error_code& error_code)
     return;
   }
   log_session_rejected(error_code);
+  m_termination_timer.cancel();
   set_state(state::disconnecting);
   arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
   rstream::webtty::protobuf::Message message;
@@ -2064,6 +2099,7 @@ void server::impl::session::do_send_close(int code)
     return;
   }
   if (m_active_streams.empty()) {
+    m_termination_timer.cancel();
     set_state(state::disconnecting);
     arm_state_timer(m_settings.m_common.m_timeouts_ms.m_close);
     rstream::webtty::protobuf::Message message;
@@ -2402,6 +2438,10 @@ void server::impl::session::on_read_incoming_message(const rstream::webtty::prot
     else if (message_type == payload_type::kError) {
       cancel_internal(error::code::client_error);
     }
+    else if (message_type == payload_type::kTerminate) {
+      request_termination();
+      do_read_messages = true;
+    }
     else if (message_type == payload_type::kData) {
       do_process_data(message.data());
     }
@@ -2512,16 +2552,73 @@ void server::impl::session::on_child_exit(const std::error_code& error_code, int
   if (m_state == state::null || m_state == state::disconnected || m_child_done) {
     return;
   }
-  m_child_done      = true;
-  m_child_exit_code = code;
   m_child_exit_timer.cancel();
-  m_logger->info("child exited [exit_code: {}, error_code: {}]", code, error_code ? error_code.message() : "none");
   if (error_code) {
     do_send_error(error_code);
   }
   else {
+    m_child_done      = true;
+    m_child_exit_code = code;
+    m_logger->info("child exited [exit_code: {}]", code);
+#ifdef _WIN32
+    std::error_code group_error;
+    m_process_group->terminate(group_error);
+    if (group_error) {
+      m_logger->warn("process group cleanup failed [error: {}]", group_error.message());
+    }
+#endif
     do_send_close(code);
   }
+}
+
+void server::impl::session::request_termination()
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (m_state != state::connected || m_child_done || m_termination_requested) {
+    return;
+  }
+  m_termination_requested = true;
+  std::error_code error_code;
+  detail::process::request_termination(*m_child, *m_process_group, m_stream_ptr->backend() == stream::backend::tty, false, error_code);
+  if (error_code) {
+    do_send_error(error_code);
+    return;
+  }
+  arm_termination_timer(false);
+}
+
+void server::impl::session::arm_termination_timer(bool forced)
+{
+  const auto configured = m_settings.m_common.m_timeouts_ms.m_close;
+  const auto grace      = configured == 0 ? 5000U : std::min(configured, 30000U);
+  m_termination_timer.expires_after(std::chrono::milliseconds(grace));
+  auto completion_handler = std::bind(&session::on_termination_timeout, shared_from_this(), std::placeholders::_1, forced);
+  m_termination_timer.async_wait(boost::asio::bind_executor(m_strand, std::move(completion_handler)));
+}
+
+void server::impl::session::on_termination_timeout(const std::error_code& error_code, bool forced)
+{
+#ifdef DEBUG_BUILD
+  assert(m_strand.running_in_this_thread());
+#endif
+  if (error_code || m_state != state::connected) {
+    return;
+  }
+  if (forced) {
+    do_send_error(error::code::operation_timeout);
+    return;
+  }
+  if (!m_child_done) {
+    std::error_code termination_error;
+    detail::process::request_termination(*m_child, *m_process_group, m_stream_ptr->backend() == stream::backend::tty, true, termination_error);
+    if (termination_error) {
+      do_send_error(termination_error);
+      return;
+    }
+  }
+  arm_termination_timer(true);
 }
 
 void server::impl::session::do_close_websocket()
@@ -2621,8 +2718,8 @@ bool server::impl::session::is_message_expected(state state, const rstream::webt
   using payload_type                                                                               = rstream::webtty::protobuf::Message::PayloadCase;
   static const std::map<server::impl::session::state, std::set<payload_type>> compatibility_matrix = {
       {state::connecting, {payload_type::kOpen}},
-      {state::connected, {payload_type::kData, payload_type::kParameter, payload_type::kError, payload_type::kHeartbeat}},
-      {state::disconnecting, {payload_type::kData, payload_type::kParameter, payload_type::kError, payload_type::kHeartbeat}},
+      {state::connected, {payload_type::kData, payload_type::kParameter, payload_type::kError, payload_type::kHeartbeat, payload_type::kTerminate}},
+      {state::disconnecting, {payload_type::kData, payload_type::kParameter, payload_type::kError, payload_type::kHeartbeat, payload_type::kTerminate}},
   };
   const auto& set = compatibility_matrix.find(state)->second;
   return set.find(message.payload_case()) != set.end();

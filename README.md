@@ -490,6 +490,35 @@ Managed attach and control transfer are engine-coordinated capabilities. The
 C++ WebTTY server accepts direct `Open` sessions and rejects `Attach` handshakes
 with a clear protocol error instead of attempting local multi-user routing.
 
+The client exposes `async_request_termination(token)` to request that the native
+process stop while continuing to receive its final output. It checks the
+server's advertised capability and reports `termination_unsupported` for an
+older server. Completion of this operation confirms only the request write;
+the `async_run` completion reports the native exit code. A local transport error
+does not establish a remote exit code. `cancel()` remains a local disconnect.
+
+Only one termination write may be pending. Overlapping requests report
+`operation_in_progress`; a repeated request after a successful write completes
+without writing again. The request uses the configured close timeout, capped at
+30 seconds, or five seconds when unset. Cancellation before the write leaves
+the reader connected; cancellation during a write closes the transport because
+a partial protocol frame cannot be retried safely. The completion token's
+executor, allocator and cancellation slot are preserved.
+
+Native termination targets the owned Unix process group or Windows Job Object.
+Unix pipes receive SIGINT and PTYs receive SIGHUP before bounded escalation to
+SIGKILL. Windows terminates the job and reports the actual process status.
+This ownership does not create a Unix sandbox for descendants that deliberately
+leave the process group. Managed readers must also check the Engine's
+`explicit_termination` capability and obtain control before requesting a stop.
+
+On Unix, child commands inherit only their redirected standard input, output
+and error. Other open descriptors in the server are closed in the child before
+execution, for both pipe and PTY sessions. This keeps a command from retaining
+another session's pipes, client connections or the persistent server's listener.
+Stopping or disconnecting a session leaves other sessions and new admission
+available on that server.
+
 `rstream-runpy` and `rstream-gping` are available when Python bindings are enabled, and `rstream-inspect` is built in Debug configurations.
 
 ## rstream-tunnel command examples

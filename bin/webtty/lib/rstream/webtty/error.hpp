@@ -41,6 +41,7 @@ enum class code {
   client_user_disabled,
   unexpected_message,
   unknown_undefined_error,
+  termination_unsupported,
 };
 
 const category& rstream_webtty_error_category() noexcept;

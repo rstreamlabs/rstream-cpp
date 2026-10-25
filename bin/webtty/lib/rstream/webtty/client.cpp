@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -323,6 +324,8 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void async_run(async_run_completion_handler&& handler);
 
+  void request_termination(termination_completion_handler&& handler);
+
   void cancel();
 
  private:
@@ -376,6 +379,16 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   void arm_state_timer(unsigned int timeout_ms);
 
   void async_run_internal(async_run_completion_handler&& handler);
+
+  struct termination_operation;
+
+  void begin_termination(const std::shared_ptr<termination_operation>& operation);
+
+  void send_termination(const std::shared_ptr<termination_operation>& operation);
+
+  void cancel_termination(const std::shared_ptr<termination_operation>& operation, const std::error_code& cause);
+
+  void complete_termination(std::shared_ptr<termination_operation> operation, const std::error_code& error_code, termination_completion_handler handler = {});
 
   void do_resolve_host();
 
@@ -524,6 +537,29 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
   int m_close_code = 0;
 
   bool m_resources_closed = false;
+
+  bool m_can_terminate = false;
+
+  bool m_termination_sent = false;
+
+  std::shared_ptr<termination_operation> m_termination;
+};
+
+struct client::impl::termination_operation {
+  termination_operation(const executor_type& executor, termination_completion_handler&& handler)
+      : m_handler(std::move(handler)),
+        m_timer(executor)
+  {
+  }
+
+  termination_completion_handler m_handler;
+  boost::asio::steady_timer m_timer;
+  boost::asio::cancellation_signal m_cancellation;
+  std::atomic_bool m_cancelled = false;
+  bool m_started               = false;
+  bool m_writing               = false;
+  bool m_completed             = false;
+  std::error_code m_cause;
 };
 
 client::client(const executor_type& executor, const config& config, const settings_client& settings)
@@ -544,6 +580,11 @@ client::~client() noexcept
 void client::async_run(async_run_completion_handler&& handler)
 {
   m_impl->async_run(std::forward<decltype(handler)>(handler));
+}
+
+void client::request_termination(termination_completion_handler&& handler)
+{
+  m_impl->request_termination(std::move(handler));
 }
 
 void client::cancel()
@@ -625,6 +666,124 @@ client::impl::impl(const executor_type& executor, const config& config, const se
 void client::impl::async_run(async_run_completion_handler&& handler)
 {
   boost::asio::dispatch(m_strand, std::bind_front(&impl::async_run_internal, shared_from_this(), std::move(handler)));
+}
+
+void client::impl::request_termination(termination_completion_handler&& handler)
+{
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  auto operation = std::make_shared<termination_operation>(m_executor, std::move(handler));
+  auto slot      = boost::asio::get_associated_cancellation_slot(operation->m_handler);
+  if (slot.is_connected()) {
+    std::weak_ptr<impl> owner                 = shared_from_this();
+    std::weak_ptr<termination_operation> weak = operation;
+    slot.assign([owner, weak](boost::asio::cancellation_type type) {
+      if (type == boost::asio::cancellation_type::none) {
+        return;
+      }
+      auto pending = weak.lock();
+      auto self    = owner.lock();
+      if (pending && self) {
+        pending->m_cancelled = true;
+        boost::asio::dispatch(self->m_strand, [self, pending] { self->cancel_termination(pending, error::code::operation_aborted); });
+      }
+    });
+  }
+  boost::asio::post(m_strand, boost::asio::bind_allocator(allocator, [self = shared_from_this(), operation] { self->begin_termination(operation); }));
+}
+
+void client::impl::begin_termination(const std::shared_ptr<termination_operation>& operation)
+{
+  operation->m_started = true;
+  if (operation->m_completed) {
+    return;
+  }
+  if (operation->m_cancelled) {
+    complete_termination(operation, error::code::operation_aborted);
+    return;
+  }
+  if (m_termination_sent || m_remote_return_code) {
+    complete_termination(operation, {});
+    return;
+  }
+  if (m_state != state::connecting && m_state != state::connected) {
+    complete_termination(operation, error::code::invalid_state);
+    return;
+  }
+  if (m_termination) {
+    complete_termination(operation, std::make_error_code(std::errc::operation_in_progress));
+    return;
+  }
+  m_termination         = operation;
+  const auto configured = m_settings.m_common.m_timeouts_ms.m_close;
+  operation->m_timer.expires_after(std::chrono::milliseconds(configured == 0 ? 5000U : std::min(configured, 30000U)));
+  operation->m_timer.async_wait(boost::asio::bind_executor(m_strand, [self = shared_from_this(), operation](const boost::system::error_code& error_code) {
+    if (!error_code) {
+      self->cancel_termination(operation, error::code::operation_timeout);
+    }
+  }));
+  if (m_state == state::connected) {
+    send_termination(operation);
+  }
+}
+
+void client::impl::send_termination(const std::shared_ptr<termination_operation>& operation)
+{
+  if (operation->m_cancelled) {
+    complete_termination(operation, error::code::operation_aborted);
+    return;
+  }
+  if (!m_can_terminate) {
+    complete_termination(operation, error::code::termination_unsupported);
+    return;
+  }
+  rstream::webtty::protobuf::Message message;
+  message.mutable_terminate();
+  rstream::core::buffer buffer;
+  if (!rstream::core::detail::serialize_protobuf_message(message, buffer)) {
+    complete_termination(operation, error::code::protocol_error);
+    return;
+  }
+  operation->m_writing = true;
+  ++m_pending_messages;
+  auto handler = rstream::core::bind_associated_handler(std::move(operation->m_handler), [self = shared_from_this(), operation](auto& completion, const boost::system::error_code& error_code) {
+    const std::error_code cause = operation->m_cause ? operation->m_cause : std::error_code(error_code);
+    self->m_termination_sent    = !cause;
+    self->complete_termination(operation, cause, std::move(completion));
+    self->on_send_message(cause, loop::null);
+  });
+  m_queue->async_send(buffer, boost::asio::bind_cancellation_slot(operation->m_cancellation.slot(), boost::asio::bind_executor(m_strand, std::move(handler))));
+}
+
+void client::impl::cancel_termination(const std::shared_ptr<termination_operation>& operation, const std::error_code& cause)
+{
+  if (operation->m_completed || !operation->m_started) {
+    return;
+  }
+  if (!operation->m_writing) {
+    complete_termination(operation, cause);
+    return;
+  }
+  if (!operation->m_cause) {
+    operation->m_cause = cause;
+    operation->m_cancellation.emit(boost::asio::cancellation_type::terminal);
+    on_error(cause);
+  }
+}
+
+void client::impl::complete_termination(std::shared_ptr<termination_operation> operation, const std::error_code& error_code, termination_completion_handler handler)
+{
+  if (operation->m_completed) {
+    return;
+  }
+  operation->m_completed = true;
+  operation->m_timer.cancel();
+  if (m_termination == operation) {
+    m_termination.reset();
+  }
+  if (!handler) {
+    handler = std::move(operation->m_handler);
+  }
+  rstream::core::invoke_completion_handler(m_executor, std::move(handler), error_code);
 }
 
 void client::impl::cancel()
@@ -877,6 +1036,10 @@ void client::impl::on_open()
     return;
   }
   set_state(state::connected);
+  if (m_termination) {
+    auto operation = m_termination;
+    send_termination(operation);
+  }
   run_loop();
 }
 
@@ -949,7 +1112,11 @@ void client::impl::on_close(const std::error_code& error_code, int code)
     cause = m_error_code;
   }
   m_close_cause = cause;
-  m_close_code  = cause ? -1 : code;
+  m_close_code  = m_remote_return_code ? m_remote_return_code.get() : (cause ? -1 : code);
+  if (m_termination && !m_termination->m_writing) {
+    auto operation = m_termination;
+    complete_termination(operation, cause ? cause : error::code::operation_aborted);
+  }
   // Queue cancellation can dereference transport reactor state. Keep the
   // socket alive until the queue confirms that its active write is gone.
   auto completion_handler = std::bind(&client::impl::on_queue_cancelled, shared_from_this(), std::placeholders::_1);
@@ -1485,6 +1652,8 @@ void client::impl::on_read_incoming_message(const rstream::webtty::protobuf::Mes
       }
     }
     else if (message_type == payload_type::kAck) {
+      const auto& capabilities = message.ack().capabilities();
+      m_can_terminate          = std::find(capabilities.begin(), capabilities.end(), rstream::webtty::protobuf::SESSION_CAPABILITY_TERMINATE) != capabilities.end();
       on_open();
     }
     else if (message_type == payload_type::kError) {

@@ -13,14 +13,20 @@
 #include <unistd.h>
 #endif
 
+#include <array>
 #include <memory>
+#include <type_traits>
 #include <vector>
+
+#include <boost/core/noncopyable.hpp>
 
 #if __has_include(<boost/process/v1/child.hpp>)
 #include <boost/process/v1/child.hpp>
+#include <boost/process/v1/handles.hpp>
 #include <boost/process/v1/io.hpp>
 #else
 #include <boost/process/child.hpp>
+#include <boost/process/handles.hpp>
 #include <boost/process/io.hpp>
 #endif
 
@@ -39,12 +45,75 @@ namespace detail {
 
 namespace process {
 
+class group : private boost::noncopyable {
+ public:
+  group();
+  ~group() noexcept;
+  bool released() const noexcept { return m_released; }
+  void release() noexcept { m_released = true; }
+#ifdef _WIN32
+  void assign_and_resume(void* process, void* thread, std::error_code& error_code);
+  void terminate(std::error_code& error_code);
+#endif
+ private:
+  bool m_released = false;
+#ifdef _WIN32
+  void* m_job = nullptr;
+#endif
+};
+
+class group_handler : public boost::process::extend::handler {
+ public:
+  group_handler(const std::shared_ptr<group>& owner, bool using_pty)
+      : m_owner(owner),
+        m_using_pty(using_pty)
+  {
+  }
+#ifdef _WIN32
+  template <class Executor>
+  void on_setup(Executor& executor) const
+  {
+    executor.creation_flags |= CREATE_SUSPENDED;
+  }
+  template <class Executor>
+  void on_success(Executor& executor) const
+  {
+    std::error_code error_code;
+    m_owner->assign_and_resume(executor.proc_info.hProcess, executor.proc_info.hThread, error_code);
+    if (error_code) {
+      executor.set_error(error_code, "cannot own WebTTY process before execution");
+    }
+  }
+#else
+  template <class Executor>
+  void on_exec_setup(Executor& executor) const
+  {
+    if (!m_using_pty && ::setpgid(0, 0) != 0) {
+      executor.set_error(std::error_code(errno, std::system_category()), "setpgid() failed");
+    }
+  }
+#endif
+ private:
+  [[maybe_unused]] std::shared_ptr<group> m_owner;
+  [[maybe_unused]] bool m_using_pty;
+};
+
+void request_termination(const boost::process::child& child, group& owner, bool using_pty, bool force, std::error_code& error_code);
+
+#ifndef _WIN32
+bool recover_exit(boost::process::child& child, group& owner, std::error_code& error_code);
+#endif
+
 template <typename... Args>
-std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&... args);
+std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const std::shared_ptr<group>& owner, Args&&... args);
 
 namespace pty {
 
+#ifdef _WIN32
 class handler : public boost::process::extend::handler {
+#else
+class handler : public boost::process::extend::handler, public boost::process::detail::uses_handles {
+#endif
  public:
   handler(std::shared_ptr<stream::pty> stream_ptr);
 
@@ -60,6 +129,8 @@ class handler : public boost::process::extend::handler {
   void on_success(boost::process::extend::windows_executor<Char, Sequence>& executor) const;
 
 #else
+
+  std::array<int, 3> get_used_handles() const { return {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO}; }
 
   template <class Executor>
   void on_exec_setup(Executor& executor) const;
@@ -79,7 +150,7 @@ class handler : public boost::process::extend::handler {
 
 namespace uid {
 
-class handler : public boost::process::detail::posix::handler_base_ext, public boost::process::detail::uses_handles {
+class handler : public boost::process::detail::posix::handler_base_ext {
  public:
   handler(const protocol::user_info& user_info);
 
@@ -95,7 +166,22 @@ class handler : public boost::process::detail::posix::handler_base_ext, public b
 #endif
 
 template <typename... Args>
-std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&... args)
+std::shared_ptr<boost::process::child> make_child_process(Args&&... args)
+{
+#ifdef _WIN32
+  return std::make_shared<boost::process::child>(std::forward<Args>(args)...);
+#else
+  // Run after stdio/PTY redirection; keep only explicitly used descriptors.
+  // Other sessions' pipes and sockets must not keep each other alive.
+  // Boost stores mutable per-launch state in this property and keeps it by
+  // reference. Never share its global instance between concurrent launches.
+  std::decay_t<decltype(boost::process::limit_handles)> handle_limits;
+  return std::make_shared<boost::process::child>(std::forward<Args>(args)..., handle_limits);
+#endif
+}
+
+template <typename... Args>
+std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, const std::shared_ptr<group>& owner, Args&&... args)
 {
   std::shared_ptr<boost::process::child> child = nullptr;
   if (stream_ptr->backend() == stream::backend::tty) {
@@ -105,14 +191,13 @@ std::shared_ptr<boost::process::child> make_child(stream::ptr stream_ptr, Args&&
     if (error_code) {
       throw std::system_error(error_code);
     }
-    child = std::make_shared<boost::process::child>(pty::handler(stream_ptr_pty), std::forward<Args>(args)...);
+    child = make_child_process(pty::handler(stream_ptr_pty), group_handler(owner, true), std::forward<Args>(args)...);
   }
   else {
     auto stream_ptr_pipe = std::dynamic_pointer_cast<stream::pipe>(stream_ptr);
-    child                = std::make_shared<boost::process::child>(boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
-                                                                   boost::process::std_err > stream_ptr_pipe->stream(stream::type::std_err),
-                                                                   boost::process::std_in < stream_ptr_pipe->stream(stream::type::std_in),
-                                                                   std::forward<Args>(args)...);
+    child                = make_child_process(group_handler(owner, false), boost::process::std_out > stream_ptr_pipe->stream(stream::type::std_out),
+                                              boost::process::std_err > stream_ptr_pipe->stream(stream::type::std_err),
+                                              boost::process::std_in < stream_ptr_pipe->stream(stream::type::std_in), std::forward<Args>(args)...);
   }
   return child;
 }

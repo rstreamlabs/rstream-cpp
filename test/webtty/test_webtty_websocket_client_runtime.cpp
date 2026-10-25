@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <exception>
+#include <future>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -1092,11 +1093,99 @@ static void check_websocket_handshake_obeys_open_deadline()
   assert(io_context.stopped());
 }
 
+static void check_websocket_client_termination(bool supported)
+{
+  fd_capture stdout_capture(STDOUT_FILENO);
+  fd_capture stderr_capture(STDERR_FILENO);
+  boost::asio::io_context peer_context;
+  tcp::acceptor acceptor(peer_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
+  std::promise<void> release_result;
+  auto released     = release_result.get_future();
+  unsigned requests = 0;
+  std::exception_ptr peer_error;
+  std::thread peer([&] {
+    try {
+      websocket::stream<tcp::socket> ws(peer_context);
+      acceptor.accept(ws.next_layer());
+      ws.accept();
+      assert(read_message(ws).has_open());
+      protobuf::Message ack;
+      ack.mutable_ack();
+      if (supported) {
+        ack.mutable_ack()->add_capabilities(protobuf::SESSION_CAPABILITY_TERMINATE);
+      }
+      write_message(ws, ack);
+      do {
+        const auto message = read_message(ws);
+        if (message.has_terminate()) {
+          ++requests;
+        }
+        else {
+          assert(message.has_heartbeat());
+        }
+      } while (released.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready || (supported && requests == 0));
+      write_message(ws, data_message(protobuf::Data::TYPE_STDOUT, "final stdout"));
+      write_message(ws, data_message(protobuf::Data::TYPE_STDERR, "final stderr"));
+      write_message(ws, eos_message(protobuf::Data::TYPE_STDERR));
+      write_message(ws, eos_message(protobuf::Data::TYPE_STDOUT));
+      protobuf::Message close;
+      close.mutable_close()->set_return_code(37);
+      write_message(ws, close);
+    }
+    catch (...) {
+      peer_error = std::current_exception();
+    }
+  });
+  boost::asio::io_context io_context;
+  rstream::webtty::client::config config{};
+  config.m_address                                    = rstream::io::address("127.0.0.1:" + std::to_string(acceptor.local_endpoint().port()));
+  config.m_protocol_config.m_protocol_type            = rstream::webtty::protocol::type::websocket;
+  config.m_protocol_config.m_options.m_send_heartbeat = true;
+  rstream::webtty::settings_client settings{};
+  settings.m_common.m_mtu                     = 1024 * 1024;
+  settings.m_common.m_timeouts_ms.m_open      = rstream::test::timeout_ms(5000);
+  settings.m_common.m_timeouts_ms.m_close     = rstream::test::timeout_ms(5000);
+  settings.m_common.m_timeouts_ms.m_heartbeat = 10;
+  settings.m_std_in_buffer_size               = 1024;
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  std::promise<std::pair<std::error_code, int>> native_result;
+  auto native = native_result.get_future();
+  client.async_run([&](const std::error_code& error, int code) { native_result.set_value({error, code}); });
+  std::promise<std::error_code> request_result;
+  auto request = request_result.get_future();
+  client.async_request_termination([&](const std::error_code& error) { request_result.set_value(error); });
+  std::promise<std::error_code> overlap_result;
+  auto overlap = overlap_result.get_future();
+  client.async_request_termination([&](const std::error_code& error) { overlap_result.set_value(error); });
+  std::thread io_thread([&] { io_context.run(); });
+  assert(overlap.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+  assert(overlap.get() == std::make_error_code(std::errc::operation_in_progress));
+  assert(request.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+  const auto expected = supported ? std::error_code{} : rstream::webtty::error::make_error_code(rstream::webtty::error::code::termination_unsupported);
+  assert(request.get() == expected);
+  assert(native.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout);
+  release_result.set_value();
+  assert(native.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+  const auto [error, code] = native.get();
+  io_thread.join();
+  peer.join();
+  if (peer_error) {
+    std::rethrow_exception(peer_error);
+  }
+  assert(!error);
+  assert(code == 37);
+  assert(requests == (supported ? 1U : 0U));
+  assert(stdout_capture.read_all() == "final stdout");
+  assert(stderr_capture.read_all() == "final stderr");
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
   check_websocket_handshake_obeys_open_deadline();
+  check_websocket_client_termination(true);
+  check_websocket_client_termination(false);
   check_websocket_client_sends_open_stdin_eos_and_heartbeat();
   check_websocket_client_e2e_sends_encrypted_stdin();
   check_websocket_client_accepts_remote_exit_during_stdin_shutdown(true);

@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -13,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -103,10 +105,10 @@ class capture_log_sink : public spdlog::sinks::sink {
   std::vector<std::string> m_messages;
 };
 
-static std::optional<std::string> find_log_message(const std::shared_ptr<capture_log_sink>& sink, const std::string& needle)
+static std::optional<std::string> find_log_message(const std::shared_ptr<capture_log_sink>& sink, const std::string& needle, const std::string& session)
 {
   for (const auto& message : sink->messages()) {
-    if (message.find(needle) != std::string::npos) {
+    if (message.find(needle) != std::string::npos && message.find(session) != std::string::npos) {
       return message;
     }
   }
@@ -662,11 +664,14 @@ static void check_websocket_server_cancel_gracefully_closes_tty()
   }
 
   const auto stop_started = std::chrono::steady_clock::now();
-  std::thread stopper([&server] { server.stop(); });
+  std::jthread stopper([&server] { server.stop(); });
   bool saw_close = false;
   while (!saw_close) {
     auto message = read_message(websocket);
     assert(message);
+    if (message->has_error()) {
+      throw std::runtime_error("graceful tty cancellation: " + message->error().msg());
+    }
     saw_close = message->payload_case() == protobuf::Message::PayloadCase::kClose;
   }
   stopper.join();
@@ -838,7 +843,7 @@ static void check_websocket_server_logs_audit_fields_for_authenticated_e2e_sessi
   websocket.close();
   server.stop();
 
-  const auto accepted = find_log_message(sink, "session accepted");
+  const auto accepted = find_log_message(sink, "session accepted", "server_id: server-log-test");
   assert(accepted);
   for (const auto& field : {
            "workspace_id: workspace-log-test",
@@ -853,7 +858,11 @@ static void check_websocket_server_logs_audit_fields_for_authenticated_e2e_sessi
     assert_log_contains(*accepted, field);
   }
 
-  const auto closed = find_log_message(sink, "session closed");
+  const auto session_begin = accepted->find("session_id: ");
+  assert(session_begin != std::string::npos);
+  const auto session_end = accepted->find(',', session_begin);
+  assert(session_end != std::string::npos);
+  const auto closed = find_log_message(sink, "session closed", accepted->substr(session_begin, session_end - session_begin));
   assert(closed);
   for (const auto& field : {
            "workspace_id: workspace-log-test",
@@ -957,20 +966,132 @@ static void check_websocket_server_e2e_rejects_unauthorized_client_proof()
   assert(rejected);
 }
 
+static void check_websocket_server_termination_keeps_final_output_and_result(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto socket = connect_with_retry(io_context, port);
+  write_message(socket, open_message({"/bin/sh", "-c", "trap 'printf final-out; printf final-err >&2; exit 23' INT; printf ready; while :; do :; done"}));
+  auto ack = read_message(socket);
+  assert(ack && ack->has_ack());
+  bool termination_requested = false;
+  bool stdout_eos            = false;
+  bool stderr_eos            = false;
+  std::string stdout_data;
+  std::string stderr_data;
+  while (true) {
+    auto message = read_message(socket);
+    assert(message);
+    if (message->has_data()) {
+      const auto& data = message->data();
+      if (data.type() == protobuf::Data::TYPE_STDOUT) {
+        stdout_data += data.data();
+        stdout_eos = stdout_eos || data.has_eos();
+      }
+      else if (data.type() == protobuf::Data::TYPE_STDERR) {
+        stderr_data += data.data();
+        stderr_eos = stderr_eos || data.has_eos();
+      }
+      if (!termination_requested && stdout_data == "ready") {
+        protobuf::Message request;
+        request.mutable_terminate();
+        write_message(socket, request);
+        write_message(socket, request);
+        termination_requested = true;
+      }
+    }
+    else if (message->has_close()) {
+      assert(termination_requested);
+      assert(message->close().return_code() == 23);
+      assert(stdout_data == "readyfinal-out");
+      assert(stderr_data == "final-err");
+      assert(stdout_eos && stderr_eos);
+      assert(std::find(ack->ack().capabilities().begin(), ack->ack().capabilities().end(), protobuf::SESSION_CAPABILITY_TERMINATE) != ack->ack().capabilities().end());
+      return;
+    }
+    else {
+      assert(message->has_heartbeat());
+    }
+  }
+}
+
+static void check_websocket_server_preserves_other_sessions(unsigned short port)
+{
+  boost::asio::io_context io_context;
+  auto survivor = connect_with_retry(io_context, port);
+  write_message(survivor, open_message({"/bin/cat"}, true));
+  const auto ack = read_message(survivor);
+  assert(ack && ack->has_ack());
+  const auto echo = [&survivor](const std::string& expected) {
+    std::cerr << "isolation echo: " << expected << std::flush;
+    write_message(survivor, data_message(protobuf::Data::TYPE_STDIN, expected));
+    std::string output;
+    while (output.size() < expected.size()) {
+      const auto message = read_message(survivor);
+      assert(message);
+      assert(message->has_data() || message->has_heartbeat());
+      if (message->has_data()) {
+        assert(message->data().type() == protobuf::Data::TYPE_STDOUT && !message->data().has_eos());
+        output += message->data().data();
+      }
+    }
+    assert(output == expected);
+  };
+  echo("before termination\n");
+  check_websocket_server_termination_keeps_final_output_and_result(port);
+  echo("after termination\n");
+  {
+    auto disconnected = connect_with_retry(io_context, port);
+    write_message(disconnected, open_message({"/bin/cat"}, true));
+    const auto ack = read_message(disconnected);
+    assert(ack && ack->has_ack());
+  }
+  echo("after reader disconnection\n");
+  check_websocket_server_reports_child_exit_without_stdin_eos(port);
+  echo("after new session admission\n");
+  std::cerr << "isolation survivor EOF" << std::endl;
+  write_message(survivor, eos_message(protobuf::Data::TYPE_STDIN));
+  while (true) {
+    const auto message = read_message(survivor);
+    assert(message);
+    if (message->has_close()) {
+      assert(message->close().return_code() == 0);
+      return;
+    }
+    assert(message->has_data() || message->has_heartbeat());
+  }
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  auto sink = std::make_shared<capture_log_sink>();
+  rstream::core::log::subscribe(sink);
   websocket_webtty_server server;
   server.start();
-  check_websocket_server_runs_child_and_closes_normally(server.port());
-  check_websocket_server_reports_child_exit_without_stdin_eos(server.port());
-  check_websocket_server_cancel_gracefully_closes_tty();
-  check_websocket_server_e2e_forwards_stdin_and_closes_normally();
-  check_websocket_server_e2e_accepts_client_credential_verifier();
-  check_websocket_server_logs_audit_fields_for_authenticated_e2e_session();
-  check_websocket_server_e2e_rejects_missing_client_proof();
-  check_websocket_server_e2e_rejects_expired_client_proof();
-  check_websocket_server_e2e_rejects_unauthorized_client_proof();
+  const auto check = [&sink](const char* name, auto&& run) {
+    std::cerr << "checking " << name << std::endl;
+    try {
+      run();
+    }
+    catch (const std::exception& exception) {
+      std::cerr << name << ": " << exception.what() << std::endl;
+      for (const auto& message : sink->messages()) {
+        std::cerr << message << std::endl;
+      }
+      throw;
+    }
+  };
+  check("normal child exit", [&] { check_websocket_server_runs_child_and_closes_normally(server.port()); });
+  check("explicit termination", [&] { check_websocket_server_termination_keeps_final_output_and_result(server.port()); });
+  check("active session isolation and new admission", [&] { check_websocket_server_preserves_other_sessions(server.port()); });
+  check("child exit without stdin EOF", [&] { check_websocket_server_reports_child_exit_without_stdin_eos(server.port()); });
+  check("server cancellation with PTY", check_websocket_server_cancel_gracefully_closes_tty);
+  check("E2E stdin", check_websocket_server_e2e_forwards_stdin_and_closes_normally);
+  check("client credential", check_websocket_server_e2e_accepts_client_credential_verifier);
+  check("audit fields", check_websocket_server_logs_audit_fields_for_authenticated_e2e_session);
+  check("missing client proof", check_websocket_server_e2e_rejects_missing_client_proof);
+  check("expired client proof", check_websocket_server_e2e_rejects_expired_client_proof);
+  check("unauthorized client proof", check_websocket_server_e2e_rejects_unauthorized_client_proof);
   return 0;
 }

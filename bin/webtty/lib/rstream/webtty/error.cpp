@@ -79,6 +79,8 @@ std::string to_string(error::code code)
       return "unexpected message";
     case error::code::unknown_undefined_error:
       return "error is unknown / undefined";
+    case error::code::termination_unsupported:
+      return "WebTTY server does not support explicit termination";
     default:
       return "unknown error";
   }

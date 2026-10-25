@@ -1,5 +1,6 @@
 // See LICENSE file in the project root for license information.
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -7,12 +8,18 @@
 #include <exception>
 #include <future>
 #include <iostream>
+#include <memory_resource>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include <boost/asio/bind_allocator.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/bind_executor.hpp>
+#include <boost/asio/cancellation_signal.hpp>
+#include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
@@ -1247,6 +1254,156 @@ static void check_plain_client_repeated_cancel_forces_pending_close()
   assert(return_code == -1);
 }
 
+class termination_memory_resource : public std::pmr::memory_resource {
+ public:
+  std::atomic_size_t allocations   = 0;
+  std::atomic_size_t deallocations = 0;
+
+ private:
+  void* do_allocate(std::size_t bytes, std::size_t alignment) override
+  {
+    ++allocations;
+    return std::pmr::new_delete_resource()->allocate(bytes, alignment);
+  }
+  void do_deallocate(void* pointer, std::size_t bytes, std::size_t alignment) override
+  {
+    ++deallocations;
+    std::pmr::new_delete_resource()->deallocate(pointer, bytes, alignment);
+  }
+  bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override
+  {
+    return this == &other;
+  }
+};
+
+static void check_plain_client_explicit_termination(bool supported, bool cancel_before_dispatch, bool delay_ack = false)
+{
+  fd_capture stdout_capture(STDOUT_FILENO);
+  fd_capture stderr_capture(STDERR_FILENO);
+  boost::asio::io_context peer_context;
+  tcp::acceptor acceptor(peer_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
+  std::promise<void> release_result;
+  auto result_released = release_result.get_future();
+  std::exception_ptr peer_error;
+  unsigned int requests = 0;
+  std::thread peer([&] {
+    try {
+      tcp::socket socket(peer_context);
+      acceptor.accept(socket);
+      assert(read_message(socket).has_open());
+      if (delay_ack) {
+        assert(result_released.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+      }
+      protobuf::Message ack;
+      ack.mutable_ack();
+      if (supported) {
+        ack.mutable_ack()->add_capabilities(protobuf::SESSION_CAPABILITY_TERMINATE);
+      }
+      write_message(socket, ack);
+      do {
+        const auto message = read_message(socket);
+        if (message.has_terminate()) {
+          ++requests;
+        }
+        else {
+          assert(message.has_heartbeat());
+        }
+      } while (result_released.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready || (supported && !cancel_before_dispatch && !delay_ack && requests == 0));
+      write_message(socket, data_message(protobuf::Data::TYPE_STDOUT, "termination-final-out"));
+      write_message(socket, data_message(protobuf::Data::TYPE_STDERR, "termination-final-err"));
+      write_message(socket, eos_message(protobuf::Data::TYPE_STDOUT));
+      write_message(socket, eos_message(protobuf::Data::TYPE_STDERR));
+      protobuf::Message close;
+      close.mutable_close()->set_return_code(37);
+      write_message(socket, close);
+      try {
+        while (true) {
+          const auto message = read_message(socket);
+          if (message.has_terminate()) {
+            ++requests;
+          }
+          else {
+            assert(message.has_heartbeat());
+          }
+        }
+      }
+      catch (const boost::system::system_error& error) {
+        if (error.code() != boost::asio::error::eof) {
+          throw;
+        }
+      }
+    }
+    catch (...) {
+      peer_error = std::current_exception();
+    }
+  });
+  boost::asio::io_context io_context;
+  boost::asio::io_context completion_context;
+  auto completion_work                                = boost::asio::make_work_guard(completion_context);
+  auto config                                         = plain_client_config(acceptor.local_endpoint().port());
+  config.m_protocol_config.m_options.m_send_heartbeat = true;
+  auto settings                                       = plain_client_settings();
+  settings.m_common.m_timeouts_ms.m_heartbeat         = 10;
+  if (delay_ack) {
+    settings.m_common.m_timeouts_ms.m_close = rstream::test::timeout_ms(100);
+  }
+  rstream::webtty::client client(io_context.get_executor(), config, settings);
+  std::promise<std::pair<std::error_code, int>> native_result;
+  auto native = native_result.get_future();
+  client.async_run([&](const std::error_code& error_code, int code) { native_result.set_value({error_code, code}); });
+  boost::asio::cancellation_signal cancellation;
+  std::promise<std::error_code> request_result;
+  auto request             = request_result.get_future();
+  unsigned int completions = 0;
+  termination_memory_resource memory;
+  client.async_request_termination(boost::asio::bind_allocator(std::pmr::polymorphic_allocator<std::byte>(&memory), boost::asio::bind_cancellation_slot(cancellation.slot(), boost::asio::bind_executor(completion_context.get_executor(),
+                                                                                                                                                                                                        [&, owned = std::make_unique<int>(23)](const std::error_code& error_code) {
+                                                                                                                                                                                                          assert(completion_context.get_executor().running_in_this_thread());
+                                                                                                                                                                                                          assert(*owned == 23);
+                                                                                                                                                                                                          ++completions;
+                                                                                                                                                                                                          request_result.set_value(error_code);
+                                                                                                                                                                                                        }))));
+  if (cancel_before_dispatch) {
+    cancellation.emit(boost::asio::cancellation_type::terminal);
+  }
+  std::thread completion_thread([&] { completion_context.run(); });
+  std::thread io_thread([&] { io_context.run(); });
+  assert(request.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+  const auto result   = request.get();
+  const auto expected = delay_ack                ? rstream::webtty::error::make_error_code(rstream::webtty::error::code::operation_timeout)
+                        : cancel_before_dispatch ? rstream::webtty::error::make_error_code(rstream::webtty::error::code::operation_aborted)
+                        : supported              ? std::error_code()
+                                                 : rstream::webtty::error::make_error_code(rstream::webtty::error::code::termination_unsupported);
+  assert(result == expected);
+  assert(native.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout);
+  cancellation.emit(boost::asio::cancellation_type::terminal);
+  if (supported && !cancel_before_dispatch && !delay_ack) {
+    std::promise<std::error_code> repeated_result;
+    auto repeated = repeated_result.get_future();
+    client.async_request_termination([&](const std::error_code& error_code) { repeated_result.set_value(error_code); });
+    assert(repeated.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+    assert(!repeated.get());
+  }
+  release_result.set_value();
+  assert(native.wait_for(rstream::test::timeout(std::chrono::seconds(5))) == std::future_status::ready);
+  const auto [native_error, native_code] = native.get();
+  io_thread.join();
+  completion_work.reset();
+  completion_thread.join();
+  peer.join();
+  if (peer_error) {
+    std::rethrow_exception(peer_error);
+  }
+  assert(completions == 1);
+  assert(memory.allocations > 1);
+  assert(memory.allocations == memory.deallocations);
+  assert(!native_error);
+  assert(native_code == 37);
+  assert(requests == (supported && !cancel_before_dispatch && !delay_ack ? 1U : 0U));
+  assert(stdout_capture.read_all() == "termination-final-out");
+  assert(stderr_capture.read_all() == "termination-final-err");
+}
+
 int main(int argc, char** argv)
 {
   (void)argc;
@@ -1260,5 +1417,9 @@ int main(int argc, char** argv)
   check_plain_client_rejects_stdin_from_server();
   check_plain_client_cancel_after_open_sends_error();
   check_plain_client_repeated_cancel_forces_pending_close();
+  check_plain_client_explicit_termination(true, false);
+  check_plain_client_explicit_termination(false, false);
+  check_plain_client_explicit_termination(true, true);
+  check_plain_client_explicit_termination(true, false, true);
   return 0;
 }
