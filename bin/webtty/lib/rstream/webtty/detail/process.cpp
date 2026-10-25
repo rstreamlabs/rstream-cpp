@@ -13,7 +13,7 @@
 
 #include <sys/wait.h>
 #ifdef __APPLE__
-#include <libproc.h>
+#include <sys/sysctl.h>
 #endif
 #endif
 
@@ -22,6 +22,29 @@ namespace webtty {
 namespace detail {
 
 namespace process {
+
+#ifdef __APPLE__
+static bool group_has_only_zombies(pid_t leader)
+{
+  // Keep this exceptional path bounded. A truncated or inaccessible snapshot
+  // must preserve EPERM rather than hide a live process we could not signal.
+  std::array<kinfo_proc, 256> members{};
+  int query[] = {CTL_KERN, KERN_PROC, KERN_PROC_PGRP, leader};
+  auto size   = sizeof(members);
+  if (::sysctl(query, 4, members.data(), &size, nullptr, 0) != 0 || size > sizeof(members) || size % sizeof(kinfo_proc) != 0) {
+    return false;
+  }
+  bool leader_found = false;
+  for (std::size_t index = 0; index < size / sizeof(kinfo_proc); ++index) {
+    const auto& member = members[index];
+    if (member.kp_eproc.e_pgid != leader || member.kp_proc.p_stat != SZOMB) {
+      return false;
+    }
+    leader_found = leader_found || member.kp_proc.p_pid == leader;
+  }
+  return leader_found;
+}
+#endif
 
 group::group()
 {
@@ -92,14 +115,12 @@ void request_termination(const boost::process::child& child, group& owner, bool 
   if (::kill(-child.id(), signal) != 0 && errno != ESRCH) {
     error_code = std::error_code(errno, std::system_category());
 #ifdef __APPLE__
-    // Darwin reports EPERM for a group containing only its zombie leader.
-    // Inspect at most two members; never hide a failure for a live descendant.
+    // Darwin reports EPERM when every group member has already exited.
     if (error_code.value() == EPERM) {
       siginfo_t info{};
-      pid_t members[2]{};
       if (::waitid(P_PID, static_cast<id_t>(child.id()), &info, WEXITED | WNOWAIT | WNOHANG) == 0 && info.si_pid == child.id()
           && (info.si_code == CLD_EXITED || info.si_code == CLD_KILLED || info.si_code == CLD_DUMPED)
-          && ::proc_listpgrppids(static_cast<std::uint32_t>(child.id()), members, sizeof(members)) == 1 && members[0] == child.id()) {
+          && group_has_only_zombies(child.id())) {
         error_code.clear();
       }
     }

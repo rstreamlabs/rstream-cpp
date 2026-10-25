@@ -15,6 +15,7 @@
 
 #include <array>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include <boost/core/noncopyable.hpp>
@@ -172,7 +173,10 @@ std::shared_ptr<boost::process::child> make_child_process(Args&&... args)
 #else
   // Run after stdio/PTY redirection; keep only explicitly used descriptors.
   // Other sessions' pipes and sockets must not keep each other alive.
-  return std::make_shared<boost::process::child>(std::forward<Args>(args)..., boost::process::limit_handles);
+  // Boost stores mutable per-launch state in this property and keeps it by
+  // reference. Never share its global instance between concurrent launches.
+  std::decay_t<decltype(boost::process::limit_handles)> handle_limits;
+  return std::make_shared<boost::process::child>(std::forward<Args>(args)..., handle_limits);
 #endif
 }
 

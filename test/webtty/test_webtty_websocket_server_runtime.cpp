@@ -104,10 +104,10 @@ class capture_log_sink : public spdlog::sinks::sink {
   std::vector<std::string> m_messages;
 };
 
-static std::optional<std::string> find_log_message(const std::shared_ptr<capture_log_sink>& sink, const std::string& needle)
+static std::optional<std::string> find_log_message(const std::shared_ptr<capture_log_sink>& sink, const std::string& needle, const std::string& session)
 {
   for (const auto& message : sink->messages()) {
-    if (message.find(needle) != std::string::npos) {
+    if (message.find(needle) != std::string::npos && message.find(session) != std::string::npos) {
       return message;
     }
   }
@@ -839,7 +839,7 @@ static void check_websocket_server_logs_audit_fields_for_authenticated_e2e_sessi
   websocket.close();
   server.stop();
 
-  const auto accepted = find_log_message(sink, "session accepted");
+  const auto accepted = find_log_message(sink, "session accepted", "server_id: server-log-test");
   assert(accepted);
   for (const auto& field : {
            "workspace_id: workspace-log-test",
@@ -854,7 +854,11 @@ static void check_websocket_server_logs_audit_fields_for_authenticated_e2e_sessi
     assert_log_contains(*accepted, field);
   }
 
-  const auto closed = find_log_message(sink, "session closed");
+  const auto session_begin = accepted->find("session_id: ");
+  assert(session_begin != std::string::npos);
+  const auto session_end = accepted->find(',', session_begin);
+  assert(session_end != std::string::npos);
+  const auto closed = find_log_message(sink, "session closed", accepted->substr(session_begin, session_end - session_begin));
   assert(closed);
   for (const auto& field : {
            "workspace_id: workspace-log-test",

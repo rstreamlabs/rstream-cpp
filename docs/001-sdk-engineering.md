@@ -71,6 +71,15 @@ New background work, caches, locks, queues, or allocations require a stated
 reason and tests for exhaustion, cancellation, and shutdown. Performance work
 must be measured; it must not trade correctness for an assumed optimization.
 
+WebTTY Unix launches own their descriptor-inheritance setup independently;
+Boost.Process's mutable `limit_handles` property must not be shared between
+concurrent launches. On macOS, a process group containing only zombies can
+return `EPERM` to a termination request. Cleanup verifies one snapshot of at
+most 256 members, including the unreaped leader, before accepting that result.
+Live members, incomplete snapshots, or query failures preserve the error.
+The leader's PID stays reserved until group cleanup finishes and its native
+exit status is collected.
+
 ## Boost.Asio contract
 
 Every asynchronous public operation behaves as a regular Asio operation:

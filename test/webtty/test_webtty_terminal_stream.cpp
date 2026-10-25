@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -35,6 +36,7 @@
 #else
 #include <unistd.h>
 #ifdef __APPLE__
+#include <sys/wait.h>
 #include <util.h>
 #else
 #include <pty.h>
@@ -42,6 +44,36 @@
 #endif
 
 namespace stream = rstream::webtty::stream;
+
+#ifdef __APPLE__
+static void check_darwin_termination_with_multiple_zombies()
+{
+  namespace process = rstream::webtty::detail::process;
+  auto owner        = std::make_shared<process::group>();
+  auto leader       = process::make_child_process("/bin/sh", "-c", "exit 23", process::group_handler(owner, false));
+  siginfo_t info{};
+  assert(::waitid(P_PID, static_cast<id_t>(leader->id()), &info, WEXITED | WNOWAIT) == 0);
+  const auto member = ::fork();
+  assert(member >= 0);
+  if (member == 0) {
+    if (::setpgid(0, leader->id()) != 0) {
+      ::_exit(99);
+    }
+    ::_exit(24);
+  }
+  assert(::waitid(P_PID, static_cast<id_t>(member), &info, WEXITED | WNOWAIT) == 0);
+  assert(info.si_status == 24);
+  assert(::kill(-leader->id(), SIGKILL) == -1 && errno == EPERM);
+  std::error_code error_code;
+  process::request_termination(*leader, *owner, false, true, error_code);
+  int member_status = 0;
+  assert(::waitpid(member, &member_status, 0) == member);
+  assert(WIFEXITED(member_status) && WEXITSTATUS(member_status) == 24);
+  assert(!error_code);
+  assert(process::recover_exit(*leader, *owner, error_code));
+  assert(!error_code && owner->released() && leader->exit_code() == 23);
+}
+#endif
 
 #ifdef _WIN32
 static int windows_pty_console_child()
@@ -74,8 +106,8 @@ static int windows_pty_console_child()
 static void check_windows_pty_console_io(const char* executable)
 {
   boost::asio::io_context io_context;
-  auto work       = boost::asio::make_work_guard(io_context);
-  auto stream_ptr = stream::make_stream(io_context.get_executor(), stream::backend::tty);
+  auto work          = boost::asio::make_work_guard(io_context);
+  auto stream_ptr    = stream::make_stream(io_context.get_executor(), stream::backend::tty);
   auto process_group = std::make_shared<rstream::webtty::detail::process::group>();
   auto child         = rstream::webtty::detail::process::make_child(
       stream_ptr,
@@ -393,6 +425,9 @@ int main(int argc, char** argv)
   (void)argv;
 #endif
   check_pipe_stream_lifecycle();
+#ifdef __APPLE__
+  check_darwin_termination_with_multiple_zombies();
+#endif
 #ifdef _WIN32
   check_windows_pty_rejects_overlapping_writes();
   check_windows_pty_cancel_resize_and_close_are_serialized();

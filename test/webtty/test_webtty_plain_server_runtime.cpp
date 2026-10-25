@@ -6,6 +6,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <exception>
 #include <functional>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -156,6 +158,20 @@ static protobuf::Message open_message(const std::vector<std::string>& cmd_args, 
   config->mutable_options()->set_send_heartbeat(false);
   for (const auto& arg : cmd_args) {
     config->add_cmd_args(arg);
+  }
+  return message;
+}
+
+static protobuf::Message open_test_process_message(const std::vector<std::string>& args)
+{
+  auto message = open_message(args);
+  // Conan shared-library test executables need their runtime search paths.
+  for (const auto* name : {"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"}) {
+    if (const auto* value = std::getenv(name)) {
+      auto* variable = message.mutable_open()->mutable_config()->add_env_vars();
+      variable->set_key(name);
+      variable->set_value(value);
+    }
   }
   return message;
 }
@@ -1218,7 +1234,10 @@ static void check_plain_server_cancel_gracefully_closes_tty()
   bool saw_close = false;
   while (!saw_close) {
     auto message = read_message(socket);
-    saw_close    = message.payload_case() == protobuf::Message::PayloadCase::kClose;
+    if (message.has_error()) {
+      throw std::runtime_error("graceful tty cancellation: " + message.error().msg());
+    }
+    saw_close = message.payload_case() == protobuf::Message::PayloadCase::kClose;
   }
   stopper.join();
   assert(std::chrono::steady_clock::now() - stop_started < rstream::test::timeout(std::chrono::seconds(2)));
@@ -1367,7 +1386,7 @@ static void check_plain_server_owns_descendants(unsigned short port, const char*
   boost::asio::io_context io_context;
   tcp::acceptor monitor_acceptor(io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
   auto socket = connect_with_retry(io_context, port);
-  write_message(socket, open_message({executable, "--termination-parent", std::to_string(monitor_acceptor.local_endpoint().port()), mode}));
+  write_message(socket, open_test_process_message({executable, "--termination-parent", std::to_string(monitor_acceptor.local_endpoint().port()), mode}));
   tcp::socket monitor(io_context);
   monitor_acceptor.accept(monitor);
   set_receive_timeout(monitor);
@@ -1420,7 +1439,7 @@ static void check_child_does_not_inherit_server_descriptors(unsigned short port,
     assert(descriptor >= 64 && ::fcntl(descriptor, F_GETFD) == 0);
     boost::asio::io_context io_context;
     auto socket = connect_with_retry(io_context, port);
-    auto open   = open_message({executable, "--check-inherited-descriptor", std::to_string(descriptor)});
+    auto open   = open_test_process_message({executable, "--check-inherited-descriptor", std::to_string(descriptor)});
     open.mutable_open()->mutable_config()->mutable_options()->set_allocate_tty(allocate_tty);
     write_message(socket, open);
     const auto ack = read_message(socket);
@@ -1429,6 +1448,9 @@ static void check_child_does_not_inherit_server_descriptors(unsigned short port,
     while (true) {
       const auto message = read_message(socket);
       if (message.has_close()) {
+        if (message.close().return_code() != 0) {
+          std::cerr << "descriptor isolation failed: tty=" << allocate_tty << " exit=" << message.close().return_code() << std::endl;
+        }
         assert(message.close().return_code() == 0);
         break;
       }
@@ -1492,6 +1514,10 @@ int main(int argc, char** argv)
   }
   if (argc == 4 && std::string(argv[1]) == "--termination-parent") {
     return run_termination_parent(static_cast<unsigned short>(std::stoul(argv[2])), argv[3]);
+  }
+  if (argc == 2 && std::string(argv[1]) == "--check-graceful-tty") {
+    check_plain_server_cancel_gracefully_closes_tty();
+    return 0;
   }
   plain_webtty_server server;
   server.start();
