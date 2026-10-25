@@ -73,9 +73,11 @@ must be measured; it must not trade correctness for an assumed optimization.
 
 WebTTY Unix launches own their descriptor-inheritance setup independently;
 Boost.Process's mutable `limit_handles` property must not be shared between
-concurrent launches. On macOS, a process group containing only zombies can
+concurrent launches. On macOS, a process group containing only exited members can
 return `EPERM` to a termination request. Cleanup verifies one snapshot of at
 most 256 members, including the unreaped leader, before accepting that result.
+Members must be zombies or have the kernel's irreversible `P_WEXIT` exit flag;
+Darwin can stop delivering signals before an exiting member becomes a zombie.
 Live members, incomplete snapshots, or query failures preserve the error.
 The leader's PID stays reserved until group cleanup finishes and its native
 exit status is collected.

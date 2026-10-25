@@ -24,7 +24,7 @@ namespace detail {
 namespace process {
 
 #ifdef __APPLE__
-static bool group_has_only_zombies(pid_t leader)
+static bool group_has_only_exited_members(pid_t leader)
 {
   // Keep this exceptional path bounded. A truncated or inaccessible snapshot
   // must preserve EPERM rather than hide a live process we could not signal.
@@ -37,7 +37,9 @@ static bool group_has_only_zombies(pid_t leader)
   bool leader_found = false;
   for (std::size_t index = 0; index < size / sizeof(kinfo_proc); ++index) {
     const auto& member = members[index];
-    if (member.kp_eproc.e_pgid != leader || member.kp_proc.p_stat != SZOMB) {
+    // P_WEXIT is an irreversible kernel exit, before SZOMB becomes visible.
+    // Darwin no longer finds such members while delivering group signals.
+    if (member.kp_eproc.e_pgid != leader || (member.kp_proc.p_stat != SZOMB && (member.kp_proc.p_flag & P_WEXIT) == 0)) {
       return false;
     }
     leader_found = leader_found || member.kp_proc.p_pid == leader;
@@ -120,7 +122,7 @@ void request_termination(const boost::process::child& child, group& owner, bool 
       siginfo_t info{};
       if (::waitid(P_PID, static_cast<id_t>(child.id()), &info, WEXITED | WNOWAIT | WNOHANG) == 0 && info.si_pid == child.id()
           && (info.si_code == CLD_EXITED || info.si_code == CLD_KILLED || info.si_code == CLD_DUMPED)
-          && group_has_only_zombies(child.id())) {
+          && group_has_only_exited_members(child.id())) {
         error_code.clear();
       }
     }

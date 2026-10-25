@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -668,6 +669,9 @@ static void check_websocket_server_cancel_gracefully_closes_tty()
   while (!saw_close) {
     auto message = read_message(websocket);
     assert(message);
+    if (message->has_error()) {
+      throw std::runtime_error("graceful tty cancellation: " + message->error().msg());
+    }
     saw_close = message->payload_case() == protobuf::Message::PayloadCase::kClose;
   }
   stopper.join();
