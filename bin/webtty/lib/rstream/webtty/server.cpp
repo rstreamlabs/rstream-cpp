@@ -1373,7 +1373,7 @@ void server::impl::session::cancel_internal(const std::error_code& error_code)
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  auto cause = error_code ? error_code : error::code::operation_aborted;
+  auto cause         = error_code ? error_code : error::code::operation_aborted;
   m_cancel_requested = true;
   if (!m_error_code) {
     m_error_code = cause;
@@ -1399,6 +1399,9 @@ void server::impl::session::on_error(const std::error_code& error_code)
 #endif
   if (!error_code) {
     return;
+  }
+  if (m_cancel_requested && m_state != state::disconnected && error_code != m_error_code) {
+    m_logger->debug("session shutdown error [error_code: {}, error_category: {}, error_value: {}]", error_code.message(), error_code.category().name(), error_code.value());
   }
   on_close(error_code);
 }
@@ -1429,7 +1432,7 @@ void server::impl::session::on_close(const std::error_code& error_code)
   if (m_state == state::null || m_state == state::disconnected) {
     return;
   }
-  auto cause = m_error_code ? m_error_code : error_code;
+  auto cause    = m_error_code ? m_error_code : error_code;
   m_close_cause = cause;
   set_state(state::disconnected);
   // The queue's active cancellation slot refers to the transport's reactor

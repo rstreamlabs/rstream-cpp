@@ -388,7 +388,7 @@ class RSTREAM_GNUC_INTERNAL client::impl : public std::enable_shared_from_this<i
 
   void cancel_termination(const std::shared_ptr<termination_operation>& operation, const std::error_code& cause);
 
-  void complete_termination(const std::shared_ptr<termination_operation>& operation, const std::error_code& error_code, termination_completion_handler handler = {});
+  void complete_termination(std::shared_ptr<termination_operation> operation, const std::error_code& error_code, termination_completion_handler handler = {});
 
   void do_resolve_host();
 
@@ -770,19 +770,18 @@ void client::impl::cancel_termination(const std::shared_ptr<termination_operatio
   }
 }
 
-void client::impl::complete_termination(const std::shared_ptr<termination_operation>& operation, const std::error_code& error_code, termination_completion_handler handler)
+void client::impl::complete_termination(std::shared_ptr<termination_operation> operation, const std::error_code& error_code, termination_completion_handler handler)
 {
   if (operation->m_completed) {
     return;
   }
   operation->m_completed = true;
   operation->m_timer.cancel();
-  auto completed = operation;
   if (m_termination == operation) {
     m_termination.reset();
   }
   if (!handler) {
-    handler = std::move(completed->m_handler);
+    handler = std::move(operation->m_handler);
   }
   rstream::core::invoke_completion_handler(m_executor, std::move(handler), error_code);
 }
