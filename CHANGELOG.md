@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.15.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.8...1.15.0) (2026-10-28)
+
+
+### Features
+
+* **http:** expose tunnel CORS options in SDK and CLI ([#55](https://github.com/rstreamlabs/rstream-cpp/issues/55)) ([061c4fc](https://github.com/rstreamlabs/rstream-cpp/commit/061c4fc1534f8364d2be86409921b0bd49cde6f3))
+* **webtty:** add explicit termination with owned process cleanup ([c5721fb](https://github.com/rstreamlabs/rstream-cpp/commit/c5721fbf784c8e96d7235c5387555a16a3e0ff75))
+* **webtty:** describe the managed execution identity in Ack ([d282807](https://github.com/rstreamlabs/rstream-cpp/commit/d2828074f34f091b989fb43de7469b389d715d3c))
+* **webtty:** support explicit termination with confirmed native results ([9715bd8](https://github.com/rstreamlabs/rstream-cpp/commit/9715bd80605e3fa52a7a07ee1e2dec89b765ff4e))
+
+
+### Bug Fixes
+
+* **build:** prefer headers matching selected OpenSSL libraries ([a4e05a2](https://github.com/rstreamlabs/rstream-cpp/commit/a4e05a27b720eb2cc65589111200dbc297c3a3f1))
+* **webtty:** isolate concurrent process launches and preserve Darwin exits ([54cc84a](https://github.com/rstreamlabs/rstream-cpp/commit/54cc84abac82b9cf70c800b599a4a569505008a9))
+* **webtty:** isolate Unix child descriptors across active sessions ([8ef8e0b](https://github.com/rstreamlabs/rstream-cpp/commit/8ef8e0ba56588b2cdf77986dbad778def2f34915))
+* **webtty:** preserve results while Darwin descendants finish exiting ([22ffa04](https://github.com/rstreamlabs/rstream-cpp/commit/22ffa045e839512d972820d6a3b15e9c23ab001d))
+* **webtty:** retain completion ownership and shutdown error evidence ([6a86048](https://github.com/rstreamlabs/rstream-cpp/commit/6a860481962b5ed2bd1cbc9fd80e1f7a6cc7c0d0))
+
 ## [1.14.8](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.7...1.14.8) (2026-10-09)
 
 
