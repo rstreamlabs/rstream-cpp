@@ -1,0 +1,281 @@
+name: Publish verified packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Release Packages run containing the original tag artifacts
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      candidate_run_id:
+        type: string
+        required: true
+      channel:
+        type: string
+        required: true
+      rstream_url:
+        type: string
+        required: true
+      package_name:
+        type: string
+        required: true
+    secrets:
+      CONAN_PASSWORD:
+        required: true
+      RSTREAM_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-packages-${{ inputs.candidate_run_id }}
+  cancel-in-progress: false
+
+env:
+  CHANNEL: ${{ inputs.channel || 'stable' }}
+  CONAN_VERSION: "2.31.2"
+  CONAN_REMOTE_NAME: "${{ vars.CONAN_REMOTE_NAME }}"
+  CONAN_REMOTE_URL: "${{ vars.CONAN_REMOTE_URL }}"
+  CONAN_REMOTE_USERNAME: "${{ vars.CONAN_REMOTE_USERNAME }}"
+  EXPORT_PACKAGE_NAME: "${{ inputs.package_name || 'rstream-utils' }}"
+  LINUX_TOOLCHAIN_VERSION: "5.0.2"
+  PATCHED_BOOST_VERSION: "1.85.0"
+  PATCHED_CONAN_CHANNEL: conan/stable
+  PATCHED_NCURSES_VERSION: "6.5"
+  PYYAML_VERSION: "6.0.3"
+  RSTREAM_URL: ${{ inputs.rstream_url || 'https://rstream.io' }}
+  USE_PATCHED_CONAN_DEPS: "on"
+
+jobs:
+  approve:
+    name: Approve immutable package candidates
+    if: github.actor == vars.CI_ALLOWED_ACTOR && github.triggering_actor == vars.CI_ALLOWED_ACTOR
+    runs-on: ubuntu-latest
+    environment: stable-release
+    outputs:
+      sha: ${{ steps.candidate.outputs.sha }}
+      tag: ${{ steps.candidate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve the source and release tag
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          ALLOWED_ACTOR: ${{ vars.CI_ALLOWED_ACTOR }}
+        run: ./.github/scripts/resolve-package-candidate.sh
+      - name: Verify the approved release candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_RELEASE_CANDIDATE: ${{ vars.APPROVED_RELEASE_CANDIDATE }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_PREFIX: cpp-release-candidate-
+        run: ./.github/scripts/verify-release-approval.sh
+
+  publish-linux-windows:
+    name: Publish ${{ matrix.target.os }} ${{ matrix.target.arch }} candidate
+    needs: approve
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        target:
+          - os: linux
+            arch: x86_i686
+          - os: linux
+            arch: x86_core2
+          - os: linux
+            arch: x86_64
+          - os: linux
+            arch: x86_64_v2
+          - os: linux
+            arch: x86_64_v3
+          - os: linux
+            arch: x86_64_v4
+          - os: linux
+            arch: armv6
+          - os: linux
+            arch: armv6hf
+          - os: linux
+            arch: armv7
+          - os: linux
+            arch: armv7hf
+          - os: linux
+            arch: arm64
+          - os: linux
+            arch: mips
+          - os: linux
+            arch: mipsle
+          - os: linux
+            arch: mips64
+          - os: linux
+            arch: mips64le
+          - os: linux
+            arch: riscv64
+          - os: windows
+            arch: x86_i686
+          - os: windows
+            arch: x86_core2
+          - os: windows
+            arch: x86_64
+          - os: windows
+            arch: x86_64_v2
+          - os: windows
+            arch: x86_64_v3
+          - os: windows
+            arch: x86_64_v4
+          - os: windows
+            arch: arm64
+    env:
+      LINUX_BUILD_SHARED: "off"
+      LINUX_ARCHS: ${{ matrix.target.os == 'linux' && matrix.target.arch || '' }}
+      LINUX_TCLIBCS: musl
+      OSS: ${{ matrix.target.os }}
+      USE_DOCKER: "off"
+      WINDOWS_BUILD_SHARED: "off"
+      WINDOWS_ARCHS: ${{ matrix.target.os == 'windows' && matrix.target.arch || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.approve.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cpp-release-candidate-${{ needs.approve.outputs.sha }}-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          path: candidate
+      - name: Install publishing dependencies
+        run: |
+          sudo apt update
+          sudo apt-get install -y jq libdigest-sha-perl pipx
+          pipx install "conan==${CONAN_VERSION}"
+          python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Resolve package version
+        run: echo "VERSION=$(tr -d '[:space:]' < version.txt)" >> "${GITHUB_ENV}"
+      - name: Configure publishing remotes
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "Conan publishing credentials are required." >&2
+            exit 1
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote add "${remote_name}" "${CONAN_REMOTE_URL}" --force
+          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+      - name: Publish exact candidate
+        env:
+          RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
+          CANDIDATE_SHA: ${{ needs.approve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RSTREAM_TOKEN}" ]]; then
+            echo "RSTREAM_TOKEN is required." >&2
+            exit 1
+          fi
+          ./.github/scripts/verify-release-candidate.sh candidate "${CANDIDATE_SHA}" "${VERSION}" "${CHANNEL}" "${{ matrix.target.os }}" "${{ matrix.target.arch }}"
+          ./.github/scripts/publish-conan-candidate.sh candidate/conan "${CANDIDATE_SHA}" "${CONAN_REMOTE_NAME:-rstream}"
+          mkdir -p out/release
+          cp -R candidate/package-api/. out/release/
+          ./build-conan-cross.sh upload
+
+  publish-macos:
+    name: Publish macos candidate
+    needs: approve
+    permissions:
+      actions: read
+      contents: read
+    runs-on: macos-latest
+    env:
+      MACOS_ARCHS: "x86_64 x86_64_v2 x86_64_v3 x86_64_v4 arm64 apple-m1 apple-m2"
+      MACOS_BUILD_SHARED: "on"
+      OSS: macos
+      USE_DOCKER: "off"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.approve.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cpp-release-candidate-${{ needs.approve.outputs.sha }}-macos
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          path: candidate
+      - name: Install publishing dependencies
+        run: |
+          brew list bash >/dev/null 2>&1 || brew install bash
+          brew list jq >/dev/null 2>&1 || brew install jq
+          echo "$(brew --prefix bash)/bin" >> "${GITHUB_PATH}"
+          python3 -m pip install --user "conan==${CONAN_VERSION}"
+          python3 -m pip install --user "PyYAML==${PYYAML_VERSION}"
+          echo "$(python3 -m site --user-base)/bin" >> "${GITHUB_PATH}"
+      - name: Resolve package version
+        run: echo "VERSION=$(tr -d '[:space:]' < version.txt)" >> "${GITHUB_ENV}"
+      - name: Configure publishing remotes
+        env:
+          CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONAN_REMOTE_URL}" || -z "${CONAN_REMOTE_USERNAME}" || -z "${CONAN_PASSWORD}" ]]; then
+            echo "Conan publishing credentials are required." >&2
+            exit 1
+          fi
+          remote_name="${CONAN_REMOTE_NAME:-rstream}"
+          conan remote add "${remote_name}" "${CONAN_REMOTE_URL}" --force
+          conan remote login "${remote_name}" "${CONAN_REMOTE_USERNAME}" -p "${CONAN_PASSWORD}"
+      - name: Publish exact candidate
+        env:
+          RSTREAM_TOKEN: ${{ secrets.RSTREAM_TOKEN }}
+          CANDIDATE_SHA: ${{ needs.approve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RSTREAM_TOKEN}" ]]; then
+            echo "RSTREAM_TOKEN is required." >&2
+            exit 1
+          fi
+          ./.github/scripts/verify-release-candidate.sh candidate "${CANDIDATE_SHA}" "${VERSION}" "${CHANNEL}" macos all
+          ./.github/scripts/publish-conan-candidate.sh candidate/conan "${CANDIDATE_SHA}" "${CONAN_REMOTE_NAME:-rstream}"
+          mkdir -p out/release
+          cp -R candidate/package-api/. out/release/
+          ./build-conan-cross.sh upload
+
+  verify-publication:
+    name: Verify package publication completed
+    needs:
+      - approve
+      - publish-linux-windows
+      - publish-macos
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      CANDIDATE_SHA: ${{ needs.approve.outputs.sha }}
+      RELEASE_TAG: ${{ needs.approve.outputs.tag }}
+    steps:
+      - run: printf 'Published verified C++ package candidates for %s\n' "${CANDIDATE_SHA}"
+      - name: Publish GitHub release
+        if: needs.approve.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${RELEASE_TAG}" --draft=false --repo "${GITHUB_REPOSITORY}"
