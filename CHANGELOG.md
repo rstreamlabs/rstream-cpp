@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.0...1.15.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **cli:** parse HTTP CORS options during tunnel startup ([#60](https://github.com/rstreamlabs/rstream-cpp/issues/60)) ([afefb2d](https://github.com/rstreamlabs/rstream-cpp/commit/afefb2d0df06be58141b4bbdf2bef7ddad016893))
+
 ## [1.15.0](https://github.com/rstreamlabs/rstream-cpp/compare/1.14.8...1.15.0) (2026-10-28)
 
 
