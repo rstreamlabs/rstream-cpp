@@ -92,7 +92,7 @@ http tunnel options:
   --rstream-auth                        require rstream account authentication
   --challenge-mode                      require an interactive challenge before access
 
-CORS options (published HTTP tunnels):
+published HTTP CORS options:
   --cors-allow-origin=ARG               allow an explicit HTTP(S) browser origin (repeatable)
   --cors-allow-method=ARG               allow a CORS method (repeatable)
   --cors-allow-header=ARG               allow a CORS request header (repeatable)
