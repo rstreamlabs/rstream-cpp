@@ -583,10 +583,10 @@ function run_upload {
   if [ "${OS}" = "linux" ]; then
     url="${url}&libc=${LIBC}"
   fi
-  response=$(curl --fail -H "Authorization: Bearer ${RSTREAM_TOKEN}" -i -s -S -X PUT "${url}")
+  response=$(curl --fail -H "Authorization: Bearer ${RSTREAM_TOKEN}" -i -s -S -X PUT "${url}") || return
   package_id=$(echo "${response}" | grep 'x-package-id' | cut -d ' ' -f2 | tr -d '\r')
   signed_url=$(echo "${response}" | grep 'location:' | cut -d ' ' -f2 | tr -d '\r')
-  curl --progress-bar --upload-file "${archive}" --fail -H "Content-Type: application/octet-stream" -X PUT "${signed_url}" | cat
+  curl --progress-bar --upload-file "${archive}" --fail -H "Content-Type: application/octet-stream" -X PUT "${signed_url}" --output /dev/null || return
   printf 'name:%s\nid:%s\nversion:%s\nchannel:%s\nos:%s\narch:%s\nshared:%s\nfilename:%s\nchecksum:%s\n' \
     "${name}" "${package_id}" "${version}" "${channel}" "${OS}" "${ARCH}" "${shared}" "${filename}" "${checksum}" >"${archive}.info"
   if [ "${OS}" = "linux" ]; then
