@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.2](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.1...1.15.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* **release:** stop when a package upload fails ([#63](https://github.com/rstreamlabs/rstream-cpp/issues/63)) ([449829c](https://github.com/rstreamlabs/rstream-cpp/commit/449829c26d99f4494047d80004c84e4e00e2fafc))
+
 ## [1.15.1](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.0...1.15.1) (2026-11-06)
 
 
