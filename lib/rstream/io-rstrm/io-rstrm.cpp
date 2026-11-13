@@ -299,7 +299,7 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
       cors.m_exposed_headers = split(value.value(), ',');
     }
     else if (key == "rstrm.http_cors.max_age") {
-      const auto& text = value.value();
+      const auto& text  = value.value();
       const auto parsed = std::from_chars(text.data(), text.data() + text.size(), cors.m_max_age);
       if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || cors.m_max_age < 0 || cors.m_max_age > 86400) {
         error_code = error::code::invalid_configuration;
@@ -309,9 +309,7 @@ void parse_tunnel_properties(const boost::urls::url& url, tunnel_properties& pro
       error_code = error::code::invalid_configuration;
     }
   }
-  if (properties.m_http_cors && (properties.m_http_cors->m_allowed_origins.empty()
-      || (properties.m_publish && !properties.m_publish.value())
-      || (properties.m_protocol && properties.m_protocol.value() != protocol::http))) {
+  if (properties.m_http_cors && (properties.m_http_cors->m_allowed_origins.empty() || (properties.m_publish && !properties.m_publish.value()) || (properties.m_protocol && properties.m_protocol.value() != protocol::http))) {
     error_code = error::code::invalid_configuration;
   }
 }
@@ -1242,6 +1240,7 @@ static std::string append_query_param(std::string address, const std::string& ke
   return address;
 }
 
+#ifdef RSTREAM_WITH_PKCS11
 static int count_non_empty(const std::string& first, const std::string& second)
 {
   int count = 0;
@@ -1317,6 +1316,8 @@ static boost::system::result<std::string> pkcs11_uri_for_object(const config_mtl
   uri += "type=" + type;
   return uri;
 }
+
+#endif
 
 static boost::system::result<std::string> append_mtls_auth_params(std::string address, const boost::optional<config_mtls>& mtls)
 {

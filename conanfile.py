@@ -54,7 +54,7 @@ class ConanPackage(ConanFile):
         "enable_strict_warnings": False,
         "enable_testing": None,
         "ncurses_ref": None,
-        "protobuf_ref": "protobuf/7.35.0",
+        "protobuf_ref": "protobuf/7.36.2",
         "shared": False,
         "ssl_provider": "openssl",
         "static_plugins": None,
@@ -234,9 +234,9 @@ class ConanPackage(ConanFile):
         self.requires("spdlog/[>=1.12.0]", transitive_headers=True, transitive_libs=True)
         self.requires("yaml-cpp/[>=0.8.0]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "openssl":
-            self.requires("openssl/[>=3.1.2 <4]", transitive_headers=True, transitive_libs=True)
+            self.requires("openssl/[>=3.5.9 <3.6 || >=3.6.5 <4]", transitive_headers=True, transitive_libs=True)
         if self.options.ssl_provider.value == "libressl":
-            self.requires("libressl/[>=3.9.1]", transitive_headers=True, transitive_libs=True)
+            self.requires("libressl/[>=4.4.1 <5]", transitive_headers=True, transitive_libs=True)
         protobuf_ref = str(self.options.get_safe("protobuf_ref") or "").strip()
         if protobuf_ref and protobuf_ref != "none":
             self.requires(protobuf_ref, transitive_headers=True, transitive_libs=True)
@@ -357,6 +357,10 @@ class ConanPackage(ConanFile):
         else:
             cmake.build(target="install/strip")
         conan.tools.files.copy(self, "LICENSE", self.build_folder, os.path.join(self.package_folder, "licenses"))
+        conan.tools.files.copy(
+            self, "ssl-provider.json", self.build_folder,
+            os.path.join(self.package_folder, "res"), keep_path=False,
+        )
 
     def package_info(self):
         self.cpp_info.set_property("cmake_find_mode", "none")
