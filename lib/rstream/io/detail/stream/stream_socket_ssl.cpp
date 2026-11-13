@@ -645,6 +645,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #ifdef DEBUG_BUILD
     m_logger->warn("raw public keys functionality (RPK) (RFC7250) is not supported");
 #endif
+    throw boost::system::system_error(error::code::ssl_configuration_error);
 #endif
   }
   if (m_config.m_server_rpk) {
@@ -669,6 +670,7 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
 #ifdef DEBUG_BUILD
     m_logger->warn("raw public keys functionality (RPK) (RFC7250) is not supported");
 #endif
+    throw boost::system::system_error(error::code::ssl_configuration_error);
 #endif
   }
   if (m_config.m_cert || m_config.m_cert_file) {
@@ -1220,8 +1222,12 @@ boost::asio::ssl::context stream_socket_ssl::impl::make_ssl_context()
     auto verify_certificate = [this](bool preverified, boost::asio::ssl::verify_context& context) {
 #if SSL_STREAM_PRINT_PEER_PKEY == 1 && defined(DEBUG_BUILD)
       auto print_pkey = [this](EVP_PKEY* pkey, int peer_cert_type, const char* subject_name) {
+#if defined(LIBRESSL_VERSION_NUMBER)
+        const char* key_type_name = ::OBJ_nid2sn(::EVP_PKEY_base_id(pkey));
+#else
         const char* key_type_name = ::EVP_PKEY_get0_type_name(pkey);
-        BIO* bio                  = ::BIO_new(BIO_s_mem());
+#endif
+        BIO* bio = ::BIO_new(BIO_s_mem());
         if (!bio) {
           m_logger->warn("failed to allocate BIO for peer public key");
           return;
@@ -1667,18 +1673,25 @@ void stream_socket_ssl::impl::async_connect_operation::do_connect()
     sni = m_ptr->m_config.m_sni.get();
   }
   else {
-    const auto host = m_endpoint.get_url().host();
+    const auto host = m_endpoint.get_url().host_address();
     if (!host.empty()) {
       sni = host;
     }
   }
   boost::system::error_code error_code;
   if (sni) {
+    boost::system::error_code address_error;
+    (void)boost::asio::ip::make_address(sni.get(), address_error);
+    if (address_error) {
 #ifdef DEBUG_BUILD
-    m_logger->trace("setting SNI extension to '{}'", sni.get());
+      m_logger->trace("setting SNI extension to '{}'", sni.get());
 #endif
-    if (!SSL_set_tlsext_host_name(m_ptr->m_ssl_stream.native_handle(), sni.get().c_str())) {
-      error_code = boost::system::error_code(static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category());
+      if (!SSL_set_tlsext_host_name(m_ptr->m_ssl_stream.native_handle(), sni.get().c_str())) {
+        error_code = translate_error(::ERR_get_error());
+        if (!error_code) {
+          error_code = error::make_error_code(error::code::ssl_configuration_error);
+        }
+      }
     }
     if (!error_code && m_ptr->m_config.m_peer_verification && m_ptr->m_type == type::client) {
       error_code = configure_expected_peer_identity(m_ptr->m_ssl_stream.native_handle(), sni.get());
