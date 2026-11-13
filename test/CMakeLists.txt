@@ -23,6 +23,10 @@ endif()
 
 if(Python3_Interpreter_FOUND)
   add_test(
+    NAME rstream-test-ssl-version
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_ssl_version.py)
+  rstream_configure_test(rstream-test-ssl-version)
+  add_test(
     NAME rstream-test-ca-generator
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_embed_default_ca_certificates.py)
   rstream_configure_test(rstream-test-ca-generator)
