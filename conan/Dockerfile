@@ -49,7 +49,7 @@ COPY --from=alpine /usr/lib/libstdc++.so.6 /usr/lib/*-linux-musl/libstdc++.so.6
 COPY --from=alpine /usr/lib/libgcc_s.so.1 /usr/lib/*-linux-musl/libgcc_s.so.1
 
 # Install conan
-ARG CONAN_VERSION=2.31.2
+ARG CONAN_VERSION=2.34.0
 
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}" PyYAML
 

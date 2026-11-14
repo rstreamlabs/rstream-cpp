@@ -42,7 +42,7 @@ concurrency:
 
 env:
   CHANNEL: "${{ inputs.channel || (github.ref_type == 'tag' && 'stable' || 'dev') }}"
-  CONAN_VERSION: "2.31.2"
+  CONAN_VERSION: "2.34.0"
   CONAN_REMOTE_NAME: "${{ vars.CONAN_REMOTE_NAME }}"
   CONAN_REMOTE_URL: "${{ vars.CONAN_REMOTE_URL }}"
   CONAN_REMOTE_USERNAME: "${{ vars.CONAN_REMOTE_USERNAME }}"
