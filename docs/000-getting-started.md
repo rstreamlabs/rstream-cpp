@@ -41,7 +41,7 @@ When using Conan, configure with the generated toolchain and matching build type
 
 ## Configure and run
 
-The SDK reads the rstream CLI’s selected context. Install the [Go CLI](https://github.com/rstreamlabs/rstream-go#start-with-the-cli), then run:
+The SDK reads the rstream CLI’s selected context. Install the [Go CLI](https://rstream.io/docs/getting-started/installation), then run:
 
 ```sh
 rstream login
