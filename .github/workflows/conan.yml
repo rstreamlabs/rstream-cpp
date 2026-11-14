@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 env:
-  CONAN_VERSION: "2.31.2"
+  CONAN_VERSION: "2.34.0"
 jobs:
   build:
     name: Linux ${{ matrix.linkage }} libraries, ${{ matrix.plugin_mode }} plugins
