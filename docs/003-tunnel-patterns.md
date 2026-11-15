@@ -71,7 +71,7 @@ auto tunnel = co_await client.async_create_tunnel(properties, asio::use_awaitabl
 
 The `tls` tunnel protocol label here does not perform an application TLS
 handshake inside the private echo handler. The engine connection is verified
-TLS; this handler exchanges raw bytes. [TLS layers](008-http-tls-websocket.md)
+TLS; this handler exchanges raw bytes. [TLS layers](004-http-tls-websocket.md)
 explains the service-side distinction.
 
 `tunnel.close()` removes the tunnel; it does not close the control client.
@@ -129,5 +129,5 @@ rstream-example-uri-http-server --uri 'rstrm://?rstrm.publish=true&rstrm.protoco
 
 The engine and credentials come from the selected context. `rstream.retry`
 belongs to the rstream acceptor; adding it to an ordinary `tcp://` listener does
-not create a tunnel or reconnect an rstream client. See the [URI reference](004-uri-model.md)
+not create a tunnel or reconnect an rstream client. See the [URI reference](006-uri-model.md)
 for namespaces, nested engine overrides and credential restrictions.

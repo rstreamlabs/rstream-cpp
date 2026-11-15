@@ -28,35 +28,43 @@ Choose the path matching the work:
 | --- | --- |
 | Use the published SDK in an application | [Build an application](docs/000-getting-started.md): Conan dependencies, CMake targets and a first connection. |
 | Compile or modify this checkout | [Build the SDK from source](docs/001-building-from-source.md): toolchain, native configuration, build output and tests. |
-| Use the companion native tools | [Command-line tools](docs/005-tools.md), distributed separately as `rstream-utils`. |
+| Use the companion native tools | [Command-line tools](docs/007-tools.md), distributed separately as `rstream-utils`. |
 
 The SDK requires C++20. The HTTP example demonstrates the application model; its CMake and Conan files are in the application guide.
 
 ## Serve HTTP with Boost.Beast
 
-The example creates a published HTTP tunnel and serves one request per accepted connection. It uses the selected CLI context and prints the forwarding address.
+An existing Beast handler can serve an ordinary TCP socket or an rstream
+socket. These excerpts from the complete migration example change the
+listener while keeping the same `example_http::serve` handler.
 
-Start with the [local TCP → rstream migration](docs/008-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel): two executable entry points share the same Beast handler, with tested request/response behavior.
+With a local Asio acceptor:
 
-The complete [HTTP server](example/io-rstrm/http-server.cpp) uses
-`http::async_read` and `http::async_write` directly on an rstream socket. Its
-[application build files](docs/000-getting-started.md#link-an-application) select
-the public CMake targets and runtime plugins. The example serves HTTP/1.1 in
-process; the edge provides the public HTTPS endpoint.
+```cpp
+auto socket = co_await acceptor.async_accept(asio::use_awaitable);
+asio::co_spawn(executor, example_http::serve(std::move(socket)), asio::detached);
+```
 
-The application supplies its `io_context` and executors, chooses its threads,
-and keeps clients, sockets, handlers and buffers alive. The same asynchronous
-operations accept callbacks, futures or `co_await`; executor, allocator and
-cancellation associations follow the handler. See the [integration choices and
-complete programs](docs/003-tunnel-patterns.md) for the ownership and shutdown
-that each style requires.
+With an authenticated rstream client and its HTTP tunnel:
 
-C++ is useful when the connection belongs inside an existing native Asio
-service or gateway. It requires C++20, Boost and a native build/package setup;
-the caller also owns asynchronous lifetimes. The Go SDK and CLI provide the
-reference runtime and broader protocol/tooling coverage. Choose C++ for that
-native integration with its documented transport limits; no throughput or
-footprint advantage is implied without measurements.
+```cpp
+rstrm::socket socket(executor);
+rstrm::endpoint peer;
+co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
+asio::co_spawn(executor, example_http::serve(std::move(socket)), asio::detached);
+```
+
+The [migration walkthrough](docs/004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
+provides both executable entry points, their shared handler, client/tunnel
+setup and build files. The application serves HTTP/1.1 in process; the edge
+provides the public HTTPS endpoint. The same guide demonstrates
+application-owned TLS and a Beast WebSocket server.
+
+Choose callbacks, futures or coroutines to match the application. The
+[complete integration programs](docs/003-tunnel-patterns.md) show event-loop
+ownership, errors and cleanup for each style. Continue with
+[native integration](docs/005-native-integration.md) for executors, allocators,
+cancellation, plugin packaging, target builds and WebTTY.
 
 ## Documentation
 
@@ -65,9 +73,9 @@ footprint advantage is implied without measurements.
 | Build and run a first application | [Getting started](docs/000-getting-started.md) |
 | Set credentials, contexts or transport options | [Configuration](docs/002-configuration.md) |
 | Dial privately or choose another completion style | [Tunnel patterns](docs/003-tunnel-patterns.md) |
-| Configure a URI | [URI model](docs/004-uri-model.md) |
-| Use the packaged utilities | [Command-line tools](docs/005-tools.md) |
-| Understand platform, plugin and packaging constraints | [SDK engineering](docs/006-sdk-engineering.md) |
+| Configure a URI | [URI model](docs/006-uri-model.md) |
+| Use the packaged utilities | [Command-line tools](docs/007-tools.md) |
+| Understand platform, plugin and packaging constraints | [SDK engineering](docs/008-sdk-engineering.md) |
 | Develop the SDK | [Source build](docs/001-building-from-source.md), [Contributing](CONTRIBUTING.md) and [documentation index](docs/README.md) |
 
 ## Security and support

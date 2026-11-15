@@ -13,7 +13,7 @@ is a separate program used for login and shared context setup.
 
 | Tool | Detailed usage |
 | --- | --- |
-| `rstream-tunnel` | The examples below and [URI reference](004-uri-model.md). |
+| `rstream-tunnel` | The examples below and [URI reference](006-uri-model.md). |
 | `rstream-webtty-client` | [Transport, trust and client identity](../bin/webtty/bin/client/README.md). |
 | `rstream-webtty-server` | [Enrollment, authorization and execution account](../bin/webtty/bin/server/README.md). |
 | `rstream-ncat`, `rstream-nperf-client`, `rstream-nperf-server` | `--help`; these use the same native stream/URI model. |
@@ -112,7 +112,7 @@ rstream-tunnel 127.0.0.1:8080 --tls --tls-mode terminated --tls-min-version tls1
 
 Here the local service on port 8080 receives plaintext after edge TLS
 termination. For a TLS-speaking upstream, configure `--upstream-tls` and the
-appropriate trust settings instead. [TLS layers](008-http-tls-websocket.md) are
+appropriate trust settings instead. [TLS layers](004-http-tls-websocket.md) are
 independent of the agent connection.
 
 mTLS Tunnel access uses mTLS credentials to decide which client certificates are allowed.

@@ -9,7 +9,7 @@ rstream login
 rstream project use my-project-endpoint
 ```
 
-Replace the endpoint with your project’s endpoint. The second command selects the default context. The [CLI workflow](https://github.com/rstreamlabs/rstream-go/blob/main/docs/001-cli-workflow.md) explains project-scoped credentials and other authentication methods.
+Replace the endpoint with your project’s endpoint. The second command selects the default context. The [CLI workflow](https://github.com/rstreamlabs/rstream-go/blob/main/docs/002-cli-workflow.md) explains project-scoped credentials and other authentication methods.
 
 ## Environment variables
 
@@ -53,7 +53,7 @@ contexts:
 Keep the agent's token or mTLS identity in the provisioned context or supported
 environment variables. `serverName` is the certificate identity to verify; it
 must match a DNS SAN. With an explicit TLS URI, use `ssl.cacert_file` and, when
-needed, `ssl.sni`, as shown in the [URI reference](004-uri-model.md#tls-stream-options).
+needed, `ssl.sni`, as shown in the [URI reference](006-uri-model.md#tls-stream-options).
 IP literals are checked against IP SANs. Keep peer verification enabled.
 An explicit engine environment override takes precedence over context TLS
 settings; include its CA and identity parameters in that full URI.

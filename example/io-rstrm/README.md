@@ -22,10 +22,11 @@ After `cmake --build --preset conan-debug`, these targets are under
 `build/native/build/Debug/example/io-rstrm/`. The HTTP/TLS/WebSocket servers
 print a forwarding address and run until an interrupt. The callback/future
 programs print the private endpoint and exit; the echo prints `Echo: hello`.
-Failures return a nonzero status in the direct examples. Interrupting a server
+Startup and one-shot exchange failures return a nonzero status. Long-running
+servers keep accepting after session errors. Interrupting a server
 stops its event loop; it does not promise a graceful drain of every session.
 
 See [integration choices](../../docs/003-tunnel-patterns.md) and
-[HTTP/TLS/WebSocket layers](../../docs/008-http-tls-websocket.md) before adapting
+[HTTP/TLS/WebSocket layers](../../docs/004-http-tls-websocket.md) before adapting
 a program. The older [client load example](client/example_io_rstrm_client.cpp)
 is a configurable multi-tunnel exercise, rather than the first application.

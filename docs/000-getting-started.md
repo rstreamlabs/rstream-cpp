@@ -3,7 +3,7 @@
 This guide builds a small application against the published SDK. You need a
 C++20 compiler, CMake 3.23 or newer, Ninja and Conan 2.34.0. Ninja is
 required when Conan builds the SDK from source. Platform requirements and library/plugin
-combinations are covered by the [engineering guide](006-sdk-engineering.md).
+combinations are covered by the [engineering guide](008-sdk-engineering.md).
 
 ## Install the SDK
 
@@ -90,7 +90,7 @@ browser login, see [configuration](002-configuration.md) for project-scoped
 credentials or a certificate identity.
 
 The [tunnel patterns](003-tunnel-patterns.md) guide covers private dialing and
-additional completion styles. The [URI reference](004-uri-model.md) describes
+additional completion styles. The [URI reference](006-uri-model.md) describes
 URI-based configuration.
 
 ## Develop the SDK itself

@@ -1,9 +1,9 @@
 # Develop an existing native service
 
-After the [shared Beast handler migration](008-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel),
+After the [shared Beast handler migration](004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel),
 choose the [direct API, acceptor or URI model](003-tunnel-patterns.md) that fits
 the service. This guide connects the application decisions to the SDK's deeper
-contracts. The [engineering guide](006-sdk-engineering.md) remains the acceptance
+contracts. The [engineering guide](008-sdk-engineering.md) remains the acceptance
 baseline for changes to the runtime or packaging.
 
 ## Keep execution with the application
@@ -50,7 +50,7 @@ Move-only handlers and their executor/allocator/cancellation associations are
 preserved. Erased completion handlers need special care: their associated
 allocator may borrow handler-owned storage. Do not use it to allocate a control
 block that can outlive the handler, such as one retained by cancellation state.
-The [Asio engineering contract](006-sdk-engineering.md#boostasio-contract) explains
+The [Asio engineering contract](008-sdk-engineering.md#boostasio-contract) explains
 the owning fallback and its required late-cancellation/concurrency tests.
 
 ## Make cancellation and shutdown observable
@@ -89,12 +89,12 @@ CMake package. The helper retains the required static registration or stages
 dynamic modules. For dynamic deployment preserve the installation layout:
 executables and shared libraries must still be able to find their modules under
 `lib/rstream`. Do not copy only the executable to a device and assume the
-modules or transitive shared libraries are embedded. The [package matrix](006-sdk-engineering.md#conan-package-matrix)
+modules or transitive shared libraries are embedded. The [package matrix](008-sdk-engineering.md#conan-package-matrix)
 requires external consumption, not compilation alone. `rstream-inspect plugins`
 in a Debug tools build can help inspect registered/discovered modules; use
 `--help` for its supported search-path options.
 
-The [URI reference](004-uri-model.md) describes which namespace each plugin
+The [URI reference](006-uri-model.md) describes which namespace each plugin
 owns. A TCP listener does not become an rstream listener because its query
 contains `rstream.retry`. Use the rstrm plugin/scheme for the tunnel path and
 retain the project/credential configuration separately from untrusted URIs.
@@ -104,8 +104,8 @@ retain the project/credential configuration separately from untrusted URIs.
 A successful host build establishes a local development path. A constrained
 Linux, musl, Yocto or Windows distribution requires the target's toolchain,
 Conan graph, library/plugin topology and runtime execution. The
-[engineering platform contract](006-sdk-engineering.md#supported-environments)
-and [distribution command](006-sdk-engineering.md#distribution-packaging) define
+[engineering platform contract](008-sdk-engineering.md#supported-environments)
+and [distribution command](008-sdk-engineering.md#distribution-packaging) define
 that matrix. Use the public dependency graph for ordinary SDK consumers;
 repository-local recipes are restricted packaging overrides, described by the
 [inventory](../conan/recipes/README.md).
@@ -113,7 +113,7 @@ repository-local recipes are restricted packaging overrides, described by the
 Android, Emscripten and MinGW profile refreshes have their own
 [roadmap](../roadmap/001-cross-compilation-toolchains.md); their existence is not
 runtime qualification for an arbitrary target. Provider/header/runtime versions
-must agree. Preserve [critical dependency checks](007-critical-dependencies.md),
+must agree. Preserve [critical dependency checks](009-critical-dependencies.md),
 ASan/UBSan/TSan gates and the four topologies when changing native shared state.
 Choose explicit buffer, operation and queue limits for the device and validate
 exhaustion/shutdown behavior. Do not infer a performance advantage from the
