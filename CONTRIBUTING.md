@@ -6,6 +6,8 @@ Thanks for considering a contribution to `rstream-cpp`.
 
 Small fixes can usually go straight to a pull request. For larger changes to the public API, transport model, packaging flow, or bundled tools, start with an issue or discussion first so the direction can be reviewed before implementation.
 
+The [roadmap](roadmap/) records remaining native SDK and toolchain work.
+
 ## Local development checks
 
 Before opening a pull request, run the main local checks:
@@ -77,5 +79,7 @@ Keep changes focused, explicit, and idiomatic for the existing codebase.
 Some files are generated or copied into package outputs during the build and Conan flows. If you modify the source definitions or packaging inputs, regenerate or rebuild the corresponding outputs before opening the pull request.
 
 ## Security
+
+WebTTY changes must preserve protocol-bound endpoint proofs and workspace credential verification without runtime control-plane calls. Review authentication and cryptographic changes with shared Go/JavaScript/C++ vectors and the affected native runtime combinations. Keep security audit results with release artifacts, outside the source tree.
 
 Please do not disclose vulnerabilities in public issues. See [SECURITY.md](./SECURITY.md) for the reporting process used by this repository.
