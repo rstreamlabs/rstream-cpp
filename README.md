@@ -20,7 +20,7 @@ Datagram tunnels and QUIC runtime transport are outside the current implementati
 
 ## Get started
 
-Follow [Build and integrate](docs/000-getting-started.md) to build the SDK, link `rstream::rstream` in a CMake application and select a project context. The SDK requires C++20. Its companion command-line tools are distributed separately as `rstream-utils`.
+Follow [Build and integrate](docs/000-getting-started.md) to install the SDK, link `rstream::rstream` in a CMake application and select a project context. The SDK requires C++20. Its companion command-line tools are distributed separately as `rstream-utils`.
 
 ## Serve HTTP with Boost.Beast
 
