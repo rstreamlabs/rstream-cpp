@@ -489,9 +489,9 @@ static void check_enrollment_validation()
   assert(throws_runtime_error([&tampered_path]() { cli::load_server_enrollment(tampered_path.string()); }));
 }
 
-static void check_workspace_approved_client_credential()
+static void check_workspace_approved_client_credential(const std::string& fixture_name)
 {
-  auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "workspace-approved-client.json";
+  auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures" / fixture_name;
   std::ifstream file(path);
   assert(file.is_open());
   auto fixture     = nlohmann::json::parse(file);
@@ -534,11 +534,16 @@ static void check_workspace_approved_client_credential()
     assert(throws_runtime_error([&]() { verify(tampered); }));
   }
   auto signature = cli::base64url_decode(payload.at("trust_keyset_signature").get<std::string>(), 0, "signature");
-  assert(signature.size() == 64);
+  assert(!signature.empty());
   signature[0] ^= 1;
   tampered                                      = credential;
   tampered["payload"]["trust_keyset_signature"] = cli::base64url_encode(signature);
   assert(throws_runtime_error([&]() { verify(tampered); }));
+  if (fixture.contains("invalidCredentials")) {
+    for (const auto& entry : fixture.at("invalidCredentials").items()) {
+      assert(throws_runtime_error([&]() { verify(entry.value()); }));
+    }
+  }
   public_key[0] ^= 1;
   assert(throws_runtime_error([&]() { verify(credential); }));
 }
@@ -555,6 +560,7 @@ int main()
   check_runtime_config_validation();
   check_runtime_config_rejects_unsupported_options_and_documents();
   check_enrollment_validation();
-  check_workspace_approved_client_credential();
+  check_workspace_approved_client_credential("workspace-approved-client.json");
+  check_workspace_approved_client_credential("workspace-service-client.json");
   return 0;
 }

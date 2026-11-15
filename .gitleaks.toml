@@ -32,3 +32,16 @@ regexes = [
   '''^\s*"keyset_id":\ "cmtorkj0w0001f4s7ibymzn7r",\s*$''',
   '''^\s*"webtty_key_algorithm":\ "webtty\-x25519\-hpke\-v1",\s*$''',
 ]
+
+[[rules.allowlists]]
+description = "Exact public Go-generated service approval test vectors; private keys and authentication tokens remain scanned."
+condition = "AND"
+paths = ['''(^|/)test/webtty/fixtures/workspace-service-client\.json$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*"device_public_encryption_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhV9OHN0bLBv21Ih7nfjpARntvtD5ojSdSbjTK62vwFpjiz7p2LOWJQ4hPVS\-\-z5l_chsugluwuTQGR\-7hOK9Hw",?\s*$''',
+  '''^\s*"device_public_signing_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0ATVaKihkb2csbqCjBVNDXHqToYTnCA\-DHfRQ8DLcmMiMGkGMpbwuhYpkyi2mznIWzHfssJnG3fWQpLniIP7_w",?\s*$''',
+  '''^\s*"trust_keyset_signature": "MEQCICbY58EdD9n71jj1G\-NUPNSdQmDDC2W\-nnFGePXZwckuAiBlLmtensX3yh78wYmV8kO2zwVFeg36432_sHg6q\-wXEQ",?\s*$''',
+  '''^\s*"webtty_key_algorithm": "webtty\-x25519\-hpke\-v1",?\s*$''',
+  '''^\s*"workspaceTrustPublicSigningKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfoGYkhxUisoYO8degyYPWrlYIHmY1fLbmax8Kd42lJwI9WAoeC6z7wCzBhAInxSkBnKwZGBsdTwZwaCsUWlRIg",?\s*$''',
+]

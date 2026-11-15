@@ -96,8 +96,33 @@ inline void verify_workspace_signature(const std::string& public_signing_key, co
   }
 }
 
+inline bool workspace_payload_version(const nlohmann::json& payload, int expected)
+{
+  auto version = payload.find("v");
+  return version != payload.end() && version->is_number_integer() && *version == expected;
+}
+
+inline bool workspace_client_credential_owner_matches(const nlohmann::json& credential, const nlohmann::json& trust_payload)
+{
+  if (!credential.contains("owner_credential_id")) {
+    return workspace_payload_version(credential, 1) && workspace_payload_version(trust_payload, 1) && !trust_payload.contains("owner_credential_id");
+  }
+  auto owner = workspace_json_string(credential, "owner_credential_id");
+  if (owner.empty() || trim_copy(owner) != owner) {
+    return false;
+  }
+  return workspace_payload_version(credential, 2) && workspace_payload_version(trust_payload, 2)
+         && workspace_json_string(credential, "device_kind") == "service"
+         && workspace_json_string(trust_payload, "type") == "workspace.device.approve"
+         && workspace_json_string(trust_payload, "owner_credential_id") == owner
+         && !trust_payload.contains("envelope_hash");
+}
+
 inline bool workspace_trust_payload_matches(const rstream::webtty::cli::server_enrollment& enrollment, const nlohmann::json& credential, const nlohmann::json& trust_payload)
 {
+  if (!workspace_client_credential_owner_matches(credential, trust_payload)) {
+    return false;
+  }
   if (workspace_json_string(trust_payload, "workspace_id") != enrollment.m_workspace_id) {
     return false;
   }
