@@ -1,7 +1,8 @@
 # Build and integrate the C++ SDK
 
 This guide builds a small application against the published SDK. You need a
-C++20 compiler, CMake and Conan 2. Platform requirements and library/plugin
+C++20 compiler, CMake, Ninja and Conan 2. Ninja is required when Conan builds
+the SDK from source. Platform requirements and library/plugin
 combinations are covered by the [engineering guide](001-sdk-engineering.md).
 
 ## Install the SDK
