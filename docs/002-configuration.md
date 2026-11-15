@@ -30,7 +30,41 @@ Engine resolution checks the explicit environment overrides before the selected 
 
 ## Trust the engine
 
-The TLS connection verifies the engine’s certificate and hostname. The OpenSSL backend uses its default trust paths. For a private CA, set `SSL_CERT_FILE` to its PEM bundle before starting the application; the engine address must still match the certificate. See the [URI model](002-uri-model.md) for explicit connection settings.
+The engine TLS connection verifies the certificate chain and the peer identity.
+Default SDK builds use the bundled public CA certificates. `SSL_CERT_FILE`
+only applies to builds configured with `EMBED_DEFAULT_CA_CERTIFICATES=OFF`;
+it does not replace the bundled trust store in the default build.
+
+For a private engine CA, configure the selected context explicitly:
+
+```yaml
+defaults:
+  context:
+    name: private-engine
+contexts:
+  - name: private-engine
+    engine: project.cluster.example:443
+    transport:
+      tls:
+        caFile: /etc/rstream/engine-ca.pem
+        serverName: project.cluster.example
+```
+
+Keep the agent's token or mTLS identity in the provisioned context or supported
+environment variables. `serverName` is the certificate identity to verify; it
+must match a DNS SAN. With an explicit TLS URI, use `ssl.cacert_file` and, when
+needed, `ssl.sni`, as shown in the [URI reference](004-uri-model.md#tls-stream-options).
+IP literals are checked against IP SANs. Keep peer verification enabled.
+An explicit engine environment override takes precedence over context TLS
+settings; include its CA and identity parameters in that full URI.
+
+A provisioned process can avoid browser login using `RSTREAM_ENGINE` (a
+`host:port`, expanded to verified TLS with the rstream ALPN) and
+`RSTREAM_AUTHENTICATION_TOKEN`. Supply the real project-scoped token through
+its secret manager or service environment. A programmatic client can instead
+set `config_client::m_token`, construct the client with that config, and pass a
+verified TLS `io::address` to `async_connect`. Configure these before initiating
+operations: a client snapshots its default engine and credentials at construction.
 
 ## Authenticate an agent
 

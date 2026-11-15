@@ -1,18 +1,27 @@
 # C++ SDK documentation
 
-Start with [Build an application](000-getting-started.md) and the complete HTTP server in the [repository overview](../README.md). The SDK follows Boost.Asio’s execution model; the application owns its event loop and connection lifetimes.
+Choose [a published-package application](000-getting-started.md) when adding
+rstream to a service. Choose [the source build](001-building-from-source.md)
+when trying the checkout's examples or modifying the SDK. Both use the
+application's Asio event loop; source compilation and local tests do not need a
+project or credentials.
 
-| Integration guide | Use it to |
-| --- | --- |
-| [Build an application](000-getting-started.md) | Install a published SDK, link an application and connect to a project. |
-| [Configuration](004-configuration.md) | Select credentials, a shared context and supported transport settings. |
-| [Tunnel patterns](005-tunnel-patterns.md) | Publish stream services, dial privately and use different completion tokens. |
-| [URI model](002-uri-model.md) | Parse and compose URI-based settings. |
-| [Command-line tools](006-tools.md) | Use the companion native utilities. |
+Continue with configuration, then choose how the application will integrate:
 
-| Development guide | Scope |
-| --- | --- |
-| [Source build](007-building-from-source.md) | Compile this checkout and run its native tests. |
-| [Contributing](../CONTRIBUTING.md) | API, style and change requirements. |
-| [SDK engineering](001-sdk-engineering.md) | Asio contracts, platform support, linking and plugin topologies. |
-| [Critical dependencies](003-critical-dependencies.md) | Dependency selection and upgrade constraints. |
+| Step | Guide | Result |
+| --- | --- | --- |
+| 1 | [Build an application](000-getting-started.md) | Conan/CMake files and a first HTTP connection using the published SDK. |
+| 2 | [Build this checkout](001-building-from-source.md) | A native build tree, maintained example targets and local tests. |
+| 3 | [Configuration](002-configuration.md) | A selected context or provisioned engine/identity, with verified TLS. |
+| 4 | [Integration and tunnel patterns](003-tunnel-patterns.md) | A choice between direct API, acceptor and URI streams; callback/future/coroutine programs and private dial. |
+| 5 | [HTTP, TLS and WebSocket](008-http-tls-websocket.md) | The handler protocol, certificate owner and Beast integration. |
+| Next | [Advanced native integration](009-native-integration.md) | Associated executors/allocators, cancellation, plugin deployment, cross builds and WebTTY. |
+| Reference | [URI model](004-uri-model.md) | Parameter namespaces, encoding and examples for the selected transport. |
+| Tools | [Command-line tools](005-tools.md) | Native utilities and their own authentication/transport workflows. |
+
+SDK development has additional obligations. [Contributing](../CONTRIBUTING.md)
+explains the change workflow; [SDK engineering](006-sdk-engineering.md) preserves
+Asio, platform, plugin, packaging and security contracts.
+[Critical dependencies](007-critical-dependencies.md) defines provider/toolchain
+qualification. These acceptance gates do not disappear when the first local
+program builds successfully.

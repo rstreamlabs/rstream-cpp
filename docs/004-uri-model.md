@@ -2,7 +2,7 @@
 
 The C++ SDK and its native tools use URIs to describe a connection and its options. The scheme identifies the connection type; query parameters configure the tunnel, rstream client or underlying transport. This is an alternative configuration surface, not a different authorization model. Engine project settings still determine which requests are permitted.
 
-Start with [Configuration](004-configuration.md) for a selected CLI context and credentials. Use this reference when constructing an explicit URI or configuring a native tool.
+Start with [Configuration](002-configuration.md) for a selected CLI context and credentials. Use this reference when constructing an explicit URI or configuring a native tool.
 
 ## Choose the parameter namespace
 
@@ -102,11 +102,25 @@ A verified TLS stream to an engine, with its server name and ALPN:
 tcp://engine.example:443?ssl&ssl.tlsv13=true&ssl.alpn_protos=rstrm%2F1&ssl.peer_verification=true&ssl.sni=engine.example
 ```
 
-An acceptor URI can add `rstream.retry=true` and an explicit `rstream.token` to that TLS configuration. `TOKEN_VALUE` below is a placeholder, not a literal credential:
+That `tcp://` URI is an **engine connection address**. It does not create a
+published tunnel when passed to the generic stream acceptor: the scheme selects
+the TCP plugin. Use a `rstrm://` URI for a tunnel listener, with the engine and
+credentials supplied by the selected context:
 
 ```text
-tcp://engine.example:443?ssl&ssl.tlsv13=true&ssl.alpn_protos=rstrm%2F1&ssl.peer_verification=true&ssl.sni=engine.example&rstream.retry=true&rstream.token=TOKEN_VALUE
+rstrm://?rstrm.publish=true&rstrm.protocol=http&rstream.retry=true
 ```
+
+A private dial selects the tunnel name or ID in the host, for example
+`rstrm://echo`. The [integration guide](003-tunnel-patterns.md) shows how the
+URI model differs from a direct `client`/`tunnel`/`socket` API.
+
+The optional `server=` query value overrides the engine address and must be
+percent-encoded as a nested URI. A dial with this override rejects an implicit
+context token: set an explicit `rstream.token`, or explicitly select
+`rstream.no_token` for a connection that does not use token authentication.
+This prevents silently sending a context token to an arbitrary engine selected
+by an input URI. Prefer a provisioned context over putting credentials in URIs.
 
 ## HTTP CORS
 

@@ -1,9 +1,9 @@
 # Build an application with the C++ SDK
 
 This guide builds a small application against the published SDK. You need a
-C++20 compiler, CMake, Ninja and Conan 2. Ninja is required when Conan builds
-the SDK from source. Platform requirements and library/plugin
-combinations are covered by the [engineering guide](001-sdk-engineering.md).
+C++20 compiler, CMake 3.23 or newer, Ninja and Conan 2.34.0. Ninja is
+required when Conan builds the SDK from source. Platform requirements and library/plugin
+combinations are covered by the [engineering guide](006-sdk-engineering.md).
 
 ## Install the SDK
 
@@ -39,10 +39,12 @@ class Application(ConanFile):
 
 Conan downloads a compatible binary when available and builds missing packages
 from source. The Boost range matches the maintained sample's supported range.
+This path targets the published `rstream/1.15.1` API. Source-candidate additions such as
+`rstream/io-rstrm/beast.hpp` require the checkout and are described separately.
 
 ## Link an application
 
-Save the complete [README server](../README.md#serve-http-with-boostbeast) as
+Save the complete [HTTP server](../example/io-rstrm/http-server.cpp) as
 `main.cpp` and create `CMakeLists.txt` beside it:
 
 ```cmake
@@ -84,15 +86,15 @@ Replace `my-project-endpoint` with your own endpoint. With a multi-configuration
 generator such as Visual Studio, run `build/Release/rstream_http_example.exe`.
 The program prints a forwarding address for its in-process HTTP handler; open
 that address and stop the program with an interrupt. For devices without
-browser login, see [configuration](004-configuration.md) for project-scoped
+browser login, see [configuration](002-configuration.md) for project-scoped
 credentials or a certificate identity.
 
-The [tunnel patterns](005-tunnel-patterns.md) guide covers private dialing and
-additional completion styles. The [URI reference](002-uri-model.md) describes
+The [tunnel patterns](003-tunnel-patterns.md) guide covers private dialing and
+additional completion styles. The [URI reference](004-uri-model.md) describes
 URI-based configuration.
 
 ## Develop the SDK itself
 
-To compile an editable checkout rather than consume the published package, follow [Build and develop the C++ SDK](007-building-from-source.md). It covers native prerequisites, Conan dependency setup, the local CMake build tree and tests.
+To compile an editable checkout rather than consume the published package, follow [Build and develop the C++ SDK](001-building-from-source.md). It covers native prerequisites, Conan dependency setup, the local CMake build tree and tests.
 
 If an organization provisions an installed SDK, configure the application with `CMAKE_PREFIX_PATH` pointing to that installation and provide its public dependencies through the build system. The same CMake targets and server source apply.

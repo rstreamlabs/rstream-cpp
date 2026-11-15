@@ -8,4 +8,4 @@ Update user documentation and examples when behavior changes. Run the relevant c
 
 ## Repository-specific guidance
 
-Follow `CONTRIBUTING.md` and `docs/001-sdk-engineering.md`. Preserve Asio associated executors, allocators, cancellation slots and move-only handlers. Complete operations exactly once, avoid callbacks under locks and keep blocking work off event-loop threads. Preserve library/plugin topology, public package constraints and supported toolchain profiles.
+Follow `CONTRIBUTING.md` and `docs/006-sdk-engineering.md`. Preserve Asio associated executors, allocators, cancellation slots and move-only handlers. Complete operations exactly once, avoid callbacks under locks and keep blocking work off event-loop threads. Preserve library/plugin topology, public package constraints and supported toolchain profiles.

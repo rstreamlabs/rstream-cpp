@@ -27,103 +27,48 @@ Choose the path matching the work:
 | Goal | Guide |
 | --- | --- |
 | Use the published SDK in an application | [Build an application](docs/000-getting-started.md): Conan dependencies, CMake targets and a first connection. |
-| Compile or modify this checkout | [Build the SDK from source](docs/007-building-from-source.md): toolchain, native configuration, build output and tests. |
-| Use the companion native tools | [Command-line tools](docs/006-tools.md), distributed separately as `rstream-utils`. |
+| Compile or modify this checkout | [Build the SDK from source](docs/001-building-from-source.md): toolchain, native configuration, build output and tests. |
+| Use the companion native tools | [Command-line tools](docs/005-tools.md), distributed separately as `rstream-utils`. |
 
-The SDK requires C++20. The complete HTTP program below demonstrates the application model; its CMake and Conan files are in the application guide.
+The SDK requires C++20. The HTTP example demonstrates the application model; its CMake and Conan files are in the application guide.
 
 ## Serve HTTP with Boost.Beast
 
-This complete program creates a published HTTP tunnel and serves one request per accepted connection. It uses the selected CLI context and prints the forwarding address.
+The example creates a published HTTP tunnel and serves one request per accepted connection. It uses the selected CLI context and prints the forwarding address.
 
-```cpp
-#include <csignal>
-#include <iostream>
+Start with the [local TCP → rstream migration](docs/008-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel): two executable entry points share the same Beast handler, with tested request/response behavior.
 
-#include <boost/asio.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
+The complete [HTTP server](example/io-rstrm/http-server.cpp) uses
+`http::async_read` and `http::async_write` directly on an rstream socket. Its
+[application build files](docs/000-getting-started.md#link-an-application) select
+the public CMake targets and runtime plugins. The example serves HTTP/1.1 in
+process; the edge provides the public HTTPS endpoint.
 
-#include <rstream/core/exception.hpp>
-#include <rstream/io-rstrm/client.hpp>
-#include <rstream/io-rstrm/io-rstrm.hpp>
-#include <rstream/io-rstrm/socket.hpp>
+The application supplies its `io_context` and executors, chooses its threads,
+and keeps clients, sockets, handlers and buffers alive. The same asynchronous
+operations accept callbacks, futures or `co_await`; executor, allocator and
+cancellation associations follow the handler. See the [integration choices and
+complete programs](docs/003-tunnel-patterns.md) for the ownership and shutdown
+that each style requires.
 
-namespace asio  = boost::asio;
-namespace http  = boost::beast::http;
-namespace rstrm = rstream::io_rstrm;
-
-asio::awaitable<void> session(rstrm::socket socket)
-{
-  try {
-    http::request<http::string_body> req;
-    boost::beast::flat_buffer buffer;
-    co_await http::async_read(socket, buffer, req, asio::use_awaitable);
-    http::response<http::string_body> res{http::status::ok, req.version()};
-    res.set(http::field::content_type, "text/plain");
-    res.keep_alive(false);
-    res.body() = "Hello from rstream-cpp";
-    res.prepare_payload();
-    co_await http::async_write(socket, res, asio::use_awaitable);
-    boost::system::error_code ec;
-    socket.close(ec);
-  }
-  catch (const std::exception& e) {
-    std::cerr << "session error: " << e.what() << std::endl;
-  }
-}
-
-asio::awaitable<void> listener()
-{
-  auto executor = co_await asio::this_coro::executor;
-  rstrm::client client(executor);
-  co_await client.async_connect(asio::use_awaitable);
-  rstrm::tunnel_properties properties = {.m_publish = true, .m_protocol = rstrm::protocol::http};
-  auto tunnel                         = co_await client.async_create_tunnel(properties, asio::use_awaitable);
-  auto forwarding                     = rstrm::format_forwarding_address(tunnel.properties());
-  if (forwarding) {
-    std::cout << "Forwarding address: " << forwarding.value() << std::endl;
-  }
-  while (true) {
-    rstrm::socket socket(executor);
-    rstrm::endpoint peer;
-    co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
-    asio::co_spawn(executor, session(std::move(socket)), asio::detached);
-  }
-}
-
-int main()
-{
-  int result = 0;
-  asio::io_context io_context;
-  asio::signal_set signals(io_context, SIGINT, SIGTERM);
-  auto on_done = [&io_context, &result](std::exception_ptr error) {
-    if (error) {
-      result = 1;
-      std::cerr << "fatal error: " << rstream::core::throwable::to_string(error) << std::endl;
-    }
-    io_context.stop();
-  };
-  signals.async_wait([&on_done](const boost::system::error_code&, int) { on_done(nullptr); });
-  asio::co_spawn(io_context, listener(), on_done);
-  io_context.run();
-  return result;
-}
-```
-
-The Asio event loop belongs to the application. The [build guide](docs/000-getting-started.md#link-an-application) provides the CMake file for this program, including runtime plugin selection.
+C++ is useful when the connection belongs inside an existing native Asio
+service or gateway. It requires C++20, Boost and a native build/package setup;
+the caller also owns asynchronous lifetimes. The Go SDK and CLI provide the
+reference runtime and broader protocol/tooling coverage. Choose C++ for that
+native integration with its documented transport limits; no throughput or
+footprint advantage is implied without measurements.
 
 ## Documentation
 
 | Task | Guide |
 | --- | --- |
 | Build and run a first application | [Getting started](docs/000-getting-started.md) |
-| Set credentials, contexts or transport options | [Configuration](docs/004-configuration.md) |
-| Dial privately or choose another completion style | [Tunnel patterns](docs/005-tunnel-patterns.md) |
-| Configure a URI | [URI model](docs/002-uri-model.md) |
-| Use the packaged utilities | [Command-line tools](docs/006-tools.md) |
-| Understand platform, plugin and packaging constraints | [SDK engineering](docs/001-sdk-engineering.md) |
-| Develop the SDK | [Source build](docs/007-building-from-source.md), [Contributing](CONTRIBUTING.md) and [documentation index](docs/README.md) |
+| Set credentials, contexts or transport options | [Configuration](docs/002-configuration.md) |
+| Dial privately or choose another completion style | [Tunnel patterns](docs/003-tunnel-patterns.md) |
+| Configure a URI | [URI model](docs/004-uri-model.md) |
+| Use the packaged utilities | [Command-line tools](docs/005-tools.md) |
+| Understand platform, plugin and packaging constraints | [SDK engineering](docs/006-sdk-engineering.md) |
+| Develop the SDK | [Source build](docs/001-building-from-source.md), [Contributing](CONTRIBUTING.md) and [documentation index](docs/README.md) |
 
 ## Security and support
 

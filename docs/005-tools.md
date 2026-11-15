@@ -2,6 +2,24 @@
 
 These programs are built from the C++ SDK and distributed as `rstream-utils`. The [Go CLI](https://github.com/rstreamlabs/rstream-go) provides the reference rstream command and shared context setup.
 
+## Obtain the tools
+
+Use the public [rstream downloads](https://rstream.io/download) for the
+`rstream-utils` distribution matching the host platform. For a source build,
+follow [Build this checkout](001-building-from-source.md); its native Debug
+configuration includes the tools, under `build/native/build/Debug/bin/`.
+Run each program with `--help` for its current arguments. The Go `rstream` CLI
+is a separate program used for login and shared context setup.
+
+| Tool | Detailed usage |
+| --- | --- |
+| `rstream-tunnel` | The examples below and [URI reference](004-uri-model.md). |
+| `rstream-webtty-client` | [Transport, trust and client identity](../bin/webtty/bin/client/README.md). |
+| `rstream-webtty-server` | [Enrollment, authorization and execution account](../bin/webtty/bin/server/README.md). |
+| `rstream-ncat`, `rstream-nperf-client`, `rstream-nperf-server` | `--help`; these use the same native stream/URI model. |
+| `rstream-inspect` | Debug builds only; `--help` describes version and plugin inspection. |
+| `rstream-gping`, `rstream-runpy` | Require Python bindings in the source build. |
+
 ## Programs
 
 This repository also builds native tools that reuse the same transport and tunnel primitives:
@@ -89,8 +107,13 @@ rstream-tunnel 127.0.0.1:8080 --http --token-auth --challenge-mode --trusted-ips
 To configure terminated TLS publication with mTLS and explicit cipher policy:
 
 ```bash
-rstream-tunnel 127.0.0.1:8443 --tls --tls-mode terminated --tls-min-version tls1.2 --tls-ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384 --mtls --label env=prod --label app=api
+rstream-tunnel 127.0.0.1:8080 --tls --tls-mode terminated --tls-min-version tls1.2 --tls-ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384 --mtls --label env=prod --label app=api
 ```
+
+Here the local service on port 8080 receives plaintext after edge TLS
+termination. For a TLS-speaking upstream, configure `--upstream-tls` and the
+appropriate trust settings instead. [TLS layers](008-http-tls-websocket.md) are
+independent of the agent connection.
 
 mTLS Tunnel access uses mTLS credentials to decide which client certificates are allowed.
 

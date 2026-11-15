@@ -2,7 +2,7 @@
 
 This guide compiles the SDK in your checkout so that edits can be rebuilt and tested locally. To add a released SDK to an application instead, use [Build an application](000-getting-started.md). Neither compilation nor the local library tests require a running engine or rstream credentials.
 
-Conan resolves third-party libraries and generates the CMake toolchain. CMake then builds this checkout with Ninja. The native development build includes the SDK, companion tools and their tests; cross-compilation and distribution packaging are separate paths in the [engineering guide](001-sdk-engineering.md).
+Conan resolves third-party libraries and generates the CMake toolchain. CMake then builds this checkout with Ninja. The native development build includes the SDK, companion tools and their tests; cross-compilation and distribution packaging are separate paths in the [engineering guide](006-sdk-engineering.md).
 
 ## Prerequisites
 
@@ -73,6 +73,6 @@ A separate `conan build` invocation must repeat the same profiles, settings and 
 
 `conan create .` builds and tests a package in Conan's local cache, rather than leaving an editable build in the checkout. Use the same profiles, settings and options as above when qualifying that configuration. The recipe's version comes from the selected source/tag or `version.txt`; an untagged package is not a published release.
 
-The native configuration above includes companion tools. For a library-only consumer package, select `build_bins=False` and disable the tool-dependent test configuration rather than combining it with the full native test suite. The [tools guide](006-tools.md) describes the utilities; the [engineering guide](001-sdk-engineering.md) defines supported library/plugin combinations and platform requirements.
+The native configuration above includes companion tools. For a library-only consumer package, select `build_bins=False` and disable the tool-dependent test configuration rather than combining it with the full native test suite. The [tools guide](005-tools.md) describes the utilities; the [engineering guide](006-sdk-engineering.md) defines supported library/plugin combinations and platform requirements.
 
 The `build.sh` helper is a direct CMake build/test/install path for an already provisioned dependency environment. It does not resolve the native dependencies in place of Conan. Use it only when the required CMake packages and toolchain are available. Follow [Contributing](../CONTRIBUTING.md) for the asynchronous API and change-review requirements.
