@@ -8,41 +8,11 @@ Small fixes can usually go straight to a pull request. For larger changes to the
 
 The [roadmap](roadmap/) records remaining native SDK and toolchain work.
 
-## Local development checks
+## Local development
 
-Before opening a pull request, run the main local checks:
+Follow [Build and develop the SDK](docs/007-building-from-source.md) for the compiler, Conan, CMake and Ninja prerequisites and a native checkout build. That path runs the enabled local tests and explains where the output is written. Use the published-package [application guide](docs/000-getting-started.md) when testing consumption separately from library development.
 
-```bash
-conan profile detect --force
-conan config install conan/config
-conan create . -u --build=missing -pr:b default -pr:h default
-```
-
-If you already have the native dependencies installed locally, the direct CMake flow is:
-
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-If you use the repository helper script, the equivalent flow is:
-
-```bash
-./build.sh
-```
-
-Use `build-conan-cross.sh` for distributable Linux, Windows, and macOS
-profiles. Library linkage and plugin loading are independent dimensions:
-
-```bash
-OSS="linux" \
-LINUX_ARCHS="x86_64" \
-LINUX_TCLIBCS="glibc musl" \
-LINUX_BUILD_SHARED="on off" \
-LINUX_PLUGIN_MODES="static dynamic" \
-./build-conan-cross.sh build
-```
+Cross-compilation, distributable packages and the required library/plugin matrix follow the [engineering contract](docs/001-sdk-engineering.md). They are additional qualification paths, not prerequisites for the first native build.
 
 If a change affects examples, documentation, packaging metadata, or generated files, update the corresponding files in the same pull request.
 

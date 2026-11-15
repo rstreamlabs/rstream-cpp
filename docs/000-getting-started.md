@@ -1,4 +1,4 @@
-# Build and integrate the C++ SDK
+# Build an application with the C++ SDK
 
 This guide builds a small application against the published SDK. You need a
 C++20 compiler, CMake, Ninja and Conan 2. Ninja is required when Conan builds
@@ -13,7 +13,7 @@ have one, then add the rstream remote:
 ```sh
 mkdir rstream-http
 cd rstream-http
-conan profile detect
+conan profile detect --exist-ok
 conan remote add rstream https://nexus.rstream.io/repository/conan -f
 ```
 
@@ -91,15 +91,8 @@ The [tunnel patterns](005-tunnel-patterns.md) guide covers private dialing and
 additional completion styles. The [URI reference](002-uri-model.md) describes
 URI-based configuration.
 
-## Build or install from source
+## Develop the SDK itself
 
-To modify the SDK, follow [Contributing](../CONTRIBUTING.md) for source builds
-and tests. From the SDK repository, `conan config install conan/config` installs
-its build profiles, and `conan create . --build=missing -pr:b default -pr:h default`
-builds the package in the local cache. Cross-compilation and release packaging
-are covered by the [engineering guide](001-sdk-engineering.md).
+To compile an editable checkout rather than consume the published package, follow [Build and develop the C++ SDK](007-building-from-source.md). It covers native prerequisites, Conan dependency setup, the local CMake build tree and tests.
 
-If your organization provisions an installed SDK, configure the application
-with `CMAKE_PREFIX_PATH` pointing to that installation and provide its public
-dependencies through your build system. The same CMake targets and server
-source apply.
+If an organization provisions an installed SDK, configure the application with `CMAKE_PREFIX_PATH` pointing to that installation and provide its public dependencies through the build system. The same CMake targets and server source apply.

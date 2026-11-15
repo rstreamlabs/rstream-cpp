@@ -1,8 +1,10 @@
 # rstream C++ SDK
 
-Embed rstream connectivity in native services, gateways and devices. The C++ SDK follows Boost.Asio’s asynchronous model, with executors, cancellation and completion tokens that fit existing Asio and Boost.Beast applications.
+rstream connects services and devices through an outbound connection to an edge, making them reachable without opening inbound ports on their hosts. Applications can expose a forwarding address or connect privately through an authenticated client.
 
-It focuses on native performance and predictable resource ownership. The [Go SDK](https://github.com/rstreamlabs/rstream-go) is the reference implementation and provides broader protocol coverage.
+The C++ SDK embeds that connection model in native services, gateways and devices. It follows Boost.Asio's asynchronous model, so executors, cancellation and completion tokens fit existing Asio and Boost.Beast applications. The application owns its event loop and connection lifetimes.
+
+The [SDK guide](https://rstream.io/docs/sdks) compares language runtimes and protocol coverage.
 
 ## Connection model
 
@@ -20,7 +22,15 @@ Datagram tunnels and QUIC runtime transport are outside the current implementati
 
 ## Get started
 
-Follow [Build and integrate](docs/000-getting-started.md) to install the SDK, link `rstream::rstream` in a CMake application and select a project context. The SDK requires C++20. Its companion command-line tools are distributed separately as `rstream-utils`.
+Choose the path matching the work:
+
+| Goal | Guide |
+| --- | --- |
+| Use the published SDK in an application | [Build an application](docs/000-getting-started.md): Conan dependencies, CMake targets and a first connection. |
+| Compile or modify this checkout | [Build the SDK from source](docs/007-building-from-source.md): toolchain, native configuration, build output and tests. |
+| Use the companion native tools | [Command-line tools](docs/006-tools.md), distributed separately as `rstream-utils`. |
+
+The SDK requires C++20. The complete HTTP program below demonstrates the application model; its CMake and Conan files are in the application guide.
 
 ## Serve HTTP with Boost.Beast
 
@@ -113,7 +123,7 @@ The Asio event loop belongs to the application. The [build guide](docs/000-getti
 | Configure a URI | [URI model](docs/002-uri-model.md) |
 | Use the packaged utilities | [Command-line tools](docs/006-tools.md) |
 | Understand platform, plugin and packaging constraints | [SDK engineering](docs/001-sdk-engineering.md) |
-| Develop the SDK | [Documentation index](docs/README.md) and [Contributing](CONTRIBUTING.md) |
+| Develop the SDK | [Source build](docs/007-building-from-source.md), [Contributing](CONTRIBUTING.md) and [documentation index](docs/README.md) |
 
 ## Security and support
 
