@@ -175,6 +175,81 @@ static void check_runtime_config_validation()
   assert(throws_runtime_error([&contradictory_path]() { cli::load_server_runtime_config(contradictory_path.string()); }));
 }
 
+static void check_client_and_server_payload_recipients()
+{
+  const auto server = test_identity();
+  const auto device = test_identity();
+  rstream::webtty::e2e_payload_crypto_config config;
+  cli::add_payload_recipient(config.m_recipients, {server.m_key_id, server.m_public_key});
+  cli::add_payload_recipient(config.m_recipients, {device.m_key_id, device.m_public_key});
+  cli::add_payload_recipient(config.m_recipients, {device.m_key_id, device.m_public_key});
+  std::error_code error_code;
+  const auto crypto = rstream::webtty::make_e2e_client_payload_crypto(config, error_code);
+  assert(!error_code && crypto);
+  rstream::webtty::session_key_grant grant;
+  crypto->get_session_key_grant(grant, error_code);
+  assert(!error_code && grant.m_key_envelopes.size() == 2);
+  const rstream::webtty::byte_vector plaintext{'r', 'e', 'c', 'o', 'r', 'd'};
+  rstream::webtty::encrypted_payload encrypted;
+  crypto->encrypt(rstream::webtty::payload_stream::std_in, plaintext, encrypted, error_code);
+  assert(!error_code);
+  for (const auto& identity : {server, device}) {
+    const auto reader = rstream::webtty::make_e2e_server_payload_crypto(grant, identity, error_code);
+    assert(!error_code && reader);
+    rstream::webtty::byte_vector decrypted;
+    reader->decrypt(rstream::webtty::payload_stream::std_in, encrypted, decrypted, error_code);
+    assert(!error_code && decrypted == plaintext);
+  }
+  const auto unrelated = test_identity();
+  assert(!rstream::webtty::make_e2e_server_payload_crypto(grant, unrelated, error_code));
+  assert(error_code);
+  assert(throws_runtime_error([&]() { cli::add_payload_recipient(config.m_recipients, {device.m_key_id, unrelated.m_public_key}); }));
+}
+
+static void check_workspace_client_recording_context()
+{
+  const auto server = test_endpoint_identity();
+  const auto device = test_endpoint_identity();
+  const auto host   = rstream::webtty::public_endpoint_identity(server);
+  const nlohmann::json payload{
+      {"type", "workspace.webtty.client.credential"},
+      {"workspace_id", "workspace-1"},
+      {"project_id", "project-1"},
+      {"server_id", "server-1"},
+      {"device_key_id", "device-1"},
+      {"webtty_key_id", cli::base64url_encode(device.m_encryption.m_key_id)},
+      {"webtty_public_key", cli::base64url_encode(device.m_encryption.m_public_key)},
+      {"client_signing_key_id", cli::base64url_encode(device.m_signing.m_key_id)},
+      {"client_signing_public_key", cli::base64url_encode(device.m_signing.m_public_key)},
+  };
+  const auto configure = [&](const nlohmann::json& credential_payload) {
+    const auto encoded = nlohmann::json{{"v", 1}, {"payload", credential_payload}}.dump();
+    rstream::webtty::e2e_payload_crypto_config config;
+    cli::add_payload_recipient(config.m_recipients, {host.m_encryption_key_id, host.m_encryption_public_key});
+    cli::add_workspace_client_payload_recipient(config, device, host, rstream::webtty::byte_vector(encoded.begin(), encoded.end()));
+    return config;
+  };
+  const auto config  = configure(payload);
+  const auto context = nlohmann::json::parse(config.m_key_context.begin(), config.m_key_context.end());
+  assert(context["v"] == 1 && context["type"] == "rstream.webtty.session_key_grant");
+  assert(context["workspace_id"] == "workspace-1" && context["project_id"] == "project-1" && context["server_id"] == "server-1");
+  assert(context["recipients"][0]["kind"] == "server" && context["recipients"][0]["id"] == "server-1");
+  assert(context["recipients"][1]["kind"] == "workspace_device" && context["recipients"][1]["id"] == "device-1");
+  std::error_code error_code;
+  const auto crypto = rstream::webtty::make_e2e_client_payload_crypto(config, error_code);
+  assert(!error_code && crypto);
+  rstream::webtty::session_key_grant grant;
+  crypto->get_session_key_grant(grant, error_code);
+  assert(!error_code && grant.m_key_context == config.m_key_context);
+  assert(rstream::webtty::make_e2e_server_payload_crypto(grant, device.m_encryption, error_code));
+  assert(!error_code);
+  for (const auto& name : {"workspace_id", "project_id", "server_id", "device_key_id", "webtty_key_id", "webtty_public_key", "client_signing_key_id", "client_signing_public_key"}) {
+    auto invalid  = payload;
+    invalid[name] = "";
+    assert(throws_runtime_error([&]() { configure(invalid); }));
+  }
+}
+
 static void check_runtime_config_rejects_unsupported_options_and_documents()
 {
   auto dir  = temp_dir();
@@ -554,6 +629,8 @@ int main()
   check_known_server_key_validation();
   check_auth_token_resolution();
   check_client_credential_resolution();
+  check_client_and_server_payload_recipients();
+  check_workspace_client_recording_context();
   check_endpoint_identity_json();
   check_authorized_client_key_validation();
   check_known_server_entries_file();
