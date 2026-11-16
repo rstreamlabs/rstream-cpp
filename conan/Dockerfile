@@ -1,8 +1,8 @@
-FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS alpine
+FROM alpine:3.23@sha256:469c9ea410b9215eaee7976ba6c0639039b444be8e5d638f7abbada189971eb2 AS alpine
 
 RUN apk update && apk add libstdc++
 
-FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+FROM ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -49,7 +49,7 @@ COPY --from=alpine /usr/lib/libstdc++.so.6 /usr/lib/*-linux-musl/libstdc++.so.6
 COPY --from=alpine /usr/lib/libgcc_s.so.1 /usr/lib/*-linux-musl/libgcc_s.so.1
 
 # Install conan
-ARG CONAN_VERSION=2.31.2
+ARG CONAN_VERSION=2.34.0
 
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}" PyYAML
 

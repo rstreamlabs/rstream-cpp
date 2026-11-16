@@ -28,6 +28,7 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #include <rstream/core/completion_handler.hpp>
 #include <rstream/io/detail/stream/error.hpp>
@@ -78,9 +79,18 @@ static test_certificate generate_test_certificate()
 
   openssl_ptr<X509_NAME, decltype(&X509_NAME_free)> name(X509_NAME_new(), X509_NAME_free);
   if (!name || X509_NAME_add_entry_by_txt(name.get(), "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("localhost"), -1, -1, 0) <= 0
-      || X509_set_subject_name(cert.get(), name.get()) <= 0 || X509_set_issuer_name(cert.get(), name.get()) <= 0
-      || X509_sign(cert.get(), key.get(), EVP_sha256()) <= 0) {
+      || X509_set_subject_name(cert.get(), name.get()) <= 0 || X509_set_issuer_name(cert.get(), name.get()) <= 0) {
     throw std::runtime_error("failed to sign test certificate");
+  }
+
+  X509V3_CTX extension_context;
+  X509V3_set_ctx(&extension_context, cert.get(), cert.get(), nullptr, nullptr, 0);
+  char names[] = "DNS:localhost,IP:127.0.0.1,IP:::1";
+  openssl_ptr<X509_EXTENSION, decltype(&X509_EXTENSION_free)> names_extension(
+      X509V3_EXT_conf_nid(nullptr, &extension_context, NID_subject_alt_name, names), X509_EXTENSION_free);
+  if (!names_extension || X509_set_version(cert.get(), 2) != 1
+      || X509_add_ext(cert.get(), names_extension.get(), -1) != 1 || X509_sign(cert.get(), key.get(), EVP_sha256()) <= 0) {
+    throw std::runtime_error("failed to sign test certificate with DNS and IP identities");
   }
 
   openssl_ptr<BIO, decltype(&BIO_free)> cert_bio(BIO_new(BIO_s_mem()), BIO_free);
@@ -267,7 +277,12 @@ static void assert_direct_ssl_config_succeeds(const rstream::io::detail::stream:
   const auto error_code = make_direct_ssl_socket(config, type);
   if (error_code) {
     std::cerr << "unexpected SSL config error: " << error_code.category().name()
-              << ":" << error_code.value() << " " << error_code.message() << std::endl;
+              << ":" << error_code.value() << " " << error_code.message()
+              << " tls12=" << config.m_tlsv12 << " tls13=" << config.m_tlsv13
+              << " cert=" << static_cast<bool>(config.m_cert) << " key=" << static_cast<bool>(config.m_key)
+              << " capath=" << config.m_capath.get_value_or("-")
+              << " groups=" << config.m_groups.get_value_or("-")
+              << " client_rpk=" << config.m_client_rpk << " server_rpk=" << config.m_server_rpk << std::endl;
   }
   assert(!error_code);
 }
@@ -360,6 +375,9 @@ static void check_tls_config_errors()
     rstream::io::stream::stream_socket socket(io_context.get_executor());
     bool completed = false;
     socket.async_connect(endpoint, [&](const boost::system::error_code& error) {
+      if (error.category() != rstream::io::detail::stream::error::rstream_io_detail_stream_error_category()) {
+        std::cerr << "invalid TLS configuration " << query << ": " << error.category().name() << ":" << error.value() << " " << error.message() << std::endl;
+      }
       assert_stream_error(error, rstream::io::detail::stream::error::code::ssl_configuration_error);
       completed = true;
     });
@@ -472,7 +490,7 @@ static void check_direct_tls_context_configuration()
   }
   {
     auto config     = base_ssl_config();
-    config.m_capath = "/missing/ca-dir";
+    config.m_capath = std::filesystem::temp_directory_path().string();
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
   }
   {
@@ -486,12 +504,20 @@ static void check_direct_tls_context_configuration()
     assert_direct_ssl_config_fails(config);
   }
   {
-    auto config         = base_ssl_config();
-    config.m_ciphers    = "DEFAULT";
-    config.m_groups     = "X25519:secp256r1";
-    config.m_client_rpk = true;
-    config.m_server_rpk = true;
+    auto config      = base_ssl_config();
+    config.m_ciphers = "DEFAULT";
+    config.m_groups  = "X25519";
     assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
+  }
+  for (bool client : {true, false}) {
+    auto config         = base_ssl_config();
+    config.m_client_rpk = client;
+    config.m_server_rpk = !client;
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L && !defined(LIBRESSL_VERSION_NUMBER)
+    assert_direct_ssl_config_succeeds(config, rstream::io::detail::stream::stream_socket_ssl::type::client);
+#else
+    assert_direct_ssl_config_fails(config);
+#endif
   }
   {
     auto config                = base_ssl_config();
@@ -745,21 +771,22 @@ static void check_tls_accept_preserves_peer_executor()
   assert(server_peer.get_executor() == peer_io_context.get_executor());
 }
 
-static boost::system::error_code run_verified_tls_connect(const std::string& sni)
+static boost::system::error_code run_verified_tls_connect(const std::string& sni, const std::string& host = "127.0.0.1")
 {
   certificate_files files;
   boost::asio::io_context io_context;
   const auto port            = unused_tcp_port();
+  const auto address         = host.find(':') == std::string::npos ? host : "[" + host + "]";
   const auto server_endpoint = resolve_one(
       io_context,
-      "tcp://127.0.0.1:" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()
+      "tcp://" + address + ":" + std::to_string(port) + "?ssl&ssl.cert_file=" + files.cert_file()
           + "&ssl.key_file=" + files.key_file()
           + "&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.async_shutdown_timeout_ms=0");
   const auto client_endpoint = resolve_one(
       io_context,
-      "tcp://127.0.0.1:" + std::to_string(port)
+      "tcp://" + address + ":" + std::to_string(port)
           + "?ssl&ssl.peer_verification=true&ssl.request_peer_cert=true&ssl.cacert_file=" + files.cert_file()
-          + "&ssl.sni=" + encode_query_value(sni) + "&ssl.async_shutdown_timeout_ms=0");
+          + (sni.empty() ? "" : "&ssl.sni=" + encode_query_value(sni)) + "&ssl.async_shutdown_timeout_ms=0");
 
   rstream::io::stream::acceptor acceptor(io_context.get_executor());
   boost::system::error_code error_code;
@@ -800,15 +827,19 @@ static boost::system::error_code run_verified_tls_connect(const std::string& sni
 
 static void check_tls_peer_verification_checks_hostname()
 {
-  auto valid = run_verified_tls_connect("localhost");
-  if (valid) {
-    std::cerr << "verified TLS connection unexpectedly failed: " << valid.category().name()
-              << ":" << valid.value() << " " << valid.message() << std::endl;
+  assert(!run_verified_tls_connect("", "127.0.0.1"));
+  assert(!run_verified_tls_connect("", "::1"));
+  for (const auto* identity : {"localhost", "127.0.0.1", "::1"}) {
+    auto valid = run_verified_tls_connect(identity);
+    if (valid) {
+      std::cerr << "verified TLS connection to " << identity << " unexpectedly failed: " << valid.category().name()
+                << ":" << valid.value() << " " << valid.message() << std::endl;
+    }
+    assert(!valid);
   }
-  assert(!valid);
-
-  auto invalid = run_verified_tls_connect("wrong.localhost");
-  assert(invalid);
+  for (const auto* identity : {"wrong.localhost", "127.0.0.2", "::2"}) {
+    assert(run_verified_tls_connect(identity));
+  }
 }
 
 #if OPENSSL_VERSION_NUMBER >= 0x30500000L
@@ -822,12 +853,12 @@ int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  check_tls_peer_verification_checks_hostname();
   check_tls_config_errors();
   check_direct_tls_context_configuration();
   check_tls_accept_connect_and_transfer();
   check_tls_shutdown_timeout_is_serialized();
   check_tls_accept_preserves_peer_executor();
-  check_tls_peer_verification_checks_hostname();
 #if OPENSSL_VERSION_NUMBER >= 0x30500000L
   check_tls_hybrid_group_preferences();
 #endif

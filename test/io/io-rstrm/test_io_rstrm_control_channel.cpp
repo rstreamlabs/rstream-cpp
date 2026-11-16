@@ -1,5 +1,13 @@
 // See LICENSE file in the project root for license information.
 
+#ifdef _MSC_VER
+// MSVC can flag Asio's buffer conversion as unreachable after inlining.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#include <boost/asio/buffer.hpp>
+#pragma warning(pop)
+#endif
+
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -19,6 +27,7 @@
 #include <thread>
 #include <vector>
 
+#include <boost/asio.hpp>
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/cancellation_signal.hpp>
@@ -30,6 +39,8 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/websocket.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/system/system_error.hpp>
@@ -38,6 +49,7 @@
 
 #include <rstream/core/log.hpp>
 #include <rstream/io-rstrm/acceptor.hpp>
+#include <rstream/io-rstrm/beast.hpp>
 #include <rstream/io-rstrm/client.hpp>
 #include <rstream/io-rstrm/detail/stable_domain.hpp>
 #include <rstream/io-rstrm/error.hpp>
@@ -504,11 +516,11 @@ static void check_client_can_create_and_close_tunnel()
     assert(server_address.host() == "127.0.0.1");
     assert(server_address.port() == std::to_string(engine.port()));
     rstream::io_rstrm::tunnel_properties properties;
-    properties.m_name     = "api";
-    properties.m_type     = "bytestream";
-    properties.m_publish  = true;
+    properties.m_name                     = "api";
+    properties.m_type                     = "bytestream";
+    properties.m_publish                  = true;
     properties.m_labels["private-marker"] = "control-channel-private-marker";
-    auto create_operation = client.async_create_tunnel(properties, boost::asio::deferred);
+    auto create_operation                 = client.async_create_tunnel(properties, boost::asio::deferred);
     std::move(create_operation)([&](const boost::system::error_code& create_error, rstream::io_rstrm::tunnel tunnel) {
       assert(!create_error);
       assert(tunnel);
@@ -2453,6 +2465,116 @@ static void check_socket_write_honors_immediate_cancellation()
   assert(completion_count == 1);
 }
 
+// This deliberately uses the direct public socket, rather than the generic
+// stream adapter exercised by WebTTY. Instantiate accept/read/write/close too.
+static void check_public_socket_beast(const std::string& mode)
+{
+  namespace asio      = boost::asio;
+  namespace websocket = boost::beast::websocket;
+  fake_engine engine;
+  engine.start([&mode](tcp::socket& socket) {
+    check(read_message(socket).has_stream_req(), "missing public WebSocket stream request");
+    write_message(socket, stream_response("websocket-1"));
+    if (mode == "eof") {
+      return;
+    }
+    if (mode == "bad-handshake") {
+      const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+      asio::write(socket, asio::buffer(response));
+      return;
+    }
+    websocket::stream<tcp::socket&> ws(socket);
+    auto& context = static_cast<asio::io_context&>(socket.get_executor().context());
+    asio::steady_timer deadline(context, kFakeEngineIoTimeout);
+    deadline.async_wait([&](const boost::system::error_code& error) {
+      if (!error) {
+        boost::system::error_code ignored;
+        socket.close(ignored);
+      }
+    });
+    std::exception_ptr failure;
+    asio::co_spawn(context, [&]() -> asio::awaitable<void> {
+      co_await ws.async_accept(asio::use_awaitable);
+      boost::beast::flat_buffer data;
+      if (mode == "echo") {
+        co_await ws.async_read(data, asio::use_awaitable);
+        check(boost::beast::buffers_to_string(data.data()) == "hello", "WebSocket request mismatch");
+        co_await ws.async_write(data.data(), asio::use_awaitable);
+        data.consume(data.size());
+      }
+      boost::system::error_code error;
+      co_await ws.async_read(data, asio::redirect_error(asio::use_awaitable, error));
+      check(error == websocket::error::closed || (mode != "echo" && error), "WebSocket peer did not close"); }, [&](std::exception_ptr error) {
+      failure = error;
+      deadline.cancel(); });
+    context.run();
+    if (failure) {
+      std::rethrow_exception(failure);
+    }
+  });
+
+  asio::io_context context;
+  std::size_t completions = 0;
+  boost::system::error_code observed;
+  watchdog test_watchdog(context);
+  asio::co_spawn(context, [&]() -> asio::awaitable<void> {
+    rstream::io_rstrm::socket socket(context.get_executor(), make_test_socket_settings());
+    auto endpoint = rstream::io_rstrm::make_endpoint(std::string("api"), std::string("tcp://") + engine.address()).value();
+    co_await socket.async_connect(endpoint, asio::use_awaitable);
+    websocket::stream<rstream::io_rstrm::socket> ws(std::move(socket));
+    ws.read_message_max(1024);
+    ws.set_option(websocket::stream_base::timeout{
+        std::chrono::seconds(2), mode == "timeout" ? std::chrono::milliseconds(50) : std::chrono::seconds(2), false});
+    try {
+      co_await ws.async_handshake("localhost", "/", asio::use_awaitable);
+      boost::beast::flat_buffer data;
+      if (mode == "echo") {
+        const std::string request = "hello";
+        co_await ws.async_write(asio::buffer(request), asio::use_awaitable);
+        co_await ws.async_read(data, asio::use_awaitable);
+        check(boost::beast::buffers_to_string(data.data()) == request, "WebSocket reply mismatch");
+        co_await ws.async_close(websocket::close_code::normal, asio::use_awaitable);
+      }
+      else {
+        asio::cancellation_signal cancellation;
+        if (mode == "cancel") {
+          asio::post(context, [&] { cancellation.emit(asio::cancellation_type::all); });
+        }
+        co_await ws.async_read(data, asio::bind_cancellation_slot(cancellation.slot(), asio::use_awaitable));
+      }
+    }
+    catch (const boost::system::system_error& error) {
+      observed = error.code();
+    }
+    boost::system::error_code ignored;
+    ws.next_layer().close(ignored); }, [&](std::exception_ptr error) {
+    check(!error, "unexpected public WebSocket coroutine exception");
+    ++completions; });
+  context.run();
+  test_watchdog.complete();
+  engine.join();
+  check(!test_watchdog.timed_out() && completions == 1, "WebSocket completion/lifetime failure");
+  if (mode == "echo") {
+    check(!observed, "public WebSocket echo failed: " + observed.message());
+  }
+  else if (mode == "cancel") {
+    check(observed == asio::error::operation_aborted, "WebSocket cancellation was not preserved");
+  }
+  else if (mode == "timeout") {
+    check(observed == boost::beast::error::timeout, "WebSocket timeout did not close the public socket");
+  }
+  else {
+    check(static_cast<bool>(observed), "invalid WebSocket peer unexpectedly succeeded");
+  }
+}
+
+static void check_public_socket_beast_paths()
+{
+  for (const std::string mode : {"echo", "bad-handshake", "eof", "timeout", "cancel"}) {
+    check_public_socket_beast(mode);
+  }
+}
+
 static void run_check(const char* name, void (*callback)())
 {
   std::cout << "running '" << name << "'" << std::endl;
@@ -2476,6 +2598,7 @@ static void run_selected_check(const char* selected, const char* name, void (*ca
 int main(int argc, char** argv)
 {
   const char* selected = argc > 1 ? argv[1] : nullptr;
+  run_selected_check(selected, "public_socket_beast_paths", check_public_socket_beast_paths);
   run_selected_check(selected, "client_snapshots_configuration_at_construction", check_client_snapshots_configuration_at_construction);
   run_selected_check(selected, "client_rejects_operations_before_connection", check_client_rejects_operations_before_connection);
   run_selected_check(selected, "client_connect_honors_immediate_cancellation", check_client_connect_honors_immediate_cancellation);

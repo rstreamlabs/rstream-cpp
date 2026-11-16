@@ -1,4 +1,4 @@
-FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS build
+FROM ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5 AS build
 
 ENV ANDROID_ARCH=armv8
 
@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get -y install --no-install-recommends build-essential git cmake ninja-build tar gzip pkg-config jq
 
-ARG CONAN_VERSION=2.31.2
+ARG CONAN_VERSION=2.34.0
 
 RUN apt-get update && apt-get -y install --no-install-recommends python3-dev python3-numpy python3-pip && PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade "conan==${CONAN_VERSION}"
 
