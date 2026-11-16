@@ -153,7 +153,7 @@ def websocket(stream):
     assert stream.recv(1) == b'', 'explicit transport close did not arrive'
 
 
-def run(name, reject=False, bad_echo=False, reject_creation=False):
+def run(name, reject=False, bad_echo=False, reject_creation=False, pending_http=False):
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         listener.listen(4)
@@ -198,11 +198,19 @@ def run(name, reject=False, bad_echo=False, reject_creation=False):
                             with proxy(listener, control) as stream:
                                 if name == 'websocket-server':
                                     websocket(stream)
+                                elif pending_http:
+                                    stream.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\n')
+                                    process.send_signal(signal.SIGTERM)
+                                    finish_control(control)
+                                    stream.shutdown(socket.SHUT_RDWR)
                                 else:
                                     body = http_response(stream)
                                     if name == 'beast-tunnel':
                                         assert body == 'Hello from the shared Beast handler'
-                            process.send_signal(signal.SIGTERM)
+                            if not pending_http:
+                                process.send_signal(signal.SIGTERM)
+                                if name == 'http-server' and os.name != 'nt':
+                                    finish_control(control)
                         else:
                             finish_control(control)
                 stdout, stderr = process.communicate(timeout=5)
@@ -256,6 +264,9 @@ if __name__ == "__main__":
         for name in names[:-1]:
             result = run(name)
             print(name, result["case"], result["exit"], flush=True)
+        if os.name != 'nt':
+            result = run('http-server', pending_http=True)
+            print('http-server', 'pending-read-shutdown', result['exit'], flush=True)
         run_local_migration()
         for name in ("callback", "future", "coroutine", "private-echo"):
             result = run(name, reject=True)

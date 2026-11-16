@@ -36,10 +36,9 @@ asio::awaitable<void> session(rstrm::socket socket)
   }
 }
 
-asio::awaitable<void> listener()
+asio::awaitable<void> listener(rstrm::client& client)
 {
   auto executor = co_await asio::this_coro::executor;
-  rstrm::client client(executor);
   co_await client.async_connect(asio::use_awaitable);
   rstrm::tunnel_properties properties = {.m_publish = true, .m_protocol = rstrm::protocol::http};
   auto tunnel                         = co_await client.async_create_tunnel(properties, asio::use_awaitable);
@@ -58,17 +57,24 @@ asio::awaitable<void> listener()
 int main()
 {
   int result = 0;
+  bool stopping = false;
   asio::io_context io_context;
+  rstrm::client client(io_context.get_executor());
   asio::signal_set signals(io_context, SIGINT, SIGTERM);
-  auto on_done = [&io_context, &result](std::exception_ptr error) {
-    if (error) {
+  signals.async_wait([&](const boost::system::error_code& error, int) {
+    if (!error) {
+      stopping = true;
+      client.close();
+    }
+  });
+  asio::co_spawn(io_context, listener(client), [&](std::exception_ptr error) {
+    if (error && !stopping) {
       result = 1;
       std::cerr << "fatal error: " << rstream::core::throwable::to_string(error) << std::endl;
     }
-    io_context.stop();
-  };
-  signals.async_wait([&on_done](const boost::system::error_code&, int) { on_done(nullptr); });
-  asio::co_spawn(io_context, listener(), on_done);
+    signals.cancel();
+    client.close();
+  });
   io_context.run();
   return result;
 }

@@ -84,6 +84,58 @@ contexts:
 
 Inline `certificate` and `key` values are also supported for generated configurations.
 
+## PKCS11 identities
+
+PKCS#11 mTLS keeps the private key in a token or HSM while the SDK requests TLS
+handshake signatures. Use the OpenSSL variant of the SDK with
+`RSTREAM_WITH_PKCS11` enabled. A source build selects
+`-DSSL_PROVIDER=openssl -DRSTREAM_WITH_PKCS11=ON`; a Conan consumer selects
+`rstream/*:ssl_provider=openssl` and needs a package built with that support.
+LibreSSL builds and packages without PKCS#11 support reject this storage mode.
+The application still links the normal SDK/runtime plugin targets.
+
+The process also needs an OpenSSL PKCS#11 provider installed for the OpenSSL
+library it loads. OpenSSL must be able to discover that provider, through its
+configured module directory or `OPENSSL_MODULES`. The provider is a separate
+component from the vendor PKCS#11 module and is not supplied by the SDK package.
+
+```yaml
+contexts:
+  - name: production-hsm
+    engine: project.cluster.example:443
+    auth:
+      mtls:
+        storage:
+          kind: pkcs11
+          module: /usr/lib/vendor-pkcs11.so
+          opensslProvider: pkcs11
+          tokenLabel: production-agent
+          keyLabel: agent-key
+          certificateFile: /etc/rstream/agent-chain.pem
+          pinEnv: RSTREAM_PKCS11_PIN
+```
+
+`module` names the vendor's PKCS#11 shared library, such as an OpenSC, YubiKey
+PIV or SoftHSM module. `opensslProvider` names the OpenSSL provider that loads
+it: the default is `pkcs11prov`; use `pkcs11` for a provider installed under
+that name. It is not the vendor module path. `pinEnv` names the secret process
+environment variable holding the PIN; keep its value out of YAML and logs.
+
+Select exactly one token with `tokenLabel` or `tokenSerial`, and one key with
+`keyLabel` or `keyIdHex`. Provide one certificate source inside the same storage
+block: `certificateFile`, inline `certificate`, `certificateLabel` or
+`certificateIdHex`. Do not mix top-level file/inline mTLS aliases with storage.
+The Go-only `slot`/`maxSessions` selectors, macOS Keychain storage and external
+`exec` signers are not C++ PKCS#11 alternatives; unsupported selected settings
+fail before connecting. Agent certificate identity remains separate from a
+published tunnel's downstream mTLS policy, and Engine TLS verification stays
+enabled.
+
+The [credential storage reference](https://rstream.io/docs/security/credential-storage#pkcs11-mtls-storage)
+defines portable selectors. Follow the complete
+[agent authentication walkthrough](https://rstream.io/guides/secure-rstream-agent-authentication-with-keychain-and-pkcs11#test-pkcs11-locally-with-softhsm)
+for enrollment, SoftHSM provisioning and provider setup.
+
 ## Transport boundaries
 
 | Configuration                                                                     | C++ behavior                                                                                                                            |
