@@ -8,17 +8,17 @@ version and writes `ssl-provider.json` in the test directory. Native Conan
 packages retain that result under `res/` when tests ran. Cross-built packages
 still need execution on their target before claiming runtime qualification.
 
-| Family   | Maintenance baseline                  | Constraint                                                                                                                                                |
-| -------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OpenSSL  | 3.5.9+ on 3.5 LTS, or 3.6.5+ below 4  | Earlier patches and OpenSSL 4 are rejected; a cached 3.6.3 must not satisfy the new graph.                                                                |
-| LibreSSL | 4.4.1+ below 5                        | Public Conan Center currently offers only 3.9.1; its provider graph cannot satisfy this floor. Native builds can use the official LibreSSL CMake package. |
-| protobuf | 7.36.2                                | Compiler and runtime use the same Conan reference.                                                                                                        |
-| Boost    | Public Conan range remains below 1.90 | Existing Cobalt metadata constraints and reviewed distribution recipe overrides remain in place.                                                          |
+The [public Conan recipe](../conanfile.py) owns package ranges. CMake checks
+native provider versions in [dependencies](../cmake/dependencies.cmake) and the
+[OpenSSL version policy](../cmake/ssl-version.cmake). Use those inputs when
+resolving a build so the guide stays aligned with the code.
 
-OpenSSL's [3.6 release notes](https://www.openssl-library.org/news/openssl-3.6-notes/)
-and [3.5 release notes](https://www.openssl-library.org/news/openssl-3.5-notes/)
-describe the selected patch baselines. LibreSSL's supported releases
-are listed by [the project](https://www.libressl.org/releases.html).
+| Family   | Constraint                                                                                                                             |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenSSL  | Satisfy the supported release range and security patch floor in both Conan and CMake. Cached packages must satisfy the selected graph. |
+| LibreSSL | Satisfy the provider floor. A native build can use the official CMake package when a compatible Conan package is unavailable.          |
+| protobuf | Use the same Conan reference for compiler and runtime.                                                                                 |
+| Boost    | Keep the public recipe range, Asio/Cobalt metadata and target-specific recipe overrides compatible.                                    |
 
 The LibreSSL build omits OpenSSL ENGINE support, PKCS#11 provider storage and
 RPK negotiation;
