@@ -13,18 +13,18 @@ Replace the endpoint with your project’s endpoint. The second command selects 
 
 ## Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `RSTREAM_CONFIG` | Configuration file path; defaults to `~/.rstream/config.yaml`. |
-| `RSTREAM_CONTEXT` | Context to select from the file. |
-| `RSTREAM_API_URL` | Control plane API URL for context resolution. |
-| `RSTREAM_ENGINE_ADDRESS` | Highest-priority engine address override. |
-| `RSTREAM_ENGINE` | Engine override when `RSTREAM_ENGINE_ADDRESS` is absent; `host:port` selects the default TLS URI and ALPN. |
-| `RSTREAM_AUTHENTICATION_TOKEN` | Token override when token behavior is not fixed in SDK options. |
-| `RSTREAM_MTLS_CERT_FILE` | Client certificate file for mTLS authentication. |
-| `RSTREAM_MTLS_KEY_FILE` | Client private key file for mTLS authentication. |
-| `RSTREAM_TUNNEL_TRANSPORT` | Engine transport selector: `auto`, `tls` or `quic`. |
-| `RSTREAM_QUIC_TRANSPORT` | Legacy transport selector; prefer `RSTREAM_TUNNEL_TRANSPORT`. |
+| Variable                       | Purpose                                                                                                    |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `RSTREAM_CONFIG`               | Configuration file path; defaults to `~/.rstream/config.yaml`.                                             |
+| `RSTREAM_CONTEXT`              | Context to select from the file.                                                                           |
+| `RSTREAM_API_URL`              | Control plane API URL for context resolution.                                                              |
+| `RSTREAM_ENGINE_ADDRESS`       | Highest-priority engine address override.                                                                  |
+| `RSTREAM_ENGINE`               | Engine override when `RSTREAM_ENGINE_ADDRESS` is absent; `host:port` selects the default TLS URI and ALPN. |
+| `RSTREAM_AUTHENTICATION_TOKEN` | Token override when token behavior is not fixed in SDK options.                                            |
+| `RSTREAM_MTLS_CERT_FILE`       | Client certificate file for mTLS authentication.                                                           |
+| `RSTREAM_MTLS_KEY_FILE`        | Client private key file for mTLS authentication.                                                           |
+| `RSTREAM_TUNNEL_TRANSPORT`     | Engine transport selector: `auto`, `tls` or `quic`.                                                        |
+| `RSTREAM_QUIC_TRANSPORT`       | Legacy transport selector; prefer `RSTREAM_TUNNEL_TRANSPORT`.                                              |
 
 Engine resolution checks the explicit environment overrides before the selected context. Token resolution uses explicit SDK options, then the environment, then configuration-derived values.
 
@@ -53,7 +53,7 @@ contexts:
 Keep the agent's token or mTLS identity in the provisioned context or supported
 environment variables. `serverName` is the certificate identity to verify; it
 must match a DNS SAN. With an explicit TLS URI, use `ssl.cacert_file` and, when
-needed, `ssl.sni`, as shown in the [URI reference](006-uri-model.md#tls-stream-options).
+needed, `ssl.sni`, as shown in the [URI reference](011-uri-reference.md#tls-stream-options).
 IP literals are checked against IP SANs. Keep peer verification enabled.
 An explicit engine environment override takes precedence over context TLS
 settings; include its CA and identity parameters in that full URI.
@@ -86,11 +86,11 @@ Inline `certificate` and `key` values are also supported for generated configura
 
 ## Transport boundaries
 
-| Configuration | C++ behavior |
-| --- | --- |
-| `transport.mode: auto` or `tls` | Uses TLS. |
-| `transport.mode: quic`, an invalid mode, or legacy `transport.useQuic: true` | Fails during resolution. |
+| Configuration                                                                     | C++ behavior                                                                                                                            |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport.mode: auto` or `tls`                                                   | Uses TLS.                                                                                                                               |
+| `transport.mode: quic`, an invalid mode, or legacy `transport.useQuic: true`      | Fails during resolution.                                                                                                                |
 | `transport.proxy`, including HTTP CONNECT, SOCKS5 or environment-derived proxying | The shared schema is parsed, but a selected configuration requesting a proxy fails because the engine connection does not implement it. |
-| `auth.mtls.storage.kind: exec` | Returns `unsupported_mtls_exec` before connecting and does not launch the helper. Use the Go SDK or CLI for this storage backend. |
+| `auth.mtls.storage.kind: exec`                                                    | Returns `unsupported_mtls_exec` before connecting and does not launch the helper. Use the Go SDK or CLI for this storage backend.       |
 
 Unsupported settings in a selected context do not prevent using other supported contexts in the same configuration file. Protocol capabilities are summarized in the [SDK overview](../README.md).

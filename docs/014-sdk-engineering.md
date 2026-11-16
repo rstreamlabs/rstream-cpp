@@ -5,8 +5,7 @@ acceptance baseline for changes to the SDK, its dependencies, build system,
 plugins, packages, and asynchronous runtime.
 
 The SDK targets constrained native systems. Portability, predictable resource
-usage, and Boost.Asio compliance are product requirements, not optional build
-qualities.
+usage, and Boost.Asio compliance are product requirements.
 
 ## Supported environments
 
@@ -34,11 +33,11 @@ the cross-language WebTTY matrix.
 Library linkage and plugin loading are independent choices:
 
 | SDK libraries | Plugins | Required |
-| --- | --- | --- |
-| Static | Static | Yes |
-| Static | Dynamic | Yes |
-| Shared | Static | Yes |
-| Shared | Dynamic | Yes |
+| ------------- | ------- | -------- |
+| Static        | Static  | Yes      |
+| Static        | Dynamic | Yes      |
+| Shared        | Static  | Yes      |
+| Shared        | Dynamic | Yes      |
 
 `BUILD_SHARED_LIBS` selects SDK library linkage.
 `ENABLE_STATIC_PLUGINS` selects build-time plugin registration or runtime

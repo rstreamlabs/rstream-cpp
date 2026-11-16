@@ -1,27 +1,41 @@
-# C++ SDK documentation
+# C++ SDK guides
 
-Choose [a published-package application](000-getting-started.md) when adding
-rstream to a service. Choose [the source build](001-building-from-source.md)
-when trying the checkout's examples or modifying the SDK. Both use the
-application's Asio event loop; source compilation and local tests do not need a
-project or credentials.
+Start with a first application or build this checkout, then configure the
+connection. The application owns its Asio executor and the lifecycle of its
+clients, tunnels and sockets.
 
-Continue with configuration, then choose how the application will integrate:
+| Start                                  | Guide                                                |
+| -------------------------------------- | ---------------------------------------------------- |
+| Add rstream to an application          | [000 Build an application](000-getting-started.md)   |
+| Compile this checkout and its examples | [001 Build from source](001-building-from-source.md) |
+| Select engine, identity and TLS trust  | [002 Configuration](002-configuration.md)            |
 
-| Step | Guide | Result |
-| --- | --- | --- |
-| 1 | [Build an application](000-getting-started.md) | Conan/CMake files and a first HTTP connection using the published SDK. |
-| 2 | [Build this checkout](001-building-from-source.md) | A native build tree, maintained example targets and local tests. |
-| 3 | [Configuration](002-configuration.md) | A selected context or provisioned engine/identity, with verified TLS. |
-| 4 | [Integration and tunnel patterns](003-tunnel-patterns.md) | A choice between direct API, acceptor and URI streams; callback/future/coroutine programs and private dial. |
-| 5 | [HTTP, TLS and WebSocket](004-http-tls-websocket.md) | The handler protocol, certificate owner and Beast integration. |
-| 6 | [Advanced native integration](005-native-integration.md) | Associated executors/allocators, cancellation, plugin deployment, cross builds and WebTTY. |
-| 7 | [URI model](006-uri-model.md) | Parameter namespaces, encoding and examples for the selected transport. |
-| 8 | [Command-line tools](007-tools.md) | Native utilities and their own authentication/transport workflows. |
+## Integrate with the application
 
-SDK development has additional obligations. [Contributing](../CONTRIBUTING.md)
-explains the change workflow; [SDK engineering](008-sdk-engineering.md) preserves
-Asio, platform, plugin, packaging and security contracts.
-[Critical dependencies](009-critical-dependencies.md) defines provider/toolchain
-qualification. These acceptance gates do not disappear when the first local
-program builds successfully.
+| Guide                                                    | Question answered                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [003 Integration model](003-integration-model.md)        | Direct API, acceptor or URI streams? Private dial or public listener?          |
+| [004 Completion models](004-completion-models.md)        | How does the same operation look with handlers, futures and coroutines?        |
+| [005 HTTP, TLS and WebSocket](005-http-tls-websocket.md) | How does an existing Asio/Beast service use a tunnel and preserve its handler? |
+
+## Native runtime choices
+
+Use the reference for the decision your application needs:
+
+| Guide                                                             | Topic                                                             |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------- |
+| [006 Execution and lifetime](006-execution-and-lifetime.md)       | Event loops, strands, shared handles and buffers.                 |
+| [007 Memory allocation](007-memory-allocation.md)                 | SDK object allocators, associated allocators and backing storage. |
+| [008 Cancellation and recovery](008-cancellation-and-recovery.md) | Deadlines, cancellation completion, shutdown and reconnection.    |
+| [009 Plugins and packaging](009-plugins-and-packaging.md)         | Library linkage, plugin registration and installed layout.        |
+| [010 Cross-compilation](010-cross-compilation.md)                 | Build/host profiles, target dependencies and device validation.   |
+| [011 URI reference](011-uri-reference.md)                         | Transport namespaces, parameters and encoding.                    |
+| [012 Command-line tools](012-command-line-tools.md)               | Packaged native utilities.                                        |
+| [013 WebTTY](013-webtty.md)                                       | Native terminal client/server, identity and process ownership.    |
+
+## Develop the SDK
+
+[Contributing](../CONTRIBUTING.md) gives the local workflow. The
+[014 engineering contract](014-sdk-engineering.md) defines Asio, security,
+platform and package requirements. [015 Dependency constraints](015-dependency-constraints.md)
+covers provider and dependency validation.

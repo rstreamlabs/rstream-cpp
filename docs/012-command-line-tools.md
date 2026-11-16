@@ -11,14 +11,14 @@ configuration includes the tools, under `build/native/build/Debug/bin/`.
 Run each program with `--help` for its current arguments. The Go `rstream` CLI
 is a separate program used for login and shared context setup.
 
-| Tool | Detailed usage |
-| --- | --- |
-| `rstream-tunnel` | The examples below and [URI reference](006-uri-model.md). |
-| `rstream-webtty-client` | [Transport, trust and client identity](../bin/webtty/bin/client/README.md). |
-| `rstream-webtty-server` | [Enrollment, authorization and execution account](../bin/webtty/bin/server/README.md). |
-| `rstream-ncat`, `rstream-nperf-client`, `rstream-nperf-server` | `--help`; these use the same native stream/URI model. |
-| `rstream-inspect` | Debug builds only; `--help` describes version and plugin inspection. |
-| `rstream-gping`, `rstream-runpy` | Require Python bindings in the source build. |
+| Tool                                                           | Detailed usage                                                                         |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `rstream-tunnel`                                               | The examples below and [URI reference](011-uri-reference.md).                          |
+| `rstream-webtty-client`                                        | [Transport, trust and client identity](../bin/webtty/bin/client/README.md).            |
+| `rstream-webtty-server`                                        | [Enrollment, authorization and execution account](../bin/webtty/bin/server/README.md). |
+| `rstream-ncat`, `rstream-nperf-client`, `rstream-nperf-server` | `--help`; these use the same native stream/URI model.                                  |
+| `rstream-inspect`                                              | Debug builds only; `--help` describes version and plugin inspection.                   |
+| `rstream-gping`, `rstream-runpy`                               | Require Python bindings in the source build.                                           |
 
 ## Programs
 
@@ -112,7 +112,7 @@ rstream-tunnel 127.0.0.1:8080 --tls --tls-mode terminated --tls-min-version tls1
 
 Here the local service on port 8080 receives plaintext after edge TLS
 termination. For a TLS-speaking upstream, configure `--upstream-tls` and the
-appropriate trust settings instead. [TLS layers](004-http-tls-websocket.md) are
+appropriate trust settings instead. [TLS layers](005-http-tls-websocket.md) are
 independent of the agent connection.
 
 mTLS Tunnel access uses mTLS credentials to decide which client certificates are allowed.
@@ -122,4 +122,3 @@ To publish a passthrough TLS tunnel, keep edge TLS policy options off so the ups
 ```bash
 rstream-tunnel 127.0.0.1:8443 --tls --tls-mode passthrough
 ```
-

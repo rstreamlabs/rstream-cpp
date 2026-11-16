@@ -52,8 +52,7 @@ asio::co_spawn(executor, example_http::serve(std::move(socket)), asio::detached)
 Only the accept/socket path changes at the call to the shared handler. The
 whole integration also includes [agent configuration](002-configuration.md),
 project authorization, control/tunnel ownership, forwarding-address handling
-and shutdown. It is not a claim that every service migration takes three lines.
-Neither entry point changes the application's event-loop ownership.
+and shutdown. Both entry points use the application's existing event loop.
 
 For a standalone local build, the essentials are a C++20 target and Boost:
 
@@ -76,21 +75,17 @@ rstream_enable_runtime_plugins(service rstream::plugin::io-generic rstream::plug
 ```
 
 Copy `http-handler.hpp` beside either main when building it outside the checkout.
-This HTTP path uses the existing API shown in the 1.15.1 application guide;
-it does not require the new WebSocket adapter.
-The checkout's loopback regression exercises the two actual executables with
-the same GET request and expected response; its fake engine validates the SDK
-integration, not public edge policy. Add lifecycle/session admission appropriate
-to the application before adopting this small listener in a long-lived service.
+For a long-running service, add session admission and shutdown appropriate to
+the application. The two entry points share their request handling and response.
 
 ## Choose where the service protocol terminates
 
-| Service | Ordinary client to edge | Handler or upstream sees | Certificate owner |
-| --- | --- | --- | --- |
-| Published HTTP tunnel | HTTPS managed by the edge. | HTTP bytes by default; the Beast example serves HTTP/1.1. | Edge for the public HTTPS certificate. |
-| Published TLS, `terminated` | TLS terminated at the edge, with the configured edge policy. | Clear application bytes unless upstream TLS is explicitly requested. | Edge for the public certificate; upstream owns a separate certificate if enabled. |
-| Published TLS, `passthrough` | TLS handshake passes through the edge. | The original TLS handshake and encrypted application data. | The application owns the certificate and TLS server. |
-| Private raw stream | Authenticated rstream dial instead of a public forwarding address. | The bytes exchanged by the two applications. | The engine TLS identity is independent of any application TLS. |
+| Service                      | Ordinary client to edge                                            | Handler or upstream sees                                             | Certificate owner                                                                 |
+| ---------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Published HTTP tunnel        | HTTPS managed by the edge.                                         | HTTP bytes by default; the Beast example serves HTTP/1.1.            | Edge for the public HTTPS certificate.                                            |
+| Published TLS, `terminated`  | TLS terminated at the edge, with the configured edge policy.       | Clear application bytes unless upstream TLS is explicitly requested. | Edge for the public certificate; upstream owns a separate certificate if enabled. |
+| Published TLS, `passthrough` | TLS handshake passes through the edge.                             | The original TLS handshake and encrypted application data.           | The application owns the certificate and TLS server.                              |
+| Private raw stream           | Authenticated rstream dial instead of a public forwarding address. | The bytes exchanged by the two applications.                         | The engine TLS identity is independent of any application TLS.                    |
 
 The outbound agent-to-engine connection uses its own verified TLS certificate
 and credentials in all these normal configurations. `ssl.*` settings on its
@@ -113,10 +108,9 @@ tunnel, prints its forwarding address and uses Beast `http::async_read` and
 reads clear HTTP bytes after edge termination. It serves one request per
 connection and explicitly advertises connection close.
 
-This is a small integration program, not an HTTP/2 implementation or a complete
-production server. An application adding request bodies, keep-alive, routing or
-streaming must also choose parser limits, deadlines and session admission bounds.
-Changing a tunnel's HTTP version option does not change the Beast parser.
+This example serves one HTTP/1.1 request per connection. Extend its parser limits,
+deadlines and session admission when adding request bodies, keep-alive, routing
+or streaming. Select an application parser matching the configured upstream protocol.
 
 ## Own the TLS service handshake
 
@@ -146,11 +140,10 @@ identity settings; port 8443 alone does not enable TLS.
 
 ## Serve a WebSocket with Beast
 
-The optional `rstream/io-rstrm/beast.hpp` adapter and
-[`websocket-server.cpp`](../example/io-rstrm/websocket-server.cpp) are **source
-candidate additions**. They are not included in the published `rstream/1.15.1`
-application recipe. Build this checkout to use them; keep the published-package
-first example on the existing HTTP API until a release includes the adapter.
+Include `rstream/io-rstrm/beast.hpp` to adapt a direct rstream socket to Beast's
+WebSocket teardown and timeout hooks. The complete
+[`websocket-server.cpp`](../example/io-rstrm/websocket-server.cpp) program is built
+with the checkout examples.
 
 The WebSocket program publishes an HTTP tunnel and wraps each accepted direct
 socket in `boost::beast::websocket::stream<io_rstrm::socket>`. It performs an
@@ -161,7 +154,10 @@ printed address's origin in a browser, and use its `wss://` equivalent:
 ```javascript
 const ws = new WebSocket("wss://YOUR-FORWARDING-HOST/");
 ws.onopen = () => ws.send("hello");
-ws.onmessage = ({ data }) => { console.log(data); ws.close(1000); };
+ws.onmessage = ({ data }) => {
+  console.log(data);
+  ws.close(1000);
+};
 ```
 
 The handler processes the peer's close handshake, then explicitly closes

@@ -2,17 +2,17 @@
 
 This guide compiles the SDK in your checkout so that edits can be rebuilt and tested locally. To add a released SDK to an application instead, use [Build an application](000-getting-started.md). Neither compilation nor the local library tests require a running engine or rstream credentials.
 
-Conan resolves third-party libraries and generates the CMake toolchain. CMake then builds this checkout with Ninja. The native development build includes the SDK, companion tools and their tests; cross-compilation and distribution packaging are separate paths in the [engineering guide](008-sdk-engineering.md).
+Conan resolves third-party libraries and generates the CMake toolchain. CMake then builds this checkout with Ninja. The native development build includes the SDK, companion tools and their tests; cross-compilation and distribution packaging are separate paths in the [engineering guide](014-sdk-engineering.md).
 
 ## Prerequisites
 
-| Tool | Requirement |
-| --- | --- |
-| C++ compiler and platform SDK | C++20 support. Use GCC or Clang on Linux, Xcode Command Line Tools on macOS, or Visual Studio 2022 with Desktop development with C++ on Windows. |
-| Python and Conan | Conan 2.34.0, the version used by the repository workflows. Install it in a Python environment appropriate to the host. |
-| CMake and Ninja | CMake 3.23 or newer for the generated user presets, and Ninja on `PATH`. The Conan recipe selects Ninja explicitly. |
-| Git | Clone the source and retain its version history. |
-| Network access | Conan needs its configured remotes for dependencies not already present in the local cache. The native library path uses public Conan Center dependencies. |
+| Tool                          | Requirement                                                                                                                                                |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C++ compiler and platform SDK | C++20 support. Use GCC or Clang on Linux, Xcode Command Line Tools on macOS, or Visual Studio 2022 with Desktop development with C++ on Windows.           |
+| Python and Conan              | Conan 2.34.0, the version used by the repository workflows. Install it in a Python environment appropriate to the host.                                    |
+| CMake and Ninja               | CMake 3.23 or newer for the generated user presets, and Ninja on `PATH`. The Conan recipe selects Ninja explicitly.                                        |
+| Git                           | Clone the source and retain its version history.                                                                                                           |
+| Network access                | Conan needs its configured remotes for dependencies not already present in the local cache. The native library path uses public Conan Center dependencies. |
 
 On Windows, run the native build in a Developer PowerShell for Visual Studio so that the MSVC compiler and Windows SDK are available. On macOS, `xcode-select --install` installs the command-line compiler and platform tools.
 
@@ -62,17 +62,17 @@ After editing source, rerun the build and test commands. Rerun `conan install` a
 
 A separate `conan build` invocation must repeat the same profiles, settings and options. It does not remember the preceding install command; omitting them can select the default Release graph instead of this Debug configuration. The generated CMake presets avoid that mismatch for local development.
 
-| Result | Location or next action |
-| --- | --- |
-| Build and test output | `build/native/build/Debug/`; failures include the test output. |
-| SDK libraries and plugins | Inside that build tree; their linkage follows the configured library/plugin options. |
-| A package in the local Conan cache | Use `conan create` as described below. |
-| A first application | Follow the [application guide](000-getting-started.md), selecting the intended SDK package. |
+| Result                             | Location or next action                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| Build and test output              | `build/native/build/Debug/`; failures include the test output.                              |
+| SDK libraries and plugins          | Inside that build tree; their linkage follows the configured library/plugin options.        |
+| A package in the local Conan cache | Use `conan create` as described below.                                                      |
+| A first application                | Follow the [application guide](000-getting-started.md), selecting the intended SDK package. |
 
 ## Build a package or the utilities
 
 `conan create .` builds and tests a package in Conan's local cache, rather than leaving an editable build in the checkout. Use the same profiles, settings and options as above when qualifying that configuration. The recipe's version comes from the selected source/tag or `version.txt`; an untagged package is not a published release.
 
-The native configuration above includes companion tools. For a library-only consumer package, select `build_bins=False` and disable the tool-dependent test configuration rather than combining it with the full native test suite. The [tools guide](007-tools.md) describes the utilities; the [engineering guide](008-sdk-engineering.md) defines supported library/plugin combinations and platform requirements.
+The native configuration above includes companion tools. For a library-only consumer package, select `build_bins=False` and disable the tool-dependent test configuration rather than combining it with the full native test suite. The [tools guide](012-command-line-tools.md) describes the utilities; the [engineering guide](014-sdk-engineering.md) defines supported library/plugin combinations and platform requirements.
 
 The `build.sh` helper is a direct CMake build/test/install path for an already provisioned dependency environment. It does not resolve the native dependencies in place of Conan. Use it only when the required CMake packages and toolchain are available. Follow [Contributing](../CONTRIBUTING.md) for the asynchronous API and change-review requirements.

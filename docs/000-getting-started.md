@@ -3,7 +3,7 @@
 This guide builds a small application against the published SDK. You need a
 C++20 compiler, CMake 3.23 or newer, Ninja and Conan 2.34.0. Ninja is
 required when Conan builds the SDK from source. Platform requirements and library/plugin
-combinations are covered by the [engineering guide](008-sdk-engineering.md).
+combinations are covered by the [engineering guide](014-sdk-engineering.md).
 
 ## Install the SDK
 
@@ -17,8 +17,8 @@ conan profile detect --exist-ok
 conan remote add rstream https://nexus.rstream.io/repository/conan -f
 ```
 
-Save this application recipe as `conanfile.py`. It selects SDK `1.15.1` and
-omits the SDK's utility binaries and optional GeoIP and terminal dependencies:
+Save this application recipe as `conanfile.py`. It selects the library package
+and omits utility binaries and optional GeoIP and terminal dependencies:
 
 ```python
 from conan import ConanFile
@@ -39,8 +39,8 @@ class Application(ConanFile):
 
 Conan downloads a compatible binary when available and builds missing packages
 from source. The Boost range matches the maintained sample's supported range.
-This path targets the published `rstream/1.15.1` API. Source-candidate additions such as
-`rstream/io-rstrm/beast.hpp` require the checkout and are described separately.
+The [source build](001-building-from-source.md) provides the examples from this
+checkout. Use that path when working directly with these sources.
 
 ## Link an application
 
@@ -89,8 +89,9 @@ that address and stop the program with an interrupt. For devices without
 browser login, see [configuration](002-configuration.md) for project-scoped
 credentials or a certificate identity.
 
-The [tunnel patterns](003-tunnel-patterns.md) guide covers private dialing and
-additional completion styles. The [URI reference](006-uri-model.md) describes
+The [integration model](003-integration-model.md) explains direct APIs and
+private dialing. Compare [completion styles](004-completion-models.md) for the
+same connection lifecycle. The [URI reference](011-uri-reference.md) describes
 URI-based configuration.
 
 ## Develop the SDK itself

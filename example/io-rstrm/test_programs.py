@@ -153,7 +153,7 @@ def websocket(stream):
     assert stream.recv(1) == b'', 'explicit transport close did not arrive'
 
 
-def run(name, reject=False, bad_echo=False):
+def run(name, reject=False, bad_echo=False, reject_creation=False):
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         listener.listen(4)
@@ -172,36 +172,46 @@ def run(name, reject=False, bad_echo=False):
                     send(control, 2, field(1, field(1, 'client-1')))
                     number, request = receive(control)
                     assert number == 5
-                    properties = request[2] + field(1, field(1, 'tunnel-1')) + field(4, field(1, 'bytestream'))
-                    properties += field(22, field(1, 'localhost')) + field(23, integer(1, 443))
-                    send(control, 6, field(1, request[1]) + field(2, properties))
-                    if name == 'private-echo':
-                        with accept(listener) as dial:
-                            number, request = receive(dial)
-                            assert number == 13 and request[2] == b'echo'
-                            if not zero_rtt(request):
-                                send(dial, 14, field(1, 'stream-1'))
-                            with proxy(listener, control) as upstream:
-                                upstream.sendall(exact(dial, 5))
-                                reply = exact(upstream, 5)
-                                dial.sendall(b"WRONG" if bad_echo else reply)
+                    if name in ('callback', 'future', 'coroutine'):
+                        requested = fields(request[2])
+                        assert fields(requested[5]).get(1, 0) == 0
+                        assert fields(requested[6])[1] == b'tls'
+                    if reject_creation:
+                        send(control, 6, field(1, request[1]) + field(3, integer(1, 1000) + field(2, field(1, 'creation rejected'))))
                         finish_control(control)
-                    elif name.endswith('server') or name == 'beast-tunnel':
-                        with proxy(listener, control) as stream:
-                            if name == 'websocket-server':
-                                websocket(stream)
-                            else:
-                                body = http_response(stream)
-                                if name == 'beast-tunnel':
-                                    assert body == 'Hello from the shared Beast handler'
-                        process.send_signal(signal.SIGTERM)
                     else:
-                        finish_control(control)
+                        properties = request[2] + field(1, field(1, 'tunnel-1')) + field(4, field(1, 'bytestream'))
+                        properties += field(22, field(1, 'localhost')) + field(23, integer(1, 443))
+                        send(control, 6, field(1, request[1]) + field(2, properties))
+                        if name == 'private-echo':
+                            with accept(listener) as dial:
+                                number, request = receive(dial)
+                                assert number == 13 and request[2] == b'echo'
+                                if not zero_rtt(request):
+                                    send(dial, 14, field(1, 'stream-1'))
+                                with proxy(listener, control) as upstream:
+                                    upstream.sendall(exact(dial, 5))
+                                    reply = exact(upstream, 5)
+                                    dial.sendall(b"WRONG" if bad_echo else reply)
+                            finish_control(control)
+                        elif name.endswith('server') or name == 'beast-tunnel':
+                            with proxy(listener, control) as stream:
+                                if name == 'websocket-server':
+                                    websocket(stream)
+                                else:
+                                    body = http_response(stream)
+                                    if name == 'beast-tunnel':
+                                        assert body == 'Hello from the shared Beast handler'
+                            process.send_signal(signal.SIGTERM)
+                        else:
+                            finish_control(control)
                 stdout, stderr = process.communicate(timeout=5)
-            assert (os.name == 'nt' and (name.endswith('server') or name == 'beast-tunnel')) or process.returncode == (1 if reject or bad_echo else 0), (name, process.returncode, stdout, stderr)
+            assert (os.name == 'nt' and (name.endswith('server') or name == 'beast-tunnel')) or process.returncode == (1 if reject or bad_echo or reject_creation else 0), (name, process.returncode, stdout, stderr)
+            if name in ('callback', 'future', 'coroutine') and not reject and not reject_creation:
+                assert 'Private tunnel: ' in stdout
             if name == 'private-echo' and not reject and not bad_echo:
                 assert 'Echo: hello' in stdout
-            return {'program': name, 'case': 'engine-rejection' if reject else 'bad-echo' if bad_echo else 'success', 'exit': process.returncode, 'stdout': stdout, 'stderr': stderr}
+            return {'program': name, 'case': 'creation-rejection' if reject_creation else 'engine-rejection' if reject else 'bad-echo' if bad_echo else 'success', 'exit': process.returncode, 'stdout': stdout, 'stderr': stderr}
         finally:
             if process.poll() is None:
                 process.kill()
@@ -235,9 +245,9 @@ def run_local_migration():
 
 
 if __name__ == "__main__":
-    names = ("callback", "future", "private-echo", "http-server", "websocket-server", "beast-tunnel", "beast-local")
+    names = ("callback", "future", "coroutine", "private-echo", "http-server", "websocket-server", "beast-tunnel", "beast-local")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("programs", nargs=7, type=Path, metavar="BINARY")
+    parser.add_argument("programs", nargs=8, type=Path, metavar="BINARY")
     options = parser.parse_args()
     PROGRAMS = dict(zip(names, (path.resolve() for path in options.programs)))
     with tempfile.TemporaryDirectory(prefix="rstream-example-test-") as directory:
@@ -247,8 +257,11 @@ if __name__ == "__main__":
             result = run(name)
             print(name, result["case"], result["exit"], flush=True)
         run_local_migration()
-        for name in ("callback", "future", "private-echo"):
+        for name in ("callback", "future", "coroutine", "private-echo"):
             result = run(name, reject=True)
+            print(name, result["case"], result["exit"], flush=True)
+        for name in ("callback", "future", "coroutine"):
+            result = run(name, reject_creation=True)
             print(name, result["case"], result["exit"], flush=True)
         result = run("private-echo", bad_echo=True)
         print("private-echo", result["case"], result["exit"], flush=True)

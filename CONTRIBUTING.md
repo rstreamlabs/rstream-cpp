@@ -12,7 +12,7 @@ The [roadmap](roadmap/) records remaining native SDK and toolchain work.
 
 Follow [Build and develop the SDK](docs/001-building-from-source.md) for the compiler, Conan, CMake and Ninja prerequisites and a native checkout build. That path runs the enabled local tests and explains where the output is written. Use the published-package [application guide](docs/000-getting-started.md) when testing consumption separately from library development.
 
-Cross-compilation, distributable packages and the required library/plugin matrix follow the [engineering contract](docs/008-sdk-engineering.md). They are additional qualification paths, not prerequisites for the first native build.
+Cross-compilation, distributable packages and the required library/plugin matrix follow the [engineering contract](docs/014-sdk-engineering.md). They are additional qualification paths, not prerequisites for the first native build.
 
 If a change affects examples, documentation, packaging metadata, or generated files, update the corresponding files in the same pull request.
 
@@ -20,7 +20,7 @@ Public pull requests do not automatically run the repository release/build workf
 
 Changes to asynchronous code, dependencies, plugins, build profiles, or
 packaging must satisfy the complete
-[SDK engineering contract](./docs/008-sdk-engineering.md). It defines the
+[SDK engineering contract](./docs/014-sdk-engineering.md). It defines the
 supported platform and topology matrix, Conan dependency policy, constrained
 runtime requirements, and release validation gates.
 
