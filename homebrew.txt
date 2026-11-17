@@ -2,7 +2,6 @@ boost
 boost-python3
 ccache
 cmake
-googletest
 jq
 libmaxminddb
 ncurses

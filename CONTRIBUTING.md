@@ -6,41 +6,13 @@ Thanks for considering a contribution to `rstream-cpp`.
 
 Small fixes can usually go straight to a pull request. For larger changes to the public API, transport model, packaging flow, or bundled tools, start with an issue or discussion first so the direction can be reviewed before implementation.
 
-## Local development checks
+The [roadmap](roadmap/) records remaining native SDK and toolchain work.
 
-Before opening a pull request, run the main local checks:
+## Local development
 
-```bash
-conan profile detect --force
-conan config install conan/config
-conan create . -u --build=missing -pr:b default -pr:h default
-```
+Follow [Build and develop the SDK](docs/001-building-from-source.md) for the compiler, Conan, CMake and Ninja prerequisites and a native checkout build. That path runs the enabled local tests and explains where the output is written. Use the published-package [application guide](docs/000-getting-started.md) when testing consumption separately from library development.
 
-If you already have the native dependencies installed locally, the direct CMake flow is:
-
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-If you use the repository helper script, the equivalent flow is:
-
-```bash
-./build.sh
-```
-
-Use `build-conan-cross.sh` for distributable Linux, Windows, and macOS
-profiles. Library linkage and plugin loading are independent dimensions:
-
-```bash
-OSS="linux" \
-LINUX_ARCHS="x86_64" \
-LINUX_TCLIBCS="glibc musl" \
-LINUX_BUILD_SHARED="on off" \
-LINUX_PLUGIN_MODES="static dynamic" \
-./build-conan-cross.sh build
-```
+Cross-compilation, distributable packages and the required library/plugin matrix follow the [engineering contract](docs/014-sdk-engineering.md). They are additional qualification paths, not prerequisites for the first native build.
 
 If a change affects examples, documentation, packaging metadata, or generated files, update the corresponding files in the same pull request.
 
@@ -48,7 +20,7 @@ Public pull requests do not automatically run the repository release/build workf
 
 Changes to asynchronous code, dependencies, plugins, build profiles, or
 packaging must satisfy the complete
-[SDK engineering contract](./docs/001-sdk-engineering.md). It defines the
+[SDK engineering contract](./docs/014-sdk-engineering.md). It defines the
 supported platform and topology matrix, Conan dependency policy, constrained
 runtime requirements, and release validation gates.
 
@@ -77,5 +49,7 @@ Keep changes focused, explicit, and idiomatic for the existing codebase.
 Some files are generated or copied into package outputs during the build and Conan flows. If you modify the source definitions or packaging inputs, regenerate or rebuild the corresponding outputs before opening the pull request.
 
 ## Security
+
+WebTTY changes must preserve protocol-bound endpoint proofs and workspace credential verification without runtime control-plane calls. Review authentication and cryptographic changes with shared Go/JavaScript/C++ vectors and the affected native runtime combinations. Keep security audit results with release artifacts, outside the source tree.
 
 Please do not disclose vulnerabilities in public issues. See [SECURITY.md](./SECURITY.md) for the reporting process used by this repository.

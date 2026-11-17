@@ -175,7 +175,7 @@ set(INCLUDES_FILE "${CMAKE_CURRENT_BINARY_DIR}/includes.hpp")
 add_custom_command(
   OUTPUT ${INCLUDES_FILE}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  COMMAND ${CMAKE_COMMAND} -DOUTPUT_FILE=${INCLUDES_FILE} -DHEADERS_DIR=${CMAKE_CURRENT_SOURCE_DIR} -P ${PROJECT_SOURCE_DIR}/cmake/generate-includes-file.cmake
+  COMMAND ${CMAKE_COMMAND} -DOUTPUT_FILE=${INCLUDES_FILE} -DHEADERS_DIR=${CMAKE_CURRENT_SOURCE_DIR} "-DEXCLUDE_REGEX=/beast[.]hpp$" -P ${PROJECT_SOURCE_DIR}/cmake/generate-includes-file.cmake
   COMMENT "Generating includes.hpp header file")
 
 add_custom_target(GenerateIncludesFile${LIBRARY_NAME} DEPENDS ${INCLUDES_FILE})

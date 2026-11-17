@@ -17,3 +17,5 @@ add_test_target(${PROJECT_NAME}-test-io-common-stream-rstrm test_io_common_strea
 rstream_enable_runtime_plugins(${PROJECT_NAME}-test-io-common-stream-rstrm ${PROJECT_NAME}-plugin-io-generic ${PROJECT_NAME}-plugin-io-rstrm)
 add_test_target(${PROJECT_NAME}-test-io-common-stream-tls test_io_common_stream_tls.cpp ${PROJECT_NAME}::io ${PROJECT_NAME}::${PROJECT_NAME})
 rstream_enable_runtime_plugins(${PROJECT_NAME}-test-io-common-stream-tls ${PROJECT_NAME}-plugin-io-generic)
+
+add_test_target(${PROJECT_NAME}-test-ssl-provider test_ssl_provider.cpp ${SSL_LIBRARIES})
