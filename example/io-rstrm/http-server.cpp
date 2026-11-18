@@ -1,16 +1,16 @@
 // See LICENSE file in the project root for license information.
 
-#include <csignal>
 #include <iostream>
 
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
-#include <rstream/core/exception.hpp>
 #include <rstream/io-rstrm/client.hpp>
 #include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io-rstrm/socket.hpp>
+
+#include "tunnel-server.hpp"
 
 namespace asio  = boost::asio;
 namespace http  = boost::beast::http;
@@ -58,25 +58,5 @@ asio::awaitable<void> listener(rstrm::client& client)
 
 int main()
 {
-  int result = 0;
-  bool stopping = false;
-  asio::io_context io_context;
-  rstrm::client client(io_context.get_executor());
-  asio::signal_set signals(io_context, SIGINT, SIGTERM);
-  signals.async_wait([&](const boost::system::error_code& error, int) {
-    if (!error) {
-      stopping = true;
-      client.close();
-    }
-  });
-  asio::co_spawn(io_context, listener(client), [&](std::exception_ptr error) {
-    if (error && !stopping) {
-      result = 1;
-      std::cerr << "fatal error: " << rstream::core::throwable::to_string(error) << std::endl;
-    }
-    signals.cancel();
-    client.close();
-  });
-  io_context.run();
-  return result;
+  return example_tunnel::run(listener);
 }
