@@ -137,7 +137,7 @@ def http_response(stream):
     return body.decode()
 
 
-def websocket(stream):
+def websocket(stream, close=True):
     key = base64.b64encode(b'local-test-key!!')
     stream.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ' + key + b'\r\n\r\n')
     header = b''
@@ -148,12 +148,14 @@ def websocket(stream):
     assert expected in header
     stream.sendall(b'\x81\x85\0\0\0\0hello')
     assert exact(stream, 7) == b'\x81\x05hello'
+    if not close:
+        return
     stream.sendall(b'\x88\x82\0\0\0\0\x03\xe8')
     assert exact(stream, 4) == b'\x88\x02\x03\xe8'
     assert stream.recv(1) == b'', 'explicit transport close did not arrive'
 
 
-def run(name, reject=False, bad_echo=False, reject_creation=False, pending_http=False):
+def run(name, reject=False, bad_echo=False, reject_creation=False, pending_read=False):
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         listener.listen(4)
@@ -197,19 +199,20 @@ def run(name, reject=False, bad_echo=False, reject_creation=False, pending_http=
                         elif name.endswith('server') or name == 'beast-tunnel':
                             with proxy(listener, control) as stream:
                                 if name == 'websocket-server':
-                                    websocket(stream)
-                                elif pending_http:
+                                    websocket(stream, close=not pending_read)
+                                elif pending_read:
                                     stream.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\n')
-                                    process.send_signal(signal.SIGTERM)
-                                    finish_control(control)
-                                    stream.shutdown(socket.SHUT_RDWR)
                                 else:
                                     body = http_response(stream)
                                     if name == 'beast-tunnel':
                                         assert body == 'Hello from the shared Beast handler'
-                            if not pending_http:
+                                if pending_read:
+                                    process.send_signal(signal.SIGTERM)
+                                    finish_control(control)
+                                    stream.shutdown(socket.SHUT_RDWR)
+                            if not pending_read:
                                 process.send_signal(signal.SIGTERM)
-                                if name == 'http-server' and os.name != 'nt':
+                                if os.name != 'nt':
                                     finish_control(control)
                         else:
                             finish_control(control)
@@ -265,8 +268,9 @@ if __name__ == "__main__":
             result = run(name)
             print(name, result["case"], result["exit"], flush=True)
         if os.name != 'nt':
-            result = run('http-server', pending_http=True)
-            print('http-server', 'pending-read-shutdown', result['exit'], flush=True)
+            for name in ('http-server', 'websocket-server', 'beast-tunnel'):
+                result = run(name, pending_read=True)
+                print(name, 'pending-read-shutdown', result['exit'], flush=True)
         run_local_migration()
         for name in ("callback", "future", "coroutine", "private-echo"):
             result = run(name, reject=True)

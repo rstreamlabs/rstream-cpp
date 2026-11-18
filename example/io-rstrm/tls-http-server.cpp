@@ -1,6 +1,5 @@
 // See LICENSE file in the project root for license information.
 
-#include <csignal>
 #include <iostream>
 
 #include <boost/asio.hpp>
@@ -8,10 +7,11 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 
-#include <rstream/core/exception.hpp>
 #include <rstream/io-rstrm/client.hpp>
 #include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io-rstrm/socket.hpp>
+
+#include "tunnel-server.hpp"
 
 namespace asio  = boost::asio;
 namespace http  = boost::beast::http;
@@ -41,10 +41,9 @@ asio::awaitable<void> session(rstrm::socket stream, asio::ssl::context& context)
   socket.next_layer().close(ignored);
 }
 
-asio::awaitable<void> listener(asio::ssl::context& context)
+asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& context)
 {
   auto executor = co_await asio::this_coro::executor;
-  rstrm::client client(executor);
   co_await client.async_connect(asio::use_awaitable);
   rstrm::tunnel_properties properties{};
   properties.m_publish                = true;
@@ -76,20 +75,7 @@ int run(int argc, char** argv)
     std::cerr << "cannot set the application TLS minimum version" << std::endl;
     return 1;
   }
-  int result = 0;
-  asio::io_context io_context;
-  asio::signal_set signals(io_context, SIGINT, SIGTERM);
-  auto on_done = [&io_context, &result](std::exception_ptr error) {
-    if (error) {
-      result = 1;
-      std::cerr << "fatal error: " << rstream::core::throwable::to_string(error) << std::endl;
-    }
-    io_context.stop();
-  };
-  signals.async_wait([&on_done](const boost::system::error_code&, int) { on_done(nullptr); });
-  asio::co_spawn(io_context, listener(context), on_done);
-  io_context.run();
-  return result;
+  return example_tunnel::run([&context](rstrm::client& client) { return listener(client, context); });
 }
 
 int main(int argc, char** argv)
