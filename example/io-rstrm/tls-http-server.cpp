@@ -46,7 +46,10 @@ asio::awaitable<void> listener(asio::ssl::context& context)
   auto executor = co_await asio::this_coro::executor;
   rstrm::client client(executor);
   co_await client.async_connect(asio::use_awaitable);
-  rstrm::tunnel_properties properties = {.m_publish = true, .m_protocol = rstrm::protocol::tls, .m_tls_mode = rstrm::tls_mode::passthrough};
+  rstrm::tunnel_properties properties{};
+  properties.m_publish                = true;
+  properties.m_protocol               = rstrm::protocol::tls;
+  properties.m_tls_mode               = rstrm::tls_mode::passthrough;
   auto tunnel                         = co_await client.async_create_tunnel(properties, asio::use_awaitable);
   auto forwarding                     = rstrm::format_forwarding_address(tunnel.properties());
   if (forwarding) {

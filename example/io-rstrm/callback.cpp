@@ -25,7 +25,9 @@ class application : public std::enable_shared_from_this<application> {
         self->finish(ec);
         return;
       }
-      rstrm::tunnel_properties properties = {.m_publish = false, .m_protocol = rstrm::protocol::tls};
+      rstrm::tunnel_properties properties{};
+      properties.m_publish  = false;
+      properties.m_protocol = rstrm::protocol::tls;
       self->m_client.async_create_tunnel(properties, [self](const boost::system::error_code& error, rstrm::tunnel tunnel) {
         if (!error) {
           std::cout << "Private tunnel: " << tunnel.local_endpoint() << std::endl;

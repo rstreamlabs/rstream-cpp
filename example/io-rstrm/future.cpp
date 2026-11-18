@@ -21,8 +21,10 @@ int main()
   int result = 0;
   try {
     client.async_connect(asio::use_future).get();
-    rstrm::tunnel_properties properties = {.m_publish = false, .m_protocol = rstrm::protocol::tls};
-    auto tunnel                         = client.async_create_tunnel(properties, asio::use_future).get();
+    rstrm::tunnel_properties properties{};
+    properties.m_publish  = false;
+    properties.m_protocol = rstrm::protocol::tls;
+    auto tunnel           = client.async_create_tunnel(properties, asio::use_future).get();
     std::cout << "Private tunnel: " << tunnel.local_endpoint() << std::endl;
     tunnel.close();
   }
