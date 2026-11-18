@@ -40,7 +40,9 @@ asio::awaitable<void> listener(rstrm::client& client)
 {
   auto executor = co_await asio::this_coro::executor;
   co_await client.async_connect(asio::use_awaitable);
-  rstrm::tunnel_properties properties = {.m_publish = true, .m_protocol = rstrm::protocol::http};
+  rstrm::tunnel_properties properties{};
+  properties.m_publish                = true;
+  properties.m_protocol               = rstrm::protocol::http;
   auto tunnel                         = co_await client.async_create_tunnel(properties, asio::use_awaitable);
   auto forwarding                     = rstrm::format_forwarding_address(tunnel.properties());
   if (forwarding) {
