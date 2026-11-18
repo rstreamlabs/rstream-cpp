@@ -60,7 +60,9 @@ asio::awaitable<void> run()
     if (ec) {
       throw boost::system::system_error(ec);
     }
-    rstrm::endpoint endpoint = {.m_id_name = std::string("echo"), .m_server_address = address};
+    rstrm::endpoint endpoint{};
+    endpoint.m_id_name        = std::string("echo");
+    endpoint.m_server_address = address;
     // Both operations finish before their referenced tunnel or buffers die.
     // Failure cancels the other operation instead of losing a detached error.
     asio::steady_timer deadline(executor, std::chrono::seconds(10));
