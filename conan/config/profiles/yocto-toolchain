@@ -1,7 +1,8 @@
 include(default)
 
 {% set toolchain = "yocto-toolchain" %}
-{% set toolchain_version = "5.0.2" %}
+{% set default_toolchain_version %}{% include "templates/yocto-toolchain-version" %}{% endset %}
+{% set toolchain_version = os.getenv("LINUX_TOOLCHAIN_VERSION") or default_toolchain_version | trim %}
 {% set compiler = "gcc" %}
 {% set compiler_version = "13" %}
 
