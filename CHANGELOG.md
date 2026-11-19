@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.15.3](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.2...1.15.3) (2026-11-19)
+
+
+### Bug Fixes
+
+* build Linux release packages with the retained Yocto SDK ([824ab9b](https://github.com/rstreamlabs/rstream-cpp/commit/824ab9b931d949f1f3a1b07b517321c5670fa8fd))
+* **ci:** pin the Linux and Windows release build host ([#73](https://github.com/rstreamlabs/rstream-cpp/issues/73)) ([792fc70](https://github.com/rstreamlabs/rstream-cpp/commit/792fc708db50170103264c90bbf347b8b662d71a))
+
 ## [1.15.2](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.1...1.15.2) (2026-11-19)
 
 
