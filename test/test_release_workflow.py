@@ -43,6 +43,11 @@ class ReleaseWorkflowTest(unittest.TestCase):
             'gh release edit "${RELEASE_TAG}" --draft=false', self.publication
         )
 
+    def test_linux_windows_release_host_is_pinned(self) -> None:
+        _, linux_windows = self.workflow.split("  package-linux-windows:\n", maxsplit=1)
+        linux_windows, _ = linux_windows.split("  package-macos:\n", maxsplit=1)
+        self.assertIn("    runs-on: ubuntu-24.04\n", linux_windows)
+
     def test_every_release_job_installs_pinned_recipe_dependencies(self) -> None:
         self.assertIn('PYYAML_VERSION: "6.0.3"', self.workflow)
         self.assertIn('PYYAML_VERSION: "6.0.3"', self.publication)

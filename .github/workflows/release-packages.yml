@@ -59,7 +59,8 @@ jobs:
   package-linux-windows:
     name: Build ${{ matrix.target.os }} ${{ matrix.target.arch }} candidate
     if: ${{ github.actor == vars.CI_ALLOWED_ACTOR && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ubuntu-latest
+    # GCC 15 rejects the native Berkeley DB 5.3 mutex probes.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       max-parallel: 4
