@@ -18,7 +18,7 @@ default_linux_archs=("x86_i686" "x86_core2" "x86_64" "x86_64_v2" "x86_64_v3" "x8
 default_linux_build_shared=("on" "off")
 default_linux_plugin_modes=("auto")
 default_linux_tclibcs=("glibc" "musl")
-default_linux_toolchain_version="5.0.2"
+default_linux_toolchain_version=$(<"${script_dir}/conan/config/profiles/templates/yocto-toolchain-version")
 default_linux_toolchain="yocto-toolchain"
 default_macos_archs=("x86_64" "x86_64_v2" "x86_64_v3" "x86_64_v4" "arm64" "apple-m1" "apple-m2")
 default_macos_build_shared=("on" "off")
@@ -107,7 +107,7 @@ resolve_list "${LINUX_ARCHS:-}" linux_archs "${default_linux_archs[@]}"
 resolve_list "${LINUX_BUILD_SHARED:-}" linux_build_shared "${default_linux_build_shared[@]}"
 resolve_list "${LINUX_PLUGIN_MODES:-}" linux_plugin_modes "${default_linux_plugin_modes[@]}"
 resolve_list "${LINUX_TCLIBCS:-}" linux_tclibcs "${default_linux_tclibcs[@]}"
-linux_toolchain_version="${LINUX_TOOLCHAIN_VERSION:-${default_linux_toolchain_version}}"
+export LINUX_TOOLCHAIN_VERSION="${LINUX_TOOLCHAIN_VERSION:-${default_linux_toolchain_version}}"
 linux_toolchain="${LINUX_TOOLCHAIN:-${default_linux_toolchain}}"
 resolve_list "${MACOS_ARCHS:-}" macos_archs "${default_macos_archs[@]}"
 resolve_list "${MACOS_BUILD_SHARED:-}" macos_build_shared "${default_macos_build_shared[@]}"
@@ -366,7 +366,7 @@ function conan_options {
 }
 
 function linux_conan_options {
-  echo "$(conan_options) --profile:host=${linux_toolchain} --settings:host arch=$(conan_arch) --settings:host os.sdk=${linux_toolchain}-${linux_toolchain_version}-${ARCH}-${LIBC} --options:build ${linux_toolchain}/${linux_toolchain_version}:arch=${ARCH} --options:build ${linux_toolchain}/${linux_toolchain_version}:libc=${LIBC}"
+  echo "$(conan_options) --profile:host=${linux_toolchain} --settings:host arch=$(conan_arch) --settings:host os.sdk=${linux_toolchain}-${LINUX_TOOLCHAIN_VERSION}-${ARCH}-${LIBC} --options:build ${linux_toolchain}/${LINUX_TOOLCHAIN_VERSION}:arch=${ARCH} --options:build ${linux_toolchain}/${LINUX_TOOLCHAIN_VERSION}:libc=${LIBC}"
 }
 
 function macos_conan_options {
@@ -424,7 +424,7 @@ function windows_cmd_export {
 }
 
 function linux_run_docker {
-  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e LIBC -e BUILD_SHARED -e PLUGIN_MODE -e SRC_PATH "${@:2}" conan2-builder -c "$1"
+  docker_run_builder --entrypoint "bash" -v "${script_dir}:/source:rw" -e CHANNEL -e VERSION -e OS -e ARCH -e LIBC -e BUILD_SHARED -e PLUGIN_MODE -e SRC_PATH -e LINUX_TOOLCHAIN_VERSION "${@:2}" conan2-builder -c "$1"
 }
 
 function windows_run_docker {

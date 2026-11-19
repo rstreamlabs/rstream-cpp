@@ -62,6 +62,9 @@ class PackageUploadTest(unittest.TestCase):
             shutil.copyfile(
                 repository / "build-conan-cross.sh", root / "build-conan-cross.sh"
             )
+            version_file = Path("conan/config/profiles/templates/yocto-toolchain-version")
+            (root / version_file.parent).mkdir(parents=True)
+            shutil.copyfile(repository / version_file, root / version_file)
             tools = root / "bin"
             tools.mkdir()
             commands = {
