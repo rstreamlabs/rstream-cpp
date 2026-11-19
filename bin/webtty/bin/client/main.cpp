@@ -21,6 +21,7 @@
 #include <docopt.h>
 #include <webtty_cli.hpp>
 #include <webtty_discovery.hpp>
+#include <webtty_workspace_trust.hpp>
 
 #include <rstream/config.hpp>
 #include <rstream/core/exception.hpp>
@@ -73,20 +74,6 @@ struct known_server_resolution {
   std::string m_client_identity;
   bool m_configured = false;
 };
-
-static void add_known_server_recipient(std::vector<rstream::webtty::e2e_recipient>& recipients, const rstream::webtty::e2e_recipient& next)
-{
-  auto it = std::find_if(recipients.begin(), recipients.end(), [&next](const rstream::webtty::e2e_recipient& existing) {
-    return existing.m_key_id == next.m_key_id;
-  });
-  if (it == recipients.end()) {
-    recipients.push_back(next);
-    return;
-  }
-  if (it->m_public_key != next.m_public_key) {
-    throw std::runtime_error("conflicting known WebTTY server keys for the same key id");
-  }
-}
 
 static void add_known_server_endpoint_identity(std::vector<rstream::webtty::endpoint_identity_public>& identities, const rstream::webtty::endpoint_identity_public& next)
 {
@@ -203,7 +190,7 @@ known_server_resolution read_known_server_resolution(const docopt::value& raw_ke
   }
   if (raw_keys && raw_keys.isStringList()) {
     for (const auto& raw : raw_keys.asStringList()) {
-      add_known_server_recipient(resolution.m_recipients, rstream::webtty::cli::parse_known_server_key(raw));
+      rstream::webtty::cli::add_payload_recipient(resolution.m_recipients, rstream::webtty::cli::parse_known_server_key(raw));
       if (std::count(raw.begin(), raw.end(), ':') == 3) {
         add_known_server_endpoint_identity(resolution.m_endpoint_identities, rstream::webtty::cli::parse_known_server_endpoint_identity(raw));
       }
@@ -211,14 +198,14 @@ known_server_resolution read_known_server_resolution(const docopt::value& raw_ke
   }
   else if (raw_keys && raw_keys.isString()) {
     auto raw = raw_keys.asString();
-    add_known_server_recipient(resolution.m_recipients, rstream::webtty::cli::parse_known_server_key(raw));
+    rstream::webtty::cli::add_payload_recipient(resolution.m_recipients, rstream::webtty::cli::parse_known_server_key(raw));
     if (std::count(raw.begin(), raw.end(), ':') == 3) {
       add_known_server_endpoint_identity(resolution.m_endpoint_identities, rstream::webtty::cli::parse_known_server_endpoint_identity(raw));
     }
   }
   auto env_key = rstream::webtty::cli::getenv_trimmed(rstream::webtty::cli::known_server_key_env);
   if (!env_key.empty()) {
-    add_known_server_recipient(resolution.m_recipients, rstream::webtty::cli::parse_known_server_key(env_key));
+    rstream::webtty::cli::add_payload_recipient(resolution.m_recipients, rstream::webtty::cli::parse_known_server_key(env_key));
     if (std::count(env_key.begin(), env_key.end(), ':') == 3) {
       add_known_server_endpoint_identity(resolution.m_endpoint_identities, rstream::webtty::cli::parse_known_server_endpoint_identity(env_key));
     }
@@ -257,7 +244,7 @@ known_server_resolution read_known_server_resolution(const docopt::value& raw_ke
       throw std::runtime_error("known WebTTY servers file contains multiple entries and none matches this URI; pass --known-server for the target server or provide a dedicated --known-servers-file");
     }
     for (const auto& entry : selected) {
-      add_known_server_recipient(resolution.m_recipients, entry.m_recipient);
+      rstream::webtty::cli::add_payload_recipient(resolution.m_recipients, entry.m_recipient);
       if (entry.m_endpoint_identity) {
         add_known_server_endpoint_identity(resolution.m_endpoint_identities, *entry.m_endpoint_identity);
       }
@@ -392,15 +379,6 @@ int run(int argc, char** argv)
       },
       .m_std_in_buffer_size = 800 * 1024,
   };
-  if (!known_server_resolution.m_recipients.empty()) {
-    rstream::webtty::e2e_payload_crypto_config crypto_config;
-    crypto_config.m_recipients = known_server_resolution.m_recipients;
-    std::error_code error_code;
-    settings.m_payload_crypto = rstream::webtty::make_e2e_client_payload_crypto(crypto_config, error_code);
-    if (error_code || !settings.m_payload_crypto) {
-      throw std::runtime_error("failed to configure WebTTY E2E payload crypto");
-    }
-  }
   identity_name = rstream::webtty::cli::trim_copy(identity_name);
   identity_file = rstream::webtty::cli::trim_copy(identity_file);
   if (!identity_name.empty() && !identity_file.empty()) {
@@ -437,6 +415,21 @@ int run(int argc, char** argv)
   }
   if (settings.m_expected_server_identity && !settings.m_endpoint_identity) {
     throw std::runtime_error("WebTTY server requires authenticated E2E; pass --identity, --identity-file, RSTREAM_WEBTTY_IDENTITY, RSTREAM_WEBTTY_IDENTITY_FILE, or set client_identity in the known server entry");
+  }
+  if (!known_server_resolution.m_recipients.empty()) {
+    rstream::webtty::e2e_payload_crypto_config crypto_config;
+    crypto_config.m_recipients = known_server_resolution.m_recipients;
+    if (!settings.m_client_credential.empty()) {
+      if (!settings.m_expected_server_identity) {
+        throw std::runtime_error("WebTTY client credential requires a locally trusted server endpoint identity");
+      }
+      rstream::webtty::cli::add_workspace_client_payload_recipient(crypto_config, *settings.m_endpoint_identity, *settings.m_expected_server_identity, settings.m_client_credential);
+    }
+    std::error_code error_code;
+    settings.m_payload_crypto = rstream::webtty::make_e2e_client_payload_crypto(crypto_config, error_code);
+    if (error_code || !settings.m_payload_crypto) {
+      throw std::runtime_error("failed to configure WebTTY E2E payload crypto");
+    }
   }
   rstream::webtty::client client(io_context.get_executor(), config, settings);
   signal_set.async_wait([&client](const std::error_code&, int) { client.cancel(); });

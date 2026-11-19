@@ -214,6 +214,20 @@ inline byte_vector read_client_credential(const std::string& raw_file)
   return byte_vector(value.begin(), value.end());
 }
 
+inline void add_payload_recipient(std::vector<e2e_recipient>& recipients, const e2e_recipient& next)
+{
+  auto it = std::find_if(recipients.begin(), recipients.end(), [&next](const e2e_recipient& existing) {
+    return existing.m_key_id == next.m_key_id;
+  });
+  if (it == recipients.end()) {
+    recipients.push_back(next);
+    return;
+  }
+  if (it->m_public_key != next.m_public_key) {
+    throw std::runtime_error("conflicting WebTTY payload recipients for the same key id");
+  }
+}
+
 inline std::filesystem::path rstream_home()
 {
   const auto root = getenv_trimmed("RSTREAM_DATA_DIR");

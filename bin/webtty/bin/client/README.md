@@ -19,6 +19,11 @@ Use `--identity`, `--identity-file`, `RSTREAM_WEBTTY_IDENTITY`, or `RSTREAM_WEBT
 
 The C++ client supports explicit-key WebTTY E2E and the protocol-level client credential field used by workspace-managed sessions. The standalone C++ CLI does not call the control plane; workspace-managed resolution is performed by the rstream CLI and `rstream ui`, which load trusted workspace devices from `~/.rstream/workspaces/<workspace-id>/devices/`. When a credential is produced by another trusted workflow, pass it with `--client-credential-file` or `RSTREAM_WEBTTY_CLIENT_CREDENTIAL_FILE` together with the matching client endpoint identity.
 
+With a workspace client credential, the session key is wrapped for both the
+trusted server and the local client identity. This preserves the device's access
+to encrypted recordings without giving it private workspace keys. Explicit-key
+connections without a workspace credential retain their configured recipients.
+
 ### Transport discovery
 
 For `rstrm://` URLs the CLI reads `/api/tunnels` on the configured engine and

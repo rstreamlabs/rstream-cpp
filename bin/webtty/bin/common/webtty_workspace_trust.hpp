@@ -19,6 +19,49 @@ inline std::string workspace_json_string(const nlohmann::json& value, const std:
   return it->get<std::string>();
 }
 
+inline const nlohmann::json& workspace_client_credential_payload(const nlohmann::json& envelope)
+{
+  if (!envelope.is_object() || envelope.value("v", 0) != 1 || !envelope.contains("payload") || !envelope["payload"].is_object()) {
+    throw std::runtime_error("workspace-managed WebTTY client credential is invalid");
+  }
+  const auto& payload = envelope["payload"];
+  if (workspace_json_string(payload, "type") != "workspace.webtty.client.credential") {
+    throw std::runtime_error("workspace-managed WebTTY client credential has an unsupported type");
+  }
+  return payload;
+}
+
+inline void add_workspace_client_payload_recipient(e2e_payload_crypto_config& config, const endpoint_identity& identity, const endpoint_identity_public& server, const byte_vector& credential)
+{
+  const auto envelope    = nlohmann::json::parse(credential.begin(), credential.end());
+  const auto& payload    = workspace_client_credential_payload(envelope);
+  const auto device_id   = workspace_json_string(payload, "device_key_id");
+  const auto workspace   = workspace_json_string(payload, "workspace_id");
+  const auto project_id  = workspace_json_string(payload, "project_id");
+  const auto server_id   = workspace_json_string(payload, "server_id");
+  const auto& encryption = identity.m_encryption;
+  if (device_id.empty() || workspace.empty() || project_id.empty() || server_id.empty()) {
+    throw std::runtime_error("workspace-managed WebTTY client credential has incomplete recording context");
+  }
+  if (workspace_json_string(payload, "webtty_key_id") != base64url_encode(encryption.m_key_id) || workspace_json_string(payload, "webtty_public_key") != base64url_encode(encryption.m_public_key)
+      || workspace_json_string(payload, "client_signing_key_id") != base64url_encode(identity.m_signing.m_key_id) || workspace_json_string(payload, "client_signing_public_key") != base64url_encode(identity.m_signing.m_public_key)) {
+    throw std::runtime_error("workspace-managed WebTTY client credential does not match the local identity");
+  }
+  add_payload_recipient(config.m_recipients, {encryption.m_key_id, encryption.m_public_key});
+  auto recipients = nlohmann::json::array();
+  for (const auto& recipient : config.m_recipients) {
+    const auto key_id = base64url_encode(recipient.m_key_id);
+    const auto device = recipient.m_key_id == encryption.m_key_id;
+    const auto host   = recipient.m_key_id == server.m_encryption_key_id;
+    recipients.push_back({{"key_id", key_id}, {"kind", device ? "workspace_device" : host ? "server"
+                                                                                          : "public_key"},
+                          {"id", device ? device_id : host ? server_id
+                                                           : key_id}});
+  }
+  const auto context = nlohmann::json{{"v", 1}, {"type", "rstream.webtty.session_key_grant"}, {"workspace_id", workspace}, {"project_id", project_id}, {"server_id", server_id}, {"recipients", recipients}}.dump();
+  config.m_key_context.assign(context.begin(), context.end());
+}
+
 inline std::string workspace_canonical_json(const nlohmann::json& value)
 {
   if (value.is_null()) {
@@ -96,8 +139,33 @@ inline void verify_workspace_signature(const std::string& public_signing_key, co
   }
 }
 
+inline bool workspace_payload_version(const nlohmann::json& payload, int expected)
+{
+  auto version = payload.find("v");
+  return version != payload.end() && version->is_number_integer() && *version == expected;
+}
+
+inline bool workspace_client_credential_owner_matches(const nlohmann::json& credential, const nlohmann::json& trust_payload)
+{
+  if (!credential.contains("owner_credential_id")) {
+    return workspace_payload_version(credential, 1) && workspace_payload_version(trust_payload, 1) && !trust_payload.contains("owner_credential_id");
+  }
+  auto owner = workspace_json_string(credential, "owner_credential_id");
+  if (owner.empty() || trim_copy(owner) != owner) {
+    return false;
+  }
+  return workspace_payload_version(credential, 2) && workspace_payload_version(trust_payload, 2)
+         && workspace_json_string(credential, "device_kind") == "service"
+         && workspace_json_string(trust_payload, "type") == "workspace.device.approve"
+         && workspace_json_string(trust_payload, "owner_credential_id") == owner
+         && !trust_payload.contains("envelope_hash");
+}
+
 inline bool workspace_trust_payload_matches(const rstream::webtty::cli::server_enrollment& enrollment, const nlohmann::json& credential, const nlohmann::json& trust_payload)
 {
+  if (!workspace_client_credential_owner_matches(credential, trust_payload)) {
+    return false;
+  }
   if (workspace_json_string(trust_payload, "workspace_id") != enrollment.m_workspace_id) {
     return false;
   }
@@ -124,14 +192,8 @@ inline boost::optional<rstream::webtty::byte_vector> verify_workspace_client_cre
   if (credential.empty()) {
     return boost::none;
   }
-  auto envelope = nlohmann::json::parse(std::string(credential.begin(), credential.end()));
-  if (!envelope.is_object() || envelope.value("v", 0) != 1 || !envelope.contains("payload") || !envelope["payload"].is_object()) {
-    throw std::runtime_error("workspace-managed WebTTY client credential is invalid");
-  }
-  const auto& payload = envelope["payload"];
-  if (workspace_json_string(payload, "type") != "workspace.webtty.client.credential") {
-    throw std::runtime_error("workspace-managed WebTTY client credential has an unsupported type");
-  }
+  const auto envelope = nlohmann::json::parse(credential.begin(), credential.end());
+  const auto& payload = workspace_client_credential_payload(envelope);
   if (workspace_json_string(payload, "workspace_id") != enrollment.m_workspace_id || workspace_json_string(payload, "project_id") != enrollment.m_project_id || workspace_json_string(payload, "server_id") != enrollment.m_server_id) {
     throw std::runtime_error("workspace-managed WebTTY client credential does not match this server");
   }
