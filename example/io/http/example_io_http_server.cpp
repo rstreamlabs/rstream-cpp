@@ -60,7 +60,7 @@ boost::asio::awaitable<void> session(protocol::socket socket)
     boost::beast::http::response<boost::beast::http::string_body> res;
     res = {boost::beast::http::status::ok, req.version()};
     res.set(boost::beast::http::field::content_type, "text/plain");
-    res.keep_alive(req.keep_alive());
+    res.keep_alive(false);
     res.body() = boost::asio::ip::host_name();
     res.prepare_payload();
     // write the response back to the client

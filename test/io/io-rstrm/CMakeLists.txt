@@ -12,3 +12,4 @@ target_include_directories(${PROJECT_NAME}-test-io-rstrm-control-channel SYSTEM 
 rstream_enable_runtime_plugins(${PROJECT_NAME}-test-io-rstrm-control-channel ${PROJECT_NAME}-plugin-io-generic ${PROJECT_NAME}-plugin-io-rstrm)
 add_test_target(${PROJECT_NAME}-test-io-rstrm-endpoint test_io_rstrm_endpoint.cpp ${PROJECT_NAME}::io-rstrm Boost::url)
 add_test_target(${PROJECT_NAME}-test-io-rstrm-format test_io_rstrm_format.cpp ${PROJECT_NAME}::io-rstrm)
+add_test_target(${PROJECT_NAME}-test-io-rstrm-beast test_io_rstrm_beast.cpp ${PROJECT_NAME}::io-rstrm)
