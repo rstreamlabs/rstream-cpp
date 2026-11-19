@@ -1,1 +1,5 @@
 # rstream-gping
+
+See the [native tools guide](../../../docs/012-command-line-tools.md) for installation,
+build availability and related programs. Run this program with `--help` for
+its argument reference.

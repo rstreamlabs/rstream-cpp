@@ -5,8 +5,7 @@ acceptance baseline for changes to the SDK, its dependencies, build system,
 plugins, packages, and asynchronous runtime.
 
 The SDK targets constrained native systems. Portability, predictable resource
-usage, and Boost.Asio compliance are product requirements, not optional build
-qualities.
+usage, and Boost.Asio compliance are product requirements.
 
 ## Supported environments
 
@@ -34,11 +33,11 @@ the cross-language WebTTY matrix.
 Library linkage and plugin loading are independent choices:
 
 | SDK libraries | Plugins | Required |
-| --- | --- | --- |
-| Static | Static | Yes |
-| Static | Dynamic | Yes |
-| Shared | Static | Yes |
-| Shared | Dynamic | Yes |
+| ------------- | ------- | -------- |
+| Static        | Static  | Yes      |
+| Static        | Dynamic | Yes      |
+| Shared        | Static  | Yes      |
+| Shared        | Dynamic | Yes      |
 
 `BUILD_SHARED_LIBS` selects SDK library linkage.
 `ENABLE_STATIC_PLUGINS` selects build-time plugin registration or runtime
@@ -204,7 +203,15 @@ criteria are maintained in `conan/recipes/README.md`.
 
 ## Build and package validation
 
-Run the checks below from a clean checkout. Warm-cache reruns may be used for
+Run the checks below from a clean checkout with compatible dependencies and a
+CMake toolchain already provisioned. The [source build](001-building-from-source.md)
+provides a first Conan-backed native build. Its generated `conan-debug` preset
+and the repository `quality` preset are separate build configurations: supply
+the dependency toolchain explicitly when configuring `quality` (for example
+`cmake --preset quality -DCMAKE_TOOLCHAIN_FILE=/absolute/path/to/conan_toolchain.cmake`).
+Use a toolchain and dependencies matching the requested linkage/plugin profile;
+sanitizers require their instrumented graph described below.
+Warm-cache reruns may be used for
 iteration, but final acceptance must validate the exact source revision.
 
 ### Native quality
@@ -236,7 +243,7 @@ ctest --test-dir out/build/quality --repeat until-fail:20 \
   -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'
 ```
 
-Memory checks require Conan 2.31.2, Ninja and GNU coreutils (`timeout` on
+Memory checks use Conan 2.34.0, Ninja and GNU coreutils (`timeout` on
 Linux, `gtimeout` on macOS). The runner instruments the dependency graph and
 includes instrumentation flags in Conan package identities, so cached release
 libraries cannot be substituted. Protobuf's generated code and runtime must
