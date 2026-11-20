@@ -7,8 +7,9 @@
 #include <string>
 #include <vector>
 
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -92,14 +93,23 @@ int main(int argc, char **argv)
 {
   auto args = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
   boost::asio::io_context io_context;
-  boost::asio::signal_set signal_set(io_context, SIGINT, SIGTERM);
-  auto handler = [&io_context](const std::exception_ptr exception_ptr) {
-    if (exception_ptr) {
-      std::cerr << "an error occured: " << rstream::core::throwable::to_string(exception_ptr) << std::endl;
+  boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+  boost::asio::cancellation_signal stop;
+  int result = 0;
+  signals.async_wait([&](const boost::system::error_code& error, int) {
+    if (!error) {
+      stop.emit(boost::asio::cancellation_type::terminal);
     }
-    io_context.stop();
-  };
-  signal_set.async_wait(std::bind(handler, nullptr));
-  boost::asio::co_spawn(io_context, run(args.at("--uri").asString()), handler);
+  });
+  boost::asio::co_spawn(io_context, run(args.at("--uri").asString()),
+                       boost::asio::bind_cancellation_slot(stop.slot(), [&](std::exception_ptr failure) {
+    if (failure) {
+      result = 1;
+      std::cerr << "request failed: " << rstream::core::throwable::to_string(failure) << std::endl;
+    }
+    boost::system::error_code ignored;
+    signals.cancel(ignored);
+  }));
   io_context.run();
+  return result;
 }

@@ -2,6 +2,7 @@
 # See LICENSE file in the project root for license information.
 
 from pathlib import Path
+import os
 import socket
 import subprocess
 import sys
@@ -36,6 +37,14 @@ def main():
                     raise RuntimeError("HTTP example response failed: " + repr(result))
                 if not result.stdout.rstrip().endswith(socket.gethostname()):
                     raise RuntimeError("HTTP example response hostname mismatch")
+                failed = subprocess.run(
+                    [sys.argv[2], "--uri=unsupported://127.0.0.1:8080"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                assert failed.returncode == 1 and "request failed" in failed.stderr, failed
+                if os.name != "nt":
+                    server.terminate()
+                    assert server.wait(timeout=5) == 0, log_path.read_text(errors="replace")
             finally:
                 if server.poll() is None:
                     server.kill()

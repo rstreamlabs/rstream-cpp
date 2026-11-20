@@ -1,5 +1,5 @@
 # rstream-gping
 
-See the [native tools guide](../../../docs/012-command-line-tools.md) for installation,
-build availability and related programs. Run this program with `--help` for
-its argument reference.
+Draw a live nperf latency graph in an interactive Unix terminal. The
+[measurement guide](../../../docs/tools/002-measurement.md#inspect-the-native-build)
+shows the command and the Python-enabled build it requires.

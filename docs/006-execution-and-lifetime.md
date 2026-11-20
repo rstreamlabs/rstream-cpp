@@ -28,6 +28,7 @@ the event loop so other connections can progress.
 | -------------------- | ---------------------------------------------------------------------------------------------------- |
 | Client and tunnel    | Keep them alive while creating tunnels or accepting streams; close their owned work during shutdown. |
 | Direct socket copies | Copies share the same connection. Closing a copy affects the other handles.                          |
+| Generic stream socket | Move the socket into the session that owns it. The generic wrapper is move-only. |
 | Read/write buffers   | Retain storage until the operation's completion, including cancellation completion.                  |
 | Session state        | Serialize access through its executor/strand when several threads run the loop.                      |
 | Beast stream         | Serialize its operations according to Beast's contract, alongside the session state.                 |

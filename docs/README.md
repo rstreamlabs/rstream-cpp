@@ -1,41 +1,46 @@
 # C++ SDK guides
 
-Start with a first application or build this checkout, then configure the
-connection. The application owns its Asio executor and the lifecycle of its
-clients, tunnels and sockets.
+The SDK brings published and private bytestream tunnels into applications
+that use Boost.Asio. Choose how to run your first application, then follow
+the guides for the protocols and runtime choices it needs. If a service
+already listens locally and you want to keep its code as it is,
+[forward it with the native tool](tools/000-forwarding.md).
 
-| Start                                  | Guide                                                |
-| -------------------------------------- | ---------------------------------------------------- |
-| Add rstream to an application          | [000 Build an application](000-getting-started.md)   |
-| Compile this checkout and its examples | [001 Build from source](001-building-from-source.md) |
-| Select engine, identity and TLS trust  | [002 Configuration](002-configuration.md)            |
+## Get started
 
-## Integrate with the application
+| Task | Guide |
+| --- | --- |
+| Build a first application with the published SDK | [Build an application](000-getting-started.md). |
+| Compile and test this checkout | [Build from source](001-building-from-source.md). |
+| Connect to a project or a direct Engine | [Configure the SDK](002-configuration.md). |
 
-| Guide                                                    | Question answered                                                              |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [003 Integration model](003-integration-model.md)        | Direct API, acceptor or URI streams? Private dial or public listener?          |
-| [004 Completion models](004-completion-models.md)        | How does the same operation look with handlers, futures and coroutines?        |
-| [005 HTTP, TLS and WebSocket](005-http-tls-websocket.md) | How does an existing Asio/Beast service use a tunnel and preserve its handler? |
+## Integrate a service
+
+| Guide | Decision |
+| --- | --- |
+| [Tunnel patterns](003-tunnel-patterns.md) | Choose published or private access, then use the [direct client](003-tunnel-patterns.md#use-a-direct-client-and-tunnel), [typed acceptor](003-tunnel-patterns.md#use-a-typed-rstream-acceptor) or [URI interface](003-tunnel-patterns.md#uri-configured-listeners). |
+| [HTTP, TLS and WebSocket with Beast](004-http-tls-websocket.md) | Migrate a TCP listener, own the TLS handshake or serve WebSocket. |
+| [Native example catalog](../example/io-rstrm/README.md) | Find complete source programs, build targets and expected results. |
 
 ## Native runtime choices
 
-Use the reference for the decision your application needs:
+| Guide | Decision |
+| --- | --- |
+| [Completion styles](005-completion-models.md) | Compare handlers, futures and coroutines on one operation. |
+| [Execution and object lifetime](006-execution-and-lifetime.md) | Own the event loop, strands, shared handles and buffers. |
+| [Memory allocation](007-memory-allocation.md) | Supply an SDK allocator or an Asio associated allocator. |
+| [Cancellation and recovery](008-cancellation-and-recovery.md) | Bound operations, drain completions and recover a service. |
 
-| Guide                                                             | Topic                                                             |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------- |
-| [006 Execution and lifetime](006-execution-and-lifetime.md)       | Event loops, strands, shared handles and buffers.                 |
-| [007 Memory allocation](007-memory-allocation.md)                 | SDK object allocators, associated allocators and backing storage. |
-| [008 Cancellation and recovery](008-cancellation-and-recovery.md) | Deadlines, cancellation completion, shutdown and reconnection.    |
-| [009 Plugins and packaging](009-plugins-and-packaging.md)         | Library linkage, plugin registration and installed layout.        |
-| [010 Cross-compilation](010-cross-compilation.md)                 | Build/host profiles, target dependencies and device validation.   |
-| [011 URI reference](011-uri-reference.md)                         | Transport namespaces, parameters and encoding.                    |
-| [012 Command-line tools](012-command-line-tools.md)               | Packaged native utilities.                                        |
-| [013 WebTTY](013-webtty.md)                                       | Native terminal client/server, identity and process ownership.    |
+## Deploy and operate
 
-## Develop the SDK
+| Guide | Task |
+| --- | --- |
+| [Plugins and packaging](009-plugins-and-packaging.md) | Ship the libraries and transport plugins the application uses. |
+| [Cross-compilation](010-cross-compilation.md) | Build for a device's toolchain and ABI. |
+| [URI reference](011-uri-reference.md) | Look up transport and tunnel options for a configuration-driven listener. |
+| [Native command-line tools](012-command-line-tools.md) | Install `rstream-utils`, then [forward a service](tools/000-forwarding.md), [relay a stream](tools/001-streams.md) or [measure a connection](tools/002-measurement.md). |
+| [WebTTY](013-webtty.md) | Run a native terminal session and choose how its endpoints authenticate. |
+| Networking demos | [Serve files on loopback](../demo/file-server/bin/README.md) or [run a local STUN exchange](../demo/stun/bin/server/README.md). |
 
-[Contributing](../CONTRIBUTING.md) gives the local workflow. The
-[014 engineering contract](014-sdk-engineering.md) defines Asio, security,
-platform and package requirements. [015 Dependency constraints](015-dependency-constraints.md)
-covers provider and dependency validation.
+[Contributing](../CONTRIBUTING.md) covers SDK development, build validation and
+the engineering requirements for changes to the library.

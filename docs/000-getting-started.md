@@ -1,101 +1,56 @@
 # Build an application with the C++ SDK
 
-This guide builds a small application against the published SDK. You need a
-C++20 compiler, CMake 3.23 or newer, Ninja and Conan 2.34.0. Ninja is
-required when Conan builds the SDK from source. Platform requirements and library/plugin
-combinations are covered by the [engineering guide](014-sdk-engineering.md).
+Run a small Boost.Beast server using the SDK distributed through Conan. The
+server opens a published HTTP tunnel, responds with the machine's hostname,
+and closes its tunnel when you stop the program. It uses the application's
+Asio event loop.
 
-## Install the SDK
+## Get the complete example
 
-Create an application directory. Detect a Conan profile if you do not already
-have one, then add the rstream remote:
+Open the C++ tab in the [SDK code samples](https://rstream.io/sdks#sdk-code-samples) and download
+the archive. It contains the source, Conan recipe and CMake target together.
+Use the archive's README for platform prerequisites and build commands.
+Conan selects the published package pinned in that recipe. If you already
+have the repository checkout, the
+[Beast migration pair](004-http-tls-websocket.md) builds from source.
 
-```sh
-mkdir rstream-http
-cd rstream-http
-conan profile detect --exist-ok
-conan remote add rstream https://nexus.rstream.io/repository/conan -f
-```
+Use an installed [rstream CLI](https://rstream.io/docs/getting-started/installation)
+and a hosted project that permits HTTP publication, or a [direct Community
+Edition Engine](002-configuration.md#connect-to-a-direct-engine). The CLI
+sets up the development context. The example itself runs as a native C++
+process. Review the [HTTP access
+policy](https://rstream.io/docs/tunnels/http-tunnels/authentication) before
+publishing a service that needs to restrict callers.
 
-Save this application recipe as `conanfile.py`. It selects the library package
-and omits utility binaries and optional GeoIP and terminal dependencies:
+## Verify the application
 
-```python
-from conan import ConanFile
+After the build, start the binary and open the HTTPS address printed as
+`Forwarding address`. Expect HTTP 200 and your machine's hostname. With a
+private Engine CA, verify the printed hostname with that CA in your HTTP
+client. The SDK's Engine trust and the HTTP caller's trust are configured
+independently. Use the [required caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#token-authentication)
+if the project requires it. Stop the binary with Ctrl+C.
 
+To run against different credentials or an Engine with a private CA, see
+[Configure the SDK](002-configuration.md). For programs from this checkout,
+[build from source](001-building-from-source.md).
 
-class Application(ConanFile):
-    settings = "os", "compiler", "build_type", "arch"
-    generators = "CMakeDeps", "CMakeToolchain"
-    requires = "boost/[>=1.81.0 <1.90.0]", "rstream/1.15.1"
-    default_options = {
-        "boost/*:without_cobalt": True,
-        "rstream/*:build_bins": False,
-        "rstream/*:enable_testing": False,
-        "rstream/*:with_maxminddb": False,
-        "rstream/*:with_ncurses": False,
-    }
-```
+## Link an existing CMake target
 
-Conan downloads a compatible binary when available and builds missing packages
-from source. The Boost range matches the maintained sample's supported range.
-The [source build](001-building-from-source.md) provides the examples from this
-checkout. Use that path when working directly with these sources.
-
-## Link an application
-
-Save the complete [HTTP server](../example/io-rstrm/http-server.cpp) as
-`main.cpp` and create `CMakeLists.txt` beside it:
+Use the same Conan SDK requirement as the example, or provide an installed
+SDK and its public dependencies through the application's CMake prefix.
 
 ```cmake
-cmake_minimum_required(VERSION 3.16)
-project(rstream_http_example LANGUAGES CXX)
 find_package(rstream CONFIG REQUIRED)
-add_executable(rstream_http_example main.cpp)
-target_link_libraries(rstream_http_example PRIVATE rstream::rstream)
+target_link_libraries(my_app PRIVATE rstream::rstream)
 rstream_enable_runtime_plugins(
-  rstream_http_example
+  my_app
   rstream::plugin::io-generic
   rstream::plugin::io-rstrm)
 ```
 
-Install dependencies and build with matching Conan and CMake settings:
-
-```sh
-conan install . --output-folder=build --build=missing -s build_type=Release -s compiler.cppstd=20
-cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-The `rstream::rstream` target propagates C++20 and its public dependencies.
-`rstream_enable_runtime_plugins` selects runtime plugins for static or dynamic
-packaging; dynamic builds must retain the installed module layout.
-
-## Configure and run
-
-Install the [rstream CLI](https://rstream.io/docs/getting-started/installation),
-then select a project using its endpoint from the dashboard:
-
-```sh
-rstream login
-rstream project use my-project-endpoint
-./build/rstream_http_example
-```
-
-Replace `my-project-endpoint` with your own endpoint. With a multi-configuration
-generator such as Visual Studio, run `build/Release/rstream_http_example.exe`.
-The program prints a forwarding address for its in-process HTTP handler; open
-that address and stop the program with an interrupt. For devices without
-browser login, see [configuration](002-configuration.md) for project-scoped
-credentials or a certificate identity.
-
-The [integration model](003-integration-model.md) explains direct APIs and
-private dialing. Compare [completion styles](004-completion-models.md) for the
-same connection lifecycle. The [URI reference](011-uri-reference.md) describes
-URI-based configuration.
-
-## Develop the SDK itself
-
-To compile an editable checkout rather than consume the published package, follow [Build and develop the C++ SDK](001-building-from-source.md). It covers native prerequisites, Conan dependency setup, the local CMake build tree and tests.
-
-If an organization provisions an installed SDK, configure the application with `CMAKE_PREFIX_PATH` pointing to that installation and provide its public dependencies through the build system. The same CMake targets and server source apply.
+The target propagates C++20 and the SDK's public dependencies. The helper
+selects the transport plugins used by the application. See [plugins and
+packaging](009-plugins-and-packaging.md) when distributing the binary, and
+[the Beast migration](004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
+to adapt an existing listener.

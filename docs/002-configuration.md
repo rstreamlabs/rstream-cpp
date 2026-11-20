@@ -2,14 +2,32 @@
 
 The SDK reads the rstream CLI’s configuration and selected context, by default from `~/.rstream/config.yaml`. Applications and devices can also receive an explicit engine address and credentials without an interactive login.
 
-## Select a project on a developer machine
+## Connect to a hosted project
+
+Use an [installed CLI](https://rstream.io/docs/getting-started/installation).
+Sign in and copy the `ENDPOINT` from the project list.
 
 ```sh
 rstream login
-rstream project use my-project-endpoint
+rstream project list
+rstream project use 'my-project-endpoint'
 ```
 
-Replace the endpoint with your project’s endpoint. The second command selects the default context. The [CLI workflow](https://github.com/rstreamlabs/rstream-go/blob/main/docs/002-cli-workflow.md) explains project-scoped credentials and other authentication methods.
+Project selection saves the default context. If the list is empty, follow
+[hosted project setup](https://rstream.io/docs/getting-started/quickstart-guide#select-a-project)
+to create a project or ask its owner to grant access. The SDK uses that context
+when the application constructs its client. Choose an identity with the
+rights to create a tunnel or dial a private stream, as appropriate.
+
+## Connect to a direct Engine
+
+With self-hosted Community Edition, use the Engine hostname and port, a
+locally signed JWT and the CA for that Engine when it uses private trust.
+Follow [CE agent context setup](https://rstream.io/docs/tunnels/self-hosted/deployment#agent-context)
+to create the CLI context. Use the same context when running a C++ application.
+If you set `RSTREAM_CONFIG` to isolate the configuration, keep it set in the
+process launching the application. The certificate on the published HTTP
+address must also be verifiable by the caller.
 
 ## Environment variables
 
@@ -17,13 +35,13 @@ Replace the endpoint with your project’s endpoint. The second command selects 
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `RSTREAM_CONFIG`               | Configuration file path; defaults to `~/.rstream/config.yaml`.                                             |
 | `RSTREAM_CONTEXT`              | Context to select from the file.                                                                           |
-| `RSTREAM_API_URL`              | Control plane API URL for context resolution.                                                              |
+| `RSTREAM_API_URL`              | Select the matching environment in the local configuration by its API URL.                                                              |
 | `RSTREAM_ENGINE_ADDRESS`       | Highest-priority engine address override.                                                                  |
 | `RSTREAM_ENGINE`               | Engine override when `RSTREAM_ENGINE_ADDRESS` is absent; `host:port` selects the default TLS URI and ALPN. |
 | `RSTREAM_AUTHENTICATION_TOKEN` | Token override when token behavior is not fixed in SDK options.                                            |
 | `RSTREAM_MTLS_CERT_FILE`       | Client certificate file for mTLS authentication.                                                           |
 | `RSTREAM_MTLS_KEY_FILE`        | Client private key file for mTLS authentication.                                                           |
-| `RSTREAM_TUNNEL_TRANSPORT`     | Engine transport selector: `auto`, `tls` or `quic`.                                                        |
+| `RSTREAM_TUNNEL_TRANSPORT` | Engine transport selector. `auto` and `tls` select TLS. |
 | `RSTREAM_QUIC_TRANSPORT`       | Legacy transport selector; prefer `RSTREAM_TUNNEL_TRANSPORT`.                                              |
 
 Engine resolution checks the explicit environment overrides before the selected context. Token resolution uses explicit SDK options, then the environment, then configuration-derived values.
@@ -84,7 +102,7 @@ contexts:
 
 Inline `certificate` and `key` values are also supported for generated configurations.
 
-## PKCS11 identities
+## PKCS#11 identities
 
 PKCS#11 mTLS keeps the private key in a token or HSM while the SDK requests TLS
 handshake signatures. Use the OpenSSL variant of the SDK with
@@ -94,47 +112,17 @@ handshake signatures. Use the OpenSSL variant of the SDK with
 LibreSSL builds and packages without PKCS#11 support reject this storage mode.
 The application still links the normal SDK/runtime plugin targets.
 
-The process also needs an OpenSSL PKCS#11 provider installed for the OpenSSL
-library it loads. OpenSSL must be able to discover that provider, through its
-configured module directory or `OPENSSL_MODULES`. The provider is a separate
-component from the vendor PKCS#11 module and is not supplied by the SDK package.
+Install an OpenSSL PKCS#11 provider discoverable by the OpenSSL library your
+application uses. Its name (such as `pkcs11prov`) selects the provider.
+The `module` field instead names the vendor's PKCS#11 library.
 
-```yaml
-contexts:
-  - name: production-hsm
-    engine: project.cluster.example:443
-    auth:
-      mtls:
-        storage:
-          kind: pkcs11
-          module: /usr/lib/vendor-pkcs11.so
-          opensslProvider: pkcs11
-          tokenLabel: production-agent
-          keyLabel: agent-key
-          certificateFile: /etc/rstream/agent-chain.pem
-          pinEnv: RSTREAM_PKCS11_PIN
-```
-
-`module` names the vendor's PKCS#11 shared library, such as an OpenSC, YubiKey
-PIV or SoftHSM module. `opensslProvider` names the OpenSSL provider that loads
-it: the default is `pkcs11prov`; use `pkcs11` for a provider installed under
-that name. It is not the vendor module path. `pinEnv` names the secret process
-environment variable holding the PIN; keep its value out of YAML and logs.
-
-Select exactly one token with `tokenLabel` or `tokenSerial`, and one key with
-`keyLabel` or `keyIdHex`. Provide one certificate source inside the same storage
-block: `certificateFile`, inline `certificate`, `certificateLabel` or
-`certificateIdHex`. Do not mix top-level file/inline mTLS aliases with storage.
-The Go-only `slot`/`maxSessions` selectors, macOS Keychain storage and external
-`exec` signers are not C++ PKCS#11 alternatives; unsupported selected settings
-fail before connecting. Agent certificate identity remains separate from a
-published tunnel's downstream mTLS policy, and Engine TLS verification stays
-enabled.
-
-The [credential storage reference](https://rstream.io/docs/security/credential-storage#pkcs11-mtls-storage)
-defines portable selectors. Follow the complete
-[agent authentication walkthrough](https://rstream.io/guides/secure-rstream-agent-authentication-with-keychain-and-pkcs11#test-pkcs11-locally-with-softhsm)
-for enrollment, SoftHSM provisioning and provider setup.
+Use [credential storage](https://rstream.io/docs/security/credential-storage#pkcs11-mtls-storage)
+for the shared YAML fields. Select one token, one key and one certificate in
+`auth.mtls.storage`. Keep the PIN in the configured environment variable
+and leave file or inline mTLS aliases unset. The C++ runtime rejects the
+Go-only `slot` and `maxSessions` selectors, macOS Keychain storage and
+external `exec` signers. The [SoftHSM walkthrough](https://rstream.io/guides/secure-rstream-agent-authentication-with-keychain-and-pkcs11#test-pkcs11-locally-with-softhsm)
+covers provider setup, enrollment and verification.
 
 ## Transport boundaries
 

@@ -2,7 +2,7 @@
 
 add_subdirectory(client)
 
-foreach(example IN ITEMS http-server beast-tunnel tls-http-server websocket-server private-echo callback future coroutine)
+foreach(example IN ITEMS http-server beast-tunnel acceptor-http-server tls-http-server websocket-server private-echo callback future coroutine)
   add_executable(${PROJECT_NAME}-example-${example} ${example}.cpp)
   target_link_libraries(${PROJECT_NAME}-example-${example} PRIVATE ${PROJECT_NAME}::${PROJECT_NAME})
   rstream_enable_runtime_plugins(${PROJECT_NAME}-example-${example} ${PROJECT_NAME}-plugin-io-generic ${PROJECT_NAME}-plugin-io-rstrm)
@@ -28,6 +28,9 @@ if(ENABLE_TESTING)
       $<TARGET_FILE:${PROJECT_NAME}-example-http-server>
       $<TARGET_FILE:${PROJECT_NAME}-example-websocket-server>
       $<TARGET_FILE:${PROJECT_NAME}-example-beast-tunnel>
+      $<TARGET_FILE:${PROJECT_NAME}-example-acceptor-http-server>
+      $<TARGET_FILE:${PROJECT_NAME}-example-uri-http-server>
+      $<TARGET_FILE:${PROJECT_NAME}-example-tls-http-server>
       $<TARGET_FILE:${PROJECT_NAME}-example-beast-local>)
   rstream_configure_test(${PROJECT_NAME}-test-io-rstrm-examples)
   set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS
@@ -35,5 +38,6 @@ if(ENABLE_TESTING)
     ${PROJECT_NAME}-example-coroutine
     ${PROJECT_NAME}-example-private-echo ${PROJECT_NAME}-example-http-server
     ${PROJECT_NAME}-example-websocket-server ${PROJECT_NAME}-example-beast-tunnel
-    ${PROJECT_NAME}-example-beast-local)
+    ${PROJECT_NAME}-example-acceptor-http-server ${PROJECT_NAME}-example-uri-http-server
+    ${PROJECT_NAME}-example-tls-http-server ${PROJECT_NAME}-example-beast-local)
 endif()
