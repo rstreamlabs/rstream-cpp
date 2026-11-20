@@ -75,10 +75,11 @@ itself. On Linux the equivalent is `$ORIGIN/../lib`.
 
 ## Check the installed runtime
 
-Open a shell without the build cache or Conan runtime environment. On
-macOS, inspect the staged application and modules, then run the inspector.
+From the SDK checkout, use a shell without the Conan runtime environment.
+On macOS, inspect the staged application and modules, then run the inspector.
 
 ```sh
+stage="$PWD/build/dynamic-stage"
 otool -L "$stage/bin/my_app" "$stage/lib/rstream/"*
 "$stage/bin/rstream-inspect" plugins
 ```
