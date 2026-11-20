@@ -26,7 +26,7 @@ After the build, start the binary and open the HTTPS address printed as
 `Forwarding address`. Expect HTTP 200 and your machine's hostname. With a
 private Engine CA, verify the printed hostname with that CA in your HTTP
 client. The SDK's Engine trust and the HTTP caller's trust are configured
-independently. Use the [required caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#enable-access-control)
+independently. Use the [required caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#token-authentication)
 if the project requires it. Stop the binary with Ctrl+C.
 
 To run against different credentials or an Engine with a private CA, see

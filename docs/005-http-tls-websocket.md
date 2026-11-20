@@ -51,7 +51,7 @@ rstream-example-beast-tunnel
 ```
 
 Open the printed HTTPS address from a second terminal or browser. The
-same handler returns the same response. Use the [required caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#enable-access-control) if the project requires it. For an Engine with a private CA,
+same handler returns the same response. Use the [required caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#token-authentication) if the project requires it. For an Engine with a private CA,
 pass that CA to curl with `--cacert`. Use its printed hostname and port
 so curl can verify the certificate. Stop the listener with Ctrl+C.
 
