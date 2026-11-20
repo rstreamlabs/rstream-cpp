@@ -128,13 +128,16 @@ rstream-tunnel 127.0.0.1:8443 --tls --tls-mode passthrough \
   --publish --host "$FORWARDING_HOST"
 ```
 
-When the tunnel is online, request the printed HTTPS URL. Set
-`SERVICE_CA` to the issuer for a private certificate, or use the HTTP
-client's normal trust store for a public certificate.
+When the tunnel is online, take the hostname and any port before the
+`(tls)` suffix in `forwarding` and add `https://`. For a private
+certificate, set `SERVICE_CA` to the trust certificate for the service
+and use the resulting URL in this command.
 
 ```sh
 curl -fsS --cacert "$SERVICE_CA" 'https://your-forwarding-host/'
 ```
+
+For a certificate already trusted by the HTTP client, omit `--cacert`.
 
 The same demo file is returned after the caller validates the application's
 certificate. For a C++ service that creates its own tunnel, see

@@ -81,18 +81,21 @@ On macOS, inspect the staged application and modules, then run the inspector.
 ```sh
 stage="$PWD/build/dynamic-stage"
 otool -L "$stage/bin/my_app" "$stage/lib/rstream/"*
-"$stage/bin/rstream-inspect" plugins
+DYLD_PRINT_LIBRARIES=1 "$stage/bin/rstream-inspect" plugins
 ```
 
 The inspector should show both plugins with `type` set to `dynamic`
 and paths under `lib/rstream/`. Confirm the registered
-`io.stream.tcp` and `io.stream.rstrm` elements. A zero exit status alone
-does not confirm either plugin was found. A Release deployment can use
+`io.stream.tcp` and `io.stream.rstrm` elements. The loader trace gives the
+actual paths, including each shared dependency. Check that non-system
+libraries load from the staged prefix. A zero exit status alone does not
+confirm either plugin was found. A Release deployment can use
 the application for the runtime test without shipping the Debug inspector.
 
 The last check is a stream exchange. Point the installed application's
 TCP and rstream modes at a local listener and a private tunnel. The
 [loopback and private relay examples](../tools/001-streams.md) provide
 the two endpoints and expected response. The installed `rstream-ncat`
-can also check both paths. Run the same smoke tests on the oldest
-target system you support.
+can also check both paths. Use the loader trace on the application itself
+to check its dependencies. Run the same smoke tests on the oldest target
+system you support.
