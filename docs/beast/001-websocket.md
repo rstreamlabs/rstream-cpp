@@ -23,7 +23,11 @@ rstream-example-websocket-server
 
 In a browser developer console on a page that allows outbound WebSockets,
 replace the example hostname with the printed forwarding hostname and port.
-Use a browser that trusts the issuer of the edge certificate.
+Use a browser that trusts the issuer of the edge certificate. This console
+example assumes the browser can already access the endpoint. The browser
+WebSocket API cannot set a bearer header. For a protected endpoint,
+choose a caller flow from [HTTP authentication](https://rstream.io/docs/tunnels/http-tunnels/authentication)
+and establish access before running the script.
 
 ```javascript
 const ws = new WebSocket("wss://your-forwarding-host/");

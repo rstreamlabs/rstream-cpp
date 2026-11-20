@@ -3,11 +3,13 @@
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
+#include <list>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/ip/host_name.hpp>
 #ifndef RSTREAM_WITH_IO_STREAMS
 #include <boost/asio/ip/tcp.hpp>
@@ -48,7 +50,9 @@ options:
 
 const auto version = std::string("rstream-example-io-http-server ") + RSTREAM_VERSION;
 
-boost::asio::awaitable<void> session(protocol::socket socket)
+using active_sessions = std::list<std::shared_ptr<protocol::socket>>;
+
+boost::asio::awaitable<void> session(protocol::socket& socket, const bool& stopping)
 {
   try {
     std::cout << "new connection from " << socket.remote_endpoint() << std::endl;
@@ -65,18 +69,18 @@ boost::asio::awaitable<void> session(protocol::socket socket)
     res.prepare_payload();
     // write the response back to the client
     co_await boost::beast::http::async_write(socket, res, boost::asio::use_awaitable);
-    // gracefully close the connection
-    {
-      boost::system::error_code tmp;
-      socket.close(tmp);
-    }
   }
   catch (std::exception const &e) {
-    std::cerr << "an error occured when processing the request: " << e.what() << std::endl;
+    if (!stopping) {
+      std::cerr << "request failed: " << e.what() << std::endl;
+    }
   }
+  boost::system::error_code ignored;
+  socket.close(ignored);
 }
 
-boost::asio::awaitable<void> listener(rstream::io::address address)
+boost::asio::awaitable<void> listener(rstream::io::address address, std::optional<protocol::acceptor>& acceptor,
+                                      active_sessions& sessions, const bool& stopping)
 {
   auto executor = co_await boost::asio::this_coro::executor;
 #ifdef RSTREAM_WITH_IO_STREAMS
@@ -84,14 +88,26 @@ boost::asio::awaitable<void> listener(rstream::io::address address)
 #else
   const auto endpoints = co_await protocol::resolver(executor).async_resolve(address.host(), address.port(), boost::asio::use_awaitable);
 #endif
+  if (stopping) {
+    co_return;
+  }
   if (endpoints.empty()) {
     throw std::runtime_error("no valid endpoints found");
   }
-  protocol::acceptor acceptor(executor, endpoints.begin()->endpoint());
-  std::cout << "server started on " << acceptor.local_endpoint() << std::endl;
-  while (true) {
-    auto socket = co_await acceptor.async_accept(boost::asio::use_awaitable);
-    boost::asio::co_spawn(executor, session(std::move(socket)), boost::asio::detached);
+  acceptor.emplace(executor, endpoints.begin()->endpoint());
+  std::cout << "server started on " << acceptor->local_endpoint() << std::endl;
+  while (!stopping) {
+    auto socket = co_await acceptor->async_accept(boost::asio::use_awaitable);
+    if (stopping) {
+      boost::system::error_code ignored;
+      socket.close(ignored);
+      co_return;
+    }
+    auto stream = std::make_shared<protocol::socket>(std::move(socket));
+    auto active = sessions.insert(sessions.end(), stream);
+    boost::asio::co_spawn(executor, session(*stream, stopping), [&sessions, active](std::exception_ptr) {
+      sessions.erase(active);
+    });
   }
 }
 
@@ -99,15 +115,37 @@ int main(int argc, char **argv)
 {
   auto args = docopt::docopt(USAGE, {argv + 1, argv + argc}, true, version);
   boost::asio::io_context io_context;
-  boost::asio::signal_set signal_set(io_context, SIGINT, SIGTERM);
-  auto handler = [&io_context](const std::exception_ptr exception_ptr) {
-    if (exception_ptr) {
-      std::cerr << "server error: " << rstream::core::throwable::to_string(exception_ptr) << std::endl;
+  std::optional<protocol::acceptor> acceptor;
+  active_sessions sessions;
+  bool stopping = false;
+  int result = 0;
+  boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+  auto stop = [&] {
+    stopping = true;
+    boost::system::error_code ignored;
+    if (acceptor) {
+      acceptor->close(ignored);
     }
-    io_context.stop();
+    for (const auto& socket : sessions) {
+      socket->close(ignored);
+    }
   };
-  signal_set.async_wait(std::bind(handler, nullptr));
-  boost::asio::co_spawn(io_context, listener(args.at("--uri").asString()), handler);
+  signals.async_wait([&](const boost::system::error_code& error, int) {
+    if (!error) {
+      stop();
+    }
+  });
+  boost::asio::co_spawn(io_context, listener(args.at("--uri").asString(), acceptor, sessions, stopping),
+                       [&](std::exception_ptr failure) {
+    if (failure && !stopping) {
+      result = 1;
+      std::cerr << "server error: " << rstream::core::throwable::to_string(failure) << std::endl;
+    }
+    stop();
+    boost::system::error_code ignored;
+    signals.cancel(ignored);
+  });
   io_context.run();
   std::cout << "server stopped" << std::endl;
+  return result;
 }

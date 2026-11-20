@@ -74,7 +74,7 @@ ctest --preset conan-debug -V -R '^rstream-test-io-rstrm-examples$'
 Run the [native example catalog](../example/io-rstrm/README.md) when you
 want to connect the build to an Engine.
 
-After editing source, rerun the build and test commands. Rerun `conan install` and configure when changing the dependency graph, compiler, build type or options. Keep different configurations in separate output folders. The generated `CMakeUserPresets.json` is local; do not commit machine-specific dependency paths.
+After editing source, rerun the build and test commands. Rerun `conan install` and configure when changing the dependency graph, compiler, build type or options. Keep different configurations in separate output folders. The generated `CMakeUserPresets.json` is local. Keep it out of version control. If two Debug builds share a checkout, use an [explicit toolchain path](packaging/000-dynamic-install.md#build-and-stage-the-sdk) or unique preset names so CMake can distinguish them.
 
 A separate `conan build` invocation must repeat the same profiles, settings and options. It does not remember the preceding install command; omitting them can select the default Release graph instead of this Debug configuration. The generated CMake presets avoid that mismatch for local development.
 

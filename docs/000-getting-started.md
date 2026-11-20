@@ -10,7 +10,9 @@ Asio event loop.
 Open the C++ tab in the [SDK code samples](https://rstream.io/sdks#sdk-code-samples) and download
 the archive. It contains the source, Conan recipe and CMake target together.
 Use the archive's README for platform prerequisites and build commands.
-Conan selects the published package pinned in that recipe.
+Conan selects the published package pinned in that recipe. If you already
+have the repository checkout, the
+[Beast migration pair](005-http-tls-websocket.md) builds from source.
 
 Use an installed [rstream CLI](https://rstream.io/docs/getting-started/installation)
 and a hosted project that permits HTTP publication, or a [direct Community

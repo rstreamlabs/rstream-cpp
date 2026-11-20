@@ -39,8 +39,10 @@ another. Every topology must work from the build tree, install tree, Conan
 package, and an external consumer.
 
 Static plugins must remain reachable with dead-code elimination enabled.
-Dynamic plugins must preserve their install layout, version checks, symbol
-visibility, and failure isolation. Loading one invalid module must not prevent
+Deploy dynamic plugins with the SDK libraries they were built against. The
+loader uses the plugin's initialization entry point and reports its version.
+It does not check ABI compatibility. Preserve the install layout, symbol
+visibility and failure isolation. Loading one invalid module must not prevent
 valid modules from loading. A validated dynamic module remains loaded for the
 process lifetime, keyed by its canonical path. Destroying a factory must not
 unload and later reload modules whose process-wide registries cannot be safely

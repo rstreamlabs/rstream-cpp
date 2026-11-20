@@ -42,7 +42,7 @@ asio::awaitable<void> session(rstrm::socket stream, asio::ssl::context& context)
   socket.next_layer().close(ignored);
 }
 
-asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& context, const std::string& hostname)
+asio::awaitable<void> listener(rstrm::client& client, example_tunnel::sessions& sessions, asio::ssl::context& context, const std::string& hostname)
 {
   auto executor = co_await asio::this_coro::executor;
   co_await client.async_connect(asio::use_awaitable);
@@ -58,11 +58,11 @@ asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& contex
   if (forwarding) {
     std::cout << "Forwarding address: " << forwarding.value() << std::endl;
   }
-  while (true) {
+  while (!sessions.stopping()) {
     rstrm::socket socket(executor);
     rstrm::endpoint peer;
     co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
-    asio::co_spawn(executor, session(std::move(socket), context), asio::detached);
+    sessions.start(std::move(socket), [&context](rstrm::socket stream) { return session(std::move(stream), context); });
   }
 }
 
@@ -80,7 +80,9 @@ int run(int argc, char** argv)
     return 1;
   }
   const std::string hostname = argc == 4 ? argv[3] : "";
-  return example_tunnel::run([&](rstrm::client& client) { return listener(client, context, hostname); });
+  return example_tunnel::run([&](rstrm::client& client, example_tunnel::sessions& sessions) {
+    return listener(client, sessions, context, hostname);
+  });
 }
 
 int main(int argc, char** argv)

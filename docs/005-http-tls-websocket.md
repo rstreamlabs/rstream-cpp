@@ -70,8 +70,11 @@ auto tunnel = co_await client.async_create_tunnel(properties, asio::use_awaitabl
 rstrm::socket socket(executor);
 rstrm::endpoint peer;
 co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
-asio::co_spawn(executor, example_http::serve(std::move(socket)), asio::detached);
 ```
+
+The listener passes that socket to the same handler. It keeps a copy of
+each active socket so it can close the stream on Ctrl+C while the event
+loop drains outstanding operations.
 
 When adapting your own project, [link its CMake target](000-getting-started.md#link-an-existing-cmake-target).
 Keep the handler compatible with the stream it receives. The complete

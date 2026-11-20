@@ -1,5 +1,6 @@
 # rstream-runpy
 
-See the [native tools guide](../../docs/012-command-line-tools.md) for installation,
-build availability and related programs. Run this program with `--help` for
-its argument reference.
+This launcher is installed beside native Python entry points such as
+`rstream-gping`. Run the named tool to start its corresponding module.
+The [measurement guide](../../docs/tools/002-measurement.md#inspect-the-native-build)
+shows how to launch the interactive graph.

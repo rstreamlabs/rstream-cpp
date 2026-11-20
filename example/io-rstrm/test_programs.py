@@ -177,6 +177,8 @@ def run(name, reject=False, bad_echo=False, reject_creation=False, pending_read=
         environment['RSTREAM_CONFIG'] = str(OUT / 'empty-config.yaml')
         environment['RSTREAM_ENGINE_ADDRESS'] = f'tcp://127.0.0.1:{listener.getsockname()[1]}'
         args = [str(PROGRAMS[name])]
+        if name == 'uri-http-server':
+            args += ['--uri', 'rstrm://cpp-uri-http?rstrm.publish=false&rstrm.protocol=tls']
         if name == 'tls-http-server':
             certificate, key, hostname = tls_example_arguments()
             args += [certificate, key, hostname]
@@ -190,10 +192,15 @@ def run(name, reject=False, bad_echo=False, reject_creation=False, pending_read=
                     send(control, 2, field(1, field(1, 'client-1')))
                     number, request = receive(control)
                     assert number == 5
-                    if name in ('callback', 'future', 'coroutine'):
+                    if name in ('callback', 'future', 'coroutine', 'uri-http-server'):
                         requested = fields(request[2])
                         assert fields(requested[5]).get(1, 0) == 0
                         assert fields(requested[6])[1] == b'tls'
+                    if name == 'acceptor-http-server':
+                        requested = fields(request[2])
+                        assert fields(requested[5])[1] == 1
+                        assert fields(requested[6])[1] == b'http'
+                        assert fields(requested[17])[1] == b'http/1.1'
                     if name == 'tls-http-server':
                         requested = fields(request[2])
                         assert fields(requested[5])[1] == 1
@@ -225,19 +232,27 @@ def run(name, reject=False, bad_echo=False, reject_creation=False, pending_read=
                                 elif name == 'tls-http-server':
                                     context = ssl.create_default_context(cafile=certificate)
                                     with context.wrap_socket(stream, server_hostname=hostname) as tls:
-                                        assert http_response(tls) == 'Hello from rstream-cpp'
-                                        with tls.unwrap():
-                                            pass
+                                        if pending_read:
+                                            tls.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\n')
+                                            process.send_signal(signal.SIGTERM)
+                                            finish_control(control)
+                                            assert process.wait(timeout=5) == 0
+                                        else:
+                                            assert http_response(tls) == 'Hello from rstream-cpp'
+                                            with tls.unwrap():
+                                                pass
                                 elif pending_read:
                                     stream.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\n')
                                 else:
                                     body = http_response(stream)
-                                    if name == 'beast-tunnel':
+                                    if name in ('beast-tunnel', 'acceptor-http-server'):
                                         assert body == 'Hello from the shared Beast handler'
-                                if pending_read:
+                                    if name == 'uri-http-server':
+                                        assert body == socket.gethostname()
+                                if pending_read and name != 'tls-http-server':
                                     process.send_signal(signal.SIGTERM)
                                     finish_control(control)
-                                    stream.shutdown(socket.SHUT_RDWR)
+                                    assert process.wait(timeout=5) == 0
                             if not pending_read:
                                 process.send_signal(signal.SIGTERM)
                                 if os.name != 'nt':
@@ -250,6 +265,8 @@ def run(name, reject=False, bad_echo=False, reject_creation=False, pending_read=
                 assert 'Private tunnel: ' in stdout
             if name == 'private-echo' and not reject and not bad_echo:
                 assert 'Echo: hello' in stdout
+            if name == 'acceptor-http-server':
+                assert 'Forwarding address: https://localhost' in stdout, stdout
             return {'program': name, 'case': 'creation-rejection' if reject_creation else 'engine-rejection' if reject else 'bad-echo' if bad_echo else 'success', 'exit': process.returncode, 'stdout': stdout, 'stderr': stderr}
         finally:
             if process.poll() is None:
@@ -284,7 +301,8 @@ def run_local_migration():
 
 
 if __name__ == "__main__":
-    names = ("callback", "future", "coroutine", "private-echo", "http-server", "websocket-server", "beast-tunnel", "tls-http-server", "beast-local")
+    names = ("callback", "future", "coroutine", "private-echo", "http-server", "websocket-server",
+             "beast-tunnel", "acceptor-http-server", "uri-http-server", "tls-http-server", "beast-local")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("programs", nargs=len(names), type=Path, metavar="BINARY")
     options = parser.parse_args()
@@ -300,7 +318,10 @@ if __name__ == "__main__":
             result = run(name)
             print(name, result["case"], result["exit"], flush=True)
         if os.name != 'nt':
-            for name in ('http-server', 'websocket-server', 'beast-tunnel'):
+            pending_cases = ['http-server', 'websocket-server', 'beast-tunnel', 'acceptor-http-server', 'uri-http-server']
+            if OPENSSL is not None:
+                pending_cases.append('tls-http-server')
+            for name in pending_cases:
                 result = run(name, pending_read=True)
                 print(name, 'pending-read-shutdown', result['exit'], flush=True)
         run_local_migration()

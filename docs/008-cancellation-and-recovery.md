@@ -22,19 +22,22 @@ different questions; both belong to the service's lifecycle.
 | Action                    | Effect                                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------------------- |
 | Cancel an operation       | Requests completion with cancellation; its buffers remain borrowed until the completion runs. |
-| Close a socket            | Ends that shared connection and its outstanding work.                                         |
-| Close a tunnel            | Stops the tunnel's publication and accept path.                                               |
-| Close a control client    | Ends that client's control connection and owned tunnel work.                                  |
+| Close a socket | Ends that stream and its pending operations. Copies of a typed socket refer to the same stream. |
+| Close a tunnel or acceptor | Stops its accept path and releases its publication. The application still owns the sockets it has handed to sessions. |
+| Close a control client | Ends its control connection and owned tunnel work. |
 | Stop the application loop | Stops event processing for the application as a whole.                                        |
 
-Let pending completions drain when closing one service inside a larger process.
-The long-running example servers use interrupts for process shutdown; a service
-embedding them should define how existing sessions drain.
+Stop accepting new work, choose whether to close or drain active sessions,
+and keep polling the executor until their completions run. Use a separate
+deadline for draining if requests can outlive shutdown. The
+[typed HTTP example](003-tunnel-patterns.md#use-a-typed-rstream-acceptor) closes its
+pending accept and active socket on shutdown.
 
 ## Reconnect deliberately
 
-The direct client exposes status/disconnect callbacks. The application decides
-when to reconnect and recreate its tunnels. The acceptor offers automatic
-reconnect and tunnel recreation through `settings_acceptor`, with bounded retry
-intervals. A supervisor should stop retries when the application shuts down and
-recreate a complete service generation after connection loss.
+With the direct client, reconnect and recreate tunnels in response to its
+status and disconnect callbacks. Treat the new tunnel handles and forwarding
+addresses as a new generation. With a typed acceptor,
+`settings_acceptor` controls reconnection and tunnel recreation independently.
+The next published address is available in the status callback. Neither
+interface resumes application exchanges that lost their underlying streams.

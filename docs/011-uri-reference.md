@@ -43,13 +43,16 @@ The native client creates bytestream tunnels. A parameter describing a protocol 
 
 Stable domains use the engine-owned pattern `<slug>-<project-endpoint>.t.<cluster-domain>`. Tunnel access controls are distinct from the agent credentials used to establish the engine connection.
 
+One generic resolver keeps the transport selected by its first URI.
+Create a new resolver when switching schemes.
+
 ## Client and acceptor options
 
 | Parameter          | Purpose or constraint                                                                                                          |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | `rstream.no_token` | Suppress token selection for the engine connection. It cannot be combined with an explicit `rstream.token`.                    |
 | `rstream.token`    | Supply the engine authentication token explicitly. Token and certificate authentication cannot be combined on that connection. |
-| `rstream.retry`    | Enable automatic reconnection in the URI-configured acceptor.                                                                  |
+| `rstream.retry`    | Enable automatic control reconnection (default `true`). Tunnel creation has a separate retry policy.                                                                  |
 
 ## TLS stream options
 
@@ -116,11 +119,12 @@ A private dial selects the tunnel name or ID in the host, for example
 URI model differs from a direct `client`/`tunnel`/`socket` API.
 
 The optional `server=` query value overrides the engine address and must be
-percent-encoded as a nested URI. A dial with this override rejects an implicit
-context token: set an explicit `rstream.token`, or explicitly select
-`rstream.no_token` for a connection that does not use token authentication.
-This prevents silently sending a context token to an arbitrary engine selected
-by an input URI. Prefer a provisioned context over putting credentials in URIs.
+percent-encoded as a nested URI. A dial or listener with this override
+requires an explicit `rstream.token` for a token-authenticated Engine.
+Use `rstream.no_token` only when the selected Engine allows that connection
+without a token. For mTLS, select `rstream.no_token` and configure the
+client certificate, key and trust for the explicit Engine. A URI-supplied
+server never receives the selected context's implicit token. Use a provisioned context to keep credentials outside the URI.
 
 ## HTTP CORS
 

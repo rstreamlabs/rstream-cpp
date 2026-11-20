@@ -46,12 +46,13 @@ For a different example, replace those targets with its target below.
 | `rstream-example-tls-http-server`  | [tls-http-server.cpp](tls-http-server.cpp)                   | Application-owned TLS handshake. Pass certificate, key and the requested hostname as shown in the [TLS guide](../../docs/beast/000-tls.md). |
 | `rstream-example-websocket-server` | [websocket-server.cpp](websocket-server.cpp)                 | Beast upgrade, bounded messages and explicit socket close using the optional Beast adapter.                          |
 | `rstream-example-private-echo`     | [private-echo.cpp](private-echo.cpp)                         | Private accept/dial, observed errors, ten-second exchange deadline and client shutdown.                              |
+| `rstream-example-acceptor-http-server` | [acceptor-http-server.cpp](acceptor-http-server.cpp) | Typed rstream acceptor with automatic setup and a shared Beast handler. Reports readiness and closes active work on interruption. |
 | `rstream-example-callback`         | [callback.cpp](callback.cpp)                                 | Callback owner retained until completion; one connection and one private tunnel.                                     |
 | `rstream-example-coroutine`        | [coroutine.cpp](coroutine.cpp)                               | The same private tunnel lifecycle using `co_await` on the application loop.                                          |
 | `rstream-example-future`           | [future.cpp](future.cpp)                                     | Application-created loop worker; future waits on the caller; close and join.                                         |
-| `rstream-example-uri-http-server`  | [generic HTTP server](../io/http/example_io_http_server.cpp) | Runtime-selected TCP or rstream acceptor/socket through `--uri`.                                                     |
+| `rstream-example-uri-http-server` and `rstream-example-io-http-client` | [generic HTTP server](../io/http/example_io_http_server.cpp) and [client](../io/http/example_io_http_client.cpp) | The [URI walkthrough](../../docs/003-tunnel-patterns.md#uri-configured-listeners) shows the separate executable directory and verifies both TCP and a private tunnel. |
 
-The HTTP, TLS and WebSocket servers print a forwarding address and run
+The published HTTP, TLS and WebSocket servers print a forwarding address and run
 until interrupted. The callback, future and coroutine examples print the
 private endpoint, close it and exit. The private echo example prints
 `Echo: hello`. Startup and one-shot exchange failures return a nonzero status.

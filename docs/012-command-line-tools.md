@@ -1,93 +1,59 @@
 # C++ command-line tools
 
-These programs are built from the C++ SDK and distributed as `rstream-utils`. The [Go CLI](https://github.com/rstreamlabs/rstream-go) provides the reference rstream command and shared context setup.
+The native tools forward services, relay byte streams, measure a connection
+and open terminals. They share [connection configuration](002-configuration.md)
+with C++ applications. Use the [rstream CLI](https://rstream.io/docs/getting-started/installation)
+for browser login and project selection.
 
 ## Obtain the tools
 
-Select `rstream-utils` in the public installer to obtain the native
-executables. On macOS and Linux:
+Select `rstream-utils` in the public installer. On macOS and Linux:
 
 ```sh
 curl -fsSL https://rstream.io/scripts/install.sh -o rstream-install.sh
 PACKAGE_NAME=rstream-utils PACKAGE_PREFIX="$HOME/.rstream-utils" sh rstream-install.sh
 export PATH="$HOME/.rstream-utils/bin:$PATH"
+rstream-tunnel --version
 ```
 
-In Windows PowerShell:
+To use the tools in new terminals, add the same path entry to your shell
+profile. In Windows PowerShell:
 
 ```powershell
 $env:PACKAGE_NAME = 'rstream-utils'
 Invoke-RestMethod 'https://rstream.io/scripts/install.ps1' | Invoke-Expression
 Remove-Item Env:PACKAGE_NAME
+rstream-tunnel --version
 ```
 
-On macOS and Linux, add the same path entry to your shell profile if you
-want it available in new terminals. Run `rstream-tunnel --version` or `rstream-webtty-client --version` to
-verify which executable starts. The [rstream CLI](https://rstream.io/docs/getting-started/installation)
-sets up login and shared project contexts.
+From a [configured source checkout](001-building-from-source.md), build the
+tool by its executable name. For example:
 
-For a [source build](001-building-from-source.md), find the tools in their
-target subdirectories on macOS and Linux, such as `bin/tunnel/bin/` inside
-the build directory. An MSVC build places them in its `bin/`. Use
-`--help` to check the flags accepted by each executable.
+```sh
+cmake --build --preset conan-debug --target rstream-tunnel rstream-ncat
+```
 
-| Tool                                                           | Detailed usage                                                                         |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `rstream-tunnel`                                               | The examples below and [URI reference](011-uri-reference.md).                          |
-| `rstream-webtty-client`                                        | [Native WebTTY walkthrough](013-webtty.md) and [client reference](../bin/webtty/bin/client/README.md).            |
-| `rstream-webtty-server`                                        | [Server reference](../bin/webtty/bin/server/README.md). |
-| `rstream-ncat`, `rstream-nperf-client`, `rstream-nperf-server` | `--help`; these use the same native stream/URI model.                                  |
-| `rstream-inspect`                                              | Debug builds only; `--help` describes version and plugin inspection.                   |
-| `rstream-gping`, `rstream-runpy`                               | Require Python bindings in the source build.                                           |
+In a macOS or Linux build, the two executables are under `bin/tunnel/bin`
+and `bin/ncat/bin` relative to the build directory. In an MSVC build,
+use the build directory's `bin/`. Add the relevant directory to your
+terminal path or invoke the executable by its full path.
+
+## Choose a tool
+
+| Task | Tool and guide |
+| --- | --- |
+| Publish a local service or expose it privately | `rstream-tunnel` and [Forward a service](tools/000-forwarding.md). |
+| Dial a private stream, relay it to a local port or connect a pipeline | `rstream-ncat` and [Connect and relay streams](tools/001-streams.md). |
+| Observe status, measure latency or inspect plugins | `rstream-nperf-client`, `rstream-nperf-server`, the Debug `rstream-inspect`, and [Measure and diagnose](tools/002-measurement.md). |
+| Run an interactive terminal session | `rstream-webtty-client`, `rstream-webtty-server`, and [WebTTY](013-webtty.md). |
+
+Use [Go datagram mode](https://rstream.io/docs/tunnels/private-tunnels#netcat-datagram-mode)
+for UDP and rstream datagram tunnels. The native tools work with bytestreams.
 
 ## rstream-tunnel command examples
 
-The `rstream-tunnel` CLI uses the same tunnel model as the SDK. The examples below are practical starting points for local forwarding, private tunnels, and edge policy options.
-When neither `--publish` nor `--no-publish` is provided, the project policy decides the final exposure mode. On projects where public access is forbidden, the tunnel falls back to a private tunnel instead of sending public-only defaults.
-
-To publish a local HTTP service:
-
-```bash
-rstream-tunnel 127.0.0.1:8080 --http --publish
-```
-
-To publish an SSH server through a raw TCP tunnel:
-
-```bash
-rstream-tunnel 127.0.0.1:22 --tcp
-```
-
-Use `--tcp-port` with a port reserved for the project. Published TCP does not secure the downstream connection, so use it only with protocols such as SSH that provide their own encryption and authentication.
-
-For a global project, `--allow-cross-region-routing` permits the owner region to carry downstream traffic when ingress is elsewhere. To pin the control channel to a known regional engine without querying the control plane, pass its full address through `--engine`.
-
-To expose a private TLS tunnel with a stable tunnel name:
-
-```bash
-rstream-tunnel 127.0.0.1:22 --tls --no-publish --name ssh-private
-```
-
-To enable edge authentication and basic network policy controls on an HTTP tunnel:
-
-```bash
-rstream-tunnel 127.0.0.1:8080 --http --token-auth --challenge-mode --trusted-ips 203.0.113.0/24,198.51.100.12/32 --geoip FR,US
-```
-
-To configure terminated TLS publication with mTLS and explicit cipher policy:
-
-```bash
-rstream-tunnel 127.0.0.1:8080 --tls --tls-mode terminated --tls-min-version tls1.2 --tls-ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384 --mtls --label env=prod --label app=api
-```
-
-Here the local service on port 8080 receives plaintext after edge TLS
-termination. For a TLS-speaking upstream, configure `--upstream-tls` and the
-appropriate trust settings instead. [TLS layers](005-http-tls-websocket.md) are
-independent of the agent connection.
-
-For client certificate admission, use the [published mTLS policy](https://rstream.io/docs/security/mtls#published-tunnel-access).
-
-To publish a passthrough TLS tunnel, keep edge TLS policy options off so the upstream service owns the certificate and handshake:
-
-```bash
-rstream-tunnel 127.0.0.1:8443 --tls --tls-mode passthrough
-```
+[Start with a local HTTP service](tools/000-forwarding.md#start-a-loopback-service),
+then [publish it](tools/000-forwarding.md#publish-the-http-service) or
+[dial it privately](tools/001-streams.md#reach-a-private-service).
+[Forward a service](tools/000-forwarding.md) also covers public TLS, TCP,
+protected HTTP and output interpretation.

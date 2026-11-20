@@ -36,7 +36,7 @@ asio::awaitable<void> session(rstrm::socket socket)
   }
 }
 
-asio::awaitable<void> listener(rstrm::client& client)
+asio::awaitable<void> listener(rstrm::client& client, example_tunnel::sessions& sessions)
 {
   auto executor = co_await asio::this_coro::executor;
   co_await client.async_connect(asio::use_awaitable);
@@ -48,11 +48,11 @@ asio::awaitable<void> listener(rstrm::client& client)
   if (forwarding) {
     std::cout << "Forwarding address: " << forwarding.value() << std::endl;
   }
-  while (true) {
+  while (!sessions.stopping()) {
     rstrm::socket socket(executor);
     rstrm::endpoint peer;
     co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
-    asio::co_spawn(executor, session(std::move(socket)), asio::detached);
+    sessions.start(std::move(socket), session);
   }
 }
 
