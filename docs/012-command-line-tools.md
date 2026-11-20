@@ -9,7 +9,8 @@ executables. On macOS and Linux:
 
 ```sh
 curl -fsSL https://rstream.io/scripts/install.sh -o rstream-install.sh
-PACKAGE_NAME=rstream-utils sh rstream-install.sh
+PACKAGE_NAME=rstream-utils PACKAGE_PREFIX="$HOME/.rstream-utils" sh rstream-install.sh
+export PATH="$HOME/.rstream-utils/bin:$PATH"
 ```
 
 In Windows PowerShell:
@@ -20,8 +21,8 @@ Invoke-RestMethod 'https://rstream.io/scripts/install.ps1' | Invoke-Expression
 Remove-Item Env:PACKAGE_NAME
 ```
 
-Open a new terminal if the install directory was added to the path.
-Run `rstream-tunnel --version` or `rstream-webtty-client --version` to
+On macOS and Linux, add the same path entry to your shell profile if you
+want it available in new terminals. Run `rstream-tunnel --version` or `rstream-webtty-client --version` to
 verify which executable starts. The [rstream CLI](https://rstream.io/docs/getting-started/installation)
 sets up login and shared project contexts.
 
