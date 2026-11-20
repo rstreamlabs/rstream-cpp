@@ -40,6 +40,7 @@ The native client creates bytestream tunnels. A parameter describing a protocol 
 | `rstrm.token_auth`      | Token access policy for incoming tunnel requests.                                           |
 | `rstrm.rstream_auth`    | rstream identity-provider access policy.                                                    |
 | `rstrm.challenge_mode`  | Browser challenge policy.                                                                   |
+| `rstrm.allow_cross_region_routing` | Request a per-tunnel override for cross-region routing, subject to Engine and project policy. |
 
 Stable domains use the engine-owned pattern `<slug>-<project-endpoint>.t.<cluster-domain>`. Tunnel access controls are distinct from the agent credentials used to establish the engine connection.
 

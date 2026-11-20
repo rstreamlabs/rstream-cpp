@@ -149,6 +149,11 @@ certificate and the public caller's certificate are independent. See
 [published mTLS access](https://rstream.io/docs/security/mtls#published-tunnel-access)
 for admission requirements. Keep passthrough TLS settings in the application.
 
+After the demonstrations, stop the forwarder and the local origin with
+Ctrl+C. Remove the temporary directory from the terminal where you created
+it with `rm -r -- "$demo_dir"`, or
+`Remove-Item -LiteralPath $demoDir -Recurse` in PowerShell.
+
 ## Diagnose the forwarder
 
 | Observation | Check |

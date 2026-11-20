@@ -40,6 +40,7 @@ already listens locally and you want to keep its code as it is,
 | [URI reference](011-uri-reference.md) | Look up transport and tunnel options for a configuration-driven listener. |
 | [Native command-line tools](012-command-line-tools.md) | Install `rstream-utils`, then [forward a service](tools/000-forwarding.md), [relay a stream](tools/001-streams.md) or [measure a connection](tools/002-measurement.md). |
 | [WebTTY](013-webtty.md) | Run a native terminal session and choose how its endpoints authenticate. |
+| Networking demos | [Serve files on loopback](../demo/file-server/bin/README.md) or [run a local STUN exchange](../demo/stun/bin/server/README.md). |
 
 [Contributing](../CONTRIBUTING.md) covers SDK development, build validation and
 the engineering requirements for changes to the library.
