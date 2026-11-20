@@ -58,6 +58,6 @@ private endpoint, close it and exit. The private echo example prints
 `Echo: hello`. Startup and one-shot exchange failures return a nonzero status.
 
 See [tunnel patterns](../../docs/003-tunnel-patterns.md) and
-[HTTP/TLS/WebSocket layers](../../docs/005-http-tls-websocket.md) before adapting
+[HTTP/TLS/WebSocket layers](../../docs/004-http-tls-websocket.md) before adapting
 a program. The older [client load example](client/example_io_rstrm_client.cpp)
 is a configurable multi-tunnel exercise, rather than the first application.

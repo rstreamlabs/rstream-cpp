@@ -52,7 +52,7 @@ Pass the accepted socket to your handler. Keep one outstanding accept per
 tunnel and keep its output socket and endpoint alive until completion.
 Read the forwarding address with
 `format_forwarding_address(tunnel.properties())`. Then build and run the
-[runnable migration pair](005-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
+[runnable migration pair](004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
 to verify the same HTTP response from a TCP listener and from a tunnel.
 
 When supervising recovery, register the client's callbacks before
@@ -206,7 +206,7 @@ letting their completions drain.
 `rstrm.*` options describe the tunnel. `rstream.retry` controls
 Engine reconnect independently of tunnel recreation. See the
 [URI reference](011-uri-reference.md) for the namespaces,
-and [completion styles](004-completion-models.md) for alternatives to
+and [completion styles](005-completion-models.md) for alternatives to
 coroutines.
 
 ## Published TCP

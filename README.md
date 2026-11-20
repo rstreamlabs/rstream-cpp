@@ -9,9 +9,9 @@ the application.
 | What you want to do | Start here |
 | --- | --- |
 | Run a first application with the published SDK | [Build an application](docs/000-getting-started.md). |
-| Add a tunnel to an existing Asio or Beast application | [Integrate HTTP, TLS or WebSocket with Beast](docs/005-http-tls-websocket.md). |
+| Add a tunnel to an existing Asio or Beast application | [Integrate HTTP, TLS or WebSocket with Beast](docs/004-http-tls-websocket.md). |
 | Compile and test this checkout | [Build from source](docs/001-building-from-source.md). |
-| Evaluate runtimes, deployment and protocol coverage | [Choose an SDK](https://rstream.io/docs/sdks) and see [Editions and plans](https://rstream.io/docs/support/editions). |
+| Evaluate runtimes, deployment and protocol coverage | [Choose an SDK](https://rstream.io/sdks) and see [Editions and plans](https://rstream.io/docs/support/editions). |
 
 ## Keep the Beast handler
 
@@ -26,9 +26,9 @@ co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
 asio::co_spawn(executor, example_http::serve(std::move(socket)), asio::detached);
 ```
 
-[Run both versions](docs/005-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
+[Run both versions](docs/004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
 and compare their responses. The example catalog also covers private dialing,
-TLS passthrough and Beast WebSocket. [Compare handlers, futures and coroutines](docs/004-completion-models.md)
+TLS passthrough and Beast WebSocket. [Compare handlers, futures and coroutines](docs/005-completion-models.md)
 to see how each style owns the same connection and tunnel operation.
 
 ## Documentation

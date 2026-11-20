@@ -12,7 +12,7 @@ the archive. It contains the source, Conan recipe and CMake target together.
 Use the archive's README for platform prerequisites and build commands.
 Conan selects the published package pinned in that recipe. If you already
 have the repository checkout, the
-[Beast migration pair](005-http-tls-websocket.md) builds from source.
+[Beast migration pair](004-http-tls-websocket.md) builds from source.
 
 Use an installed [rstream CLI](https://rstream.io/docs/getting-started/installation)
 and a hosted project that permits HTTP publication, or a [direct Community
@@ -52,5 +52,5 @@ rstream_enable_runtime_plugins(
 The target propagates C++20 and the SDK's public dependencies. The helper
 selects the transport plugins used by the application. See [plugins and
 packaging](009-plugins-and-packaging.md) when distributing the binary, and
-[the Beast migration](005-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
+[the Beast migration](004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
 to adapt an existing listener.
