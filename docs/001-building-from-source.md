@@ -2,7 +2,7 @@
 
 This guide compiles the SDK in your checkout so that edits can be rebuilt and tested locally. To add a released SDK to an application instead, use [Build an application](000-getting-started.md). Neither compilation nor the local library tests require a running engine or rstream credentials.
 
-Conan resolves third-party libraries and generates the CMake toolchain. CMake then builds this checkout with Ninja. The native development build includes the SDK, companion tools and their tests; cross-compilation and distribution packaging are separate paths in the [engineering guide](014-sdk-engineering.md).
+Conan resolves third-party libraries and generates the CMake toolchain. CMake then builds this checkout with Ninja. The native development build includes the SDK, companion tools and their tests; cross-compilation and distribution packaging are separate paths in the [Conan package guide](../conan/README.md).
 
 ## Prerequisites
 
@@ -12,6 +12,7 @@ Conan resolves third-party libraries and generates the CMake toolchain. CMake th
 | Python and Conan              | Conan 2.34.0, the version used by the repository workflows. Install it in a Python environment appropriate to the host.                                    |
 | CMake and Ninja               | CMake 3.23 or newer for the generated user presets, and Ninja on `PATH`. The Conan recipe selects Ninja explicitly.                                        |
 | Git                           | Clone the source and retain its version history.                                                                                                           |
+| OpenSSL command-line tool | Issues the temporary certificate for the TLS passthrough example test. |
 | Network access                | Conan needs its configured remotes for dependencies not already present in the local cache. The native library path uses public Conan Center dependencies. |
 
 On Windows, run the native build in a Developer PowerShell for Visual Studio so that the MSVC compiler and Windows SDK are available. On macOS, `xcode-select --install` installs the command-line compiler and platform tools.
@@ -56,7 +57,22 @@ cmake --build --preset conan-debug
 ctest --preset conan-debug --output-on-failure --no-tests=error
 ```
 
-The preset uses `build/native/build/Debug/`. Its test environment includes the dependency runtime paths. A successful local build includes passing tests, not merely a generated project.
+The configure command reports the build directory. The preset carries Conan's
+runtime paths for tests.
+
+| Platform with the detected profile | Build directory | Executables |
+| --- | --- | --- |
+| macOS or Linux | `build/native/build/Debug/` | Examples and tools are in the corresponding target directories, such as `example/io-rstrm/` and `bin/tunnel/bin/`. |
+| Windows with MSVC | `build/native/build/` | Examples and tools are under its `bin/` directory and use the `.exe` suffix. |
+
+To see the example tests and whether the TLS passthrough case ran:
+
+```sh
+ctest --preset conan-debug -V -R '^rstream-test-io-rstrm-examples$'
+```
+
+Run the [native example catalog](../example/io-rstrm/README.md) when you
+want to connect the build to an Engine.
 
 After editing source, rerun the build and test commands. Rerun `conan install` and configure when changing the dependency graph, compiler, build type or options. Keep different configurations in separate output folders. The generated `CMakeUserPresets.json` is local; do not commit machine-specific dependency paths.
 
@@ -64,7 +80,7 @@ A separate `conan build` invocation must repeat the same profiles, settings and 
 
 | Result                             | Location or next action                                                                     |
 | ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| Build and test output              | `build/native/build/Debug/`; failures include the test output.                              |
+| Build and test output              | The platform's build directory; failures include the test output.                              |
 | SDK libraries and plugins          | Inside that build tree; their linkage follows the configured library/plugin options.        |
 | A package in the local Conan cache | Use `conan create` as described below.                                                      |
 | A first application                | Follow the [application guide](000-getting-started.md), selecting the intended SDK package. |
@@ -73,6 +89,6 @@ A separate `conan build` invocation must repeat the same profiles, settings and 
 
 `conan create .` builds and tests a package in Conan's local cache, rather than leaving an editable build in the checkout. Use the same profiles, settings and options as above when qualifying that configuration. The recipe's version comes from the selected source/tag or `version.txt`; an untagged package is not a published release.
 
-The native configuration above includes companion tools. For a library-only consumer package, select `build_bins=False` and disable the tool-dependent test configuration rather than combining it with the full native test suite. The [tools guide](012-command-line-tools.md) describes the utilities; the [engineering guide](014-sdk-engineering.md) defines supported library/plugin combinations and platform requirements.
+The native configuration above includes companion tools. For a library-only consumer package, select `build_bins=False` and disable the tool-dependent test configuration rather than combining it with the full native test suite. The [tools guide](012-command-line-tools.md) describes the utilities; the [Conan package guide](../conan/README.md) defines supported library/plugin combinations and platform requirements.
 
 The `build.sh` helper is a direct CMake build/test/install path for an already provisioned dependency environment. It does not resolve the native dependencies in place of Conan. Use it only when the required CMake packages and toolchain are available. Follow [Contributing](../CONTRIBUTING.md) for the asynchronous API and change-review requirements.

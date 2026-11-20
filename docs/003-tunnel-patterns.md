@@ -1,8 +1,19 @@
-# C++ integration model
+# Tunnel patterns
 
-rstream uses the application's Asio executor. Choose the interface that fits
-how the service creates listeners and connections, then choose its completion
-style in [Completion handlers, futures and coroutines](004-completion-models.md).
+Choose who can reach the service, then how the application owns it. A
+published tunnel gives callers a forwarding address. A private tunnel is
+dialed by an authenticated rstream client using the tunnel name or ID. Both
+carry bytestreams in this SDK. The connection from the agent to the Engine
+uses TLS independently of the application's protocol.
+
+| Access | When to choose it |
+| --- | --- |
+| Published HTTP, TLS or TCP | The caller uses an ordinary HTTP, TLS or TCP client. Protocol and access policy are applied by the Engine for the selected tunnel. |
+| Private | The caller can dial through rstream. Hosted deployments require a project that allows private tunnels. Self-hosted Community Edition supports private bytestreams. |
+
+See [editions and plans](https://rstream.io/docs/support/editions) for
+published protocol availability, and [Beast service protocols](005-http-tls-websocket.md)
+for certificate ownership and HTTP upstreams.
 
 ## Direct API, acceptor or URI
 
@@ -19,7 +30,7 @@ an ordinary TCP listener, both using the same HTTP handler. The
 ## Private accept and dial
 
 The process exposing a private service creates a tunnel with `m_publish=false`.
-A peer uses `socket::async_connect(endpoint, token)` to dial it by name or ID.
+A peer uses `socket::async_connect(endpoint, completion_token)` to dial it by name or ID.
 That dial opens a stream directly; the dialing process only needs a control
 client when it also creates or manages tunnels.
 
@@ -82,5 +93,4 @@ rstream-example-uri-http-server --uri 'rstrm://?rstrm.publish=true&rstrm.protoco
 ```
 
 The selected context supplies engine and credentials. `rstream.retry` controls
-the rstream acceptor's recovery. Continue with [execution and object lifetime](006-execution-and-lifetime.md)
-for threads, strands and shared socket handles.
+the rstream acceptor's recovery. Compare [completion styles](004-completion-models.md) to choose how the application drives these operations.

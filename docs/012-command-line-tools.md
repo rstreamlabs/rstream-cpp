@@ -4,72 +4,40 @@ These programs are built from the C++ SDK and distributed as `rstream-utils`. Th
 
 ## Obtain the tools
 
-Use the public [rstream downloads](https://rstream.io/download) for the
-`rstream-utils` distribution matching the host platform. For a source build,
-follow [Build this checkout](001-building-from-source.md); its native Debug
-configuration includes the tools, under `build/native/build/Debug/bin/`.
-Run each program with `--help` for its current arguments. The Go `rstream` CLI
-is a separate program used for login and shared context setup.
+Select `rstream-utils` in the public installer to obtain the native
+executables. On macOS and Linux:
+
+```sh
+curl -fsSL https://rstream.io/scripts/install.sh -o rstream-install.sh
+PACKAGE_NAME=rstream-utils sh rstream-install.sh
+```
+
+In Windows PowerShell:
+
+```powershell
+$env:PACKAGE_NAME = 'rstream-utils'
+Invoke-RestMethod 'https://rstream.io/scripts/install.ps1' | Invoke-Expression
+Remove-Item Env:PACKAGE_NAME
+```
+
+Open a new terminal if the install directory was added to the path.
+Run `rstream-tunnel --version` or `rstream-webtty-client --version` to
+verify which executable starts. The [rstream CLI](https://rstream.io/docs/getting-started/installation)
+sets up login and shared project contexts.
+
+For a [source build](001-building-from-source.md), find the tools in their
+target subdirectories on macOS and Linux, such as `bin/tunnel/bin/` inside
+the build directory. An MSVC build places them in its `bin/`. Use
+`--help` to check the flags accepted by each executable.
 
 | Tool                                                           | Detailed usage                                                                         |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `rstream-tunnel`                                               | The examples below and [URI reference](011-uri-reference.md).                          |
-| `rstream-webtty-client`                                        | [Transport, trust and client identity](../bin/webtty/bin/client/README.md).            |
-| `rstream-webtty-server`                                        | [Enrollment, authorization and execution account](../bin/webtty/bin/server/README.md). |
+| `rstream-webtty-client`                                        | [Native WebTTY walkthrough](013-webtty.md) and [client reference](../bin/webtty/bin/client/README.md).            |
+| `rstream-webtty-server`                                        | [Server reference](../bin/webtty/bin/server/README.md). |
 | `rstream-ncat`, `rstream-nperf-client`, `rstream-nperf-server` | `--help`; these use the same native stream/URI model.                                  |
 | `rstream-inspect`                                              | Debug builds only; `--help` describes version and plugin inspection.                   |
 | `rstream-gping`, `rstream-runpy`                               | Require Python bindings in the source build.                                           |
-
-## Programs
-
-This repository also builds native tools that reuse the same transport and tunnel primitives:
-
-`rstream-tunnel` is the C++ alternative to `rstream forward` for tunnel creation and forwarding workflows.
-
-`rstream-ncat` provides netcat-like capabilities with explicit compatibility for rstream tunnel transport paths.
-
-`rstream-nperf-client` and `rstream-nperf-server` provide network performance testing utilities.
-
-`rstream-webtty-client` and `rstream-webtty-server` implement **rstream WebTTY** in C++.
-
-`rstream-webtty-server -v --rstream` serves WebTTY through an rstream tunnel URI with the standard discovery labels, including `application-protocol=rstream.webtty`, `rstream.webtty.capabilities=exec`, and `rstream.webtty.exec.path=/`. Use `--uri` for a direct local listener. The C++ tools expose the SDK URI model in their command line, so the same argument can describe a TCP listener or an `rstrm://` endpoint; the higher-level `rstream webtty` workflow separates listener selection and registered-server resolution.
-
-The WebTTY protobuf contract includes endpoint identities and payload crypto metadata for encrypted sessions. The C++ SDK exposes E2E payload crypto helpers for the nominal suite: AES-256-GCM for stdin/stdout/stderr payloads with a fresh 96-bit nonce per WebTTY data message, and HPKE Base with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, and AES-256-GCM for wrapping per-session payload keys. Endpoint-authenticated sessions also use ECDSA P-256 with SHA-256 for `ServerHello` and `ClientProof` transcripts. The protobuf enum reserves ChaCha20-Poly1305 identifiers for future negotiation. Current C++ helpers do not accept those suites and fail closed if they are requested.
-
-Managed attach and control transfer are engine-coordinated capabilities. The
-C++ WebTTY server accepts direct `Open` sessions and rejects `Attach` handshakes
-with a clear protocol error instead of attempting local multi-user routing.
-
-The client exposes `async_request_termination(token)` to request that the native
-process stop while continuing to receive its final output. It checks the
-server's advertised capability and reports `termination_unsupported` for an
-older server. Completion of this operation confirms only the request write;
-the `async_run` completion reports the native exit code. A local transport error
-does not establish a remote exit code. `cancel()` remains a local disconnect.
-
-Only one termination write may be pending. Overlapping requests report
-`operation_in_progress`; a repeated request after a successful write completes
-without writing again. The request uses the configured close timeout, capped at
-30 seconds, or five seconds when unset. Cancellation before the write leaves
-the reader connected; cancellation during a write closes the transport because
-a partial protocol frame cannot be retried safely. The completion token's
-executor, allocator and cancellation slot are preserved.
-
-Native termination targets the owned Unix process group or Windows Job Object.
-Unix pipes receive SIGINT and PTYs receive SIGHUP before bounded escalation to
-SIGKILL. Windows terminates the job and reports the actual process status.
-This ownership does not create a Unix sandbox for descendants that deliberately
-leave the process group. Managed readers must also check the Engine's
-`explicit_termination` capability and obtain control before requesting a stop.
-
-On Unix, child commands inherit only their redirected standard input, output
-and error. Other open descriptors in the server are closed in the child before
-execution, for both pipe and PTY sessions. This keeps a command from retaining
-another session's pipes, client connections or the persistent server's listener.
-Stopping or disconnecting a session leaves other sessions and new admission
-available on that server.
-
-`rstream-runpy` and `rstream-gping` are available when Python bindings are enabled, and `rstream-inspect` is built in Debug configurations.
 
 ## rstream-tunnel command examples
 
@@ -115,7 +83,7 @@ termination. For a TLS-speaking upstream, configure `--upstream-tls` and the
 appropriate trust settings instead. [TLS layers](005-http-tls-websocket.md) are
 independent of the agent connection.
 
-mTLS Tunnel access uses mTLS credentials to decide which client certificates are allowed.
+For client certificate admission, use the [published mTLS policy](https://rstream.io/docs/security/mtls#published-tunnel-access).
 
 To publish a passthrough TLS tunnel, keep edge TLS policy options off so the upstream service owns the certificate and handshake:
 

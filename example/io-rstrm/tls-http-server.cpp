@@ -1,6 +1,7 @@
 // See LICENSE file in the project root for license information.
 
 #include <iostream>
+#include <string>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -41,7 +42,7 @@ asio::awaitable<void> session(rstrm::socket stream, asio::ssl::context& context)
   socket.next_layer().close(ignored);
 }
 
-asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& context)
+asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& context, const std::string& hostname)
 {
   auto executor = co_await asio::this_coro::executor;
   co_await client.async_connect(asio::use_awaitable);
@@ -49,8 +50,11 @@ asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& contex
   properties.m_publish                = true;
   properties.m_protocol               = rstrm::protocol::tls;
   properties.m_tls_mode               = rstrm::tls_mode::passthrough;
-  auto tunnel                         = co_await client.async_create_tunnel(properties, asio::use_awaitable);
-  auto forwarding                     = rstrm::format_forwarding_address(tunnel.properties());
+  if (!hostname.empty()) {
+    properties.m_hostname = hostname;
+  }
+  auto tunnel = co_await client.async_create_tunnel(properties, asio::use_awaitable);
+  auto forwarding = rstrm::format_forwarding_address(tunnel.properties());
   if (forwarding) {
     std::cout << "Forwarding address: " << forwarding.value() << std::endl;
   }
@@ -64,8 +68,8 @@ asio::awaitable<void> listener(rstrm::client& client, asio::ssl::context& contex
 
 int run(int argc, char** argv)
 {
-  if (argc != 3) {
-    std::cerr << "usage: rstream-example-tls-http-server CERTIFICATE_CHAIN_PEM PRIVATE_KEY_PEM" << std::endl;
+  if (argc != 3 && argc != 4) {
+    std::cerr << "usage: rstream-example-tls-http-server CERTIFICATE_CHAIN_PEM PRIVATE_KEY_PEM [FORWARDING_HOSTNAME]" << std::endl;
     return 1;
   }
   asio::ssl::context context(asio::ssl::context::tls_server);
@@ -75,7 +79,8 @@ int run(int argc, char** argv)
     std::cerr << "cannot set the application TLS minimum version" << std::endl;
     return 1;
   }
-  return example_tunnel::run([&context](rstrm::client& client) { return listener(client, context); });
+  const std::string hostname = argc == 4 ? argv[3] : "";
+  return example_tunnel::run([&](rstrm::client& client) { return listener(client, context, hostname); });
 }
 
 int main(int argc, char** argv)

@@ -28,6 +28,7 @@ if(ENABLE_TESTING)
       $<TARGET_FILE:${PROJECT_NAME}-example-http-server>
       $<TARGET_FILE:${PROJECT_NAME}-example-websocket-server>
       $<TARGET_FILE:${PROJECT_NAME}-example-beast-tunnel>
+      $<TARGET_FILE:${PROJECT_NAME}-example-tls-http-server>
       $<TARGET_FILE:${PROJECT_NAME}-example-beast-local>)
   rstream_configure_test(${PROJECT_NAME}-test-io-rstrm-examples)
   set_property(GLOBAL APPEND PROPERTY RSTREAM_TEST_TARGETS
@@ -35,5 +36,5 @@ if(ENABLE_TESTING)
     ${PROJECT_NAME}-example-coroutine
     ${PROJECT_NAME}-example-private-echo ${PROJECT_NAME}-example-http-server
     ${PROJECT_NAME}-example-websocket-server ${PROJECT_NAME}-example-beast-tunnel
-    ${PROJECT_NAME}-example-beast-local)
+    ${PROJECT_NAME}-example-tls-http-server ${PROJECT_NAME}-example-beast-local)
 endif()

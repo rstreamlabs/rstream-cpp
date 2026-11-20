@@ -112,7 +112,7 @@ rstrm://?rstrm.publish=true&rstrm.protocol=http&rstream.retry=true
 ```
 
 A private dial selects the tunnel name or ID in the host, for example
-`rstrm://echo`. The [integration guide](003-integration-model.md) shows how the
+`rstrm://echo`. The [integration guide](003-tunnel-patterns.md) shows how the
 URI model differs from a direct `client`/`tunnel`/`socket` API.
 
 The optional `server=` query value overrides the engine address and must be

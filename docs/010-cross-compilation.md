@@ -22,13 +22,13 @@ builds configure them through `build-conan-cross.sh` and its selected SDK.
 Use separate Conan build and host profiles when adapting the
 [native commands](001-building-from-source.md). Keep the selected profiles,
 settings and options consistent across install, configure, build and package.
-The distribution script's [release-equivalent command](014-sdk-engineering.md#distribution-packaging)
+The distribution script's [release-equivalent command](../conan/README.md#distribution-packaging)
 covers the maintained multi-platform package flow.
 
 Copy the resulting application, libraries and plugins to the device and run a
 representative connection with verified TLS, payload exchange and shutdown.
 Test queue/buffer exhaustion and cancellation under the device's resource limits.
-The [supported-environment contract](014-sdk-engineering.md#supported-environments)
+The [supported-environment contract](../conan/README.md#supported-environments)
 and [toolchain roadmap](../roadmap/001-cross-compilation-toolchains.md) identify
 the maintained baselines and profiles that need further work.
 
