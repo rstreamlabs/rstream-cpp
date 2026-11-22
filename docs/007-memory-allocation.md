@@ -1,13 +1,13 @@
 # Memory allocation
 
-C++ applications can supply allocation at two levels: an allocator for SDK-owned
-objects and an Asio associated allocator for a completion handler. Choose each
+C++ applications can supply an allocator for SDK-owned objects and an Asio
+associated allocator for a completion handler. Choose each
 according to the lifetime of the storage it owns.
 
 | Allocation                    | Selected through                                                          | Owns                                                      |
 | ----------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
 | SDK object allocation         | A shared `core::allocator::ptr` passed to a client or socket constructor. | Internal state allocated through that object's allocator. |
-| Handler-associated allocation | `asio::bind_allocator` on the completion token.                           | Operation storage using the handler's Asio association.   |
+| Handler-associated allocation | `asio::bind_allocator` on the completion token.                           | Storage selected by the handler's association for intermediate I/O and completion.   |
 | Application buffers           | The application's containers or buffer pool.                              | Payload bytes retained until read/write completion.       |
 
 ## Supply an object allocator
@@ -27,7 +27,10 @@ with an allocation failure and support calls from the executors that use it.
 Keep any backing pool alive through the last allocation's release. The complete
 [allocator example](../example/core/common/example_core_allocator.cpp) implements
 the interface and traces allocation/deallocation around an owned memory block.
-Build the checkout and run `rstream-example-core-allocator` to inspect that flow.
+Build the [native checkout](001-building-from-source.md) with the target
+`rstream-example-core-allocator`. On macOS or Linux it is under
+`example/core/common/` in the build directory. On Windows use the executable
+in the build directory's `bin/`.
 
 ## Supply an associated allocator
 
@@ -36,15 +39,16 @@ application allocator satisfying the standard allocator requirements. This is
 a distinct interface from `core::allocator`; its storage may have a shorter
 lifetime than the client.
 
-Move-only handlers retain their associations. When a type-erased completion
-handler borrows allocator storage from the handler itself, an operation control
-block may outlive that storage through cancellation state. The SDK uses its
-owning fallback for that control block while preserving the handler's
-associations for intermediate I/O and completion.
+For an asynchronous connection using an application-provided allocator and
+completion handler:
 
-Applications implementing composed operations must make the same lifetime
-choice. The [Asio engineering contract](014-sdk-engineering.md#boostasio-contract)
-describes the owning fallback and the late-cancellation/concurrency tests
-required when changing it. Measure allocation counts for the actual workload
-before sizing a pool; buffer, operation and queue limits also contribute to
-peak memory use.
+```cpp
+client.async_connect(asio::bind_allocator(operation_allocator, std::move(on_connect)));
+```
+
+The client uses its object allocator for retained connection and tunnel-creation
+state. It preserves the handler's associated allocator for intermediate I/O
+and completion. Keep any pool used by the allocator alive through the operations
+that use it. See the [Asio engineering contract](../lib/rstream/README.md#boostasio-contract)
+for erased completion handlers and the fallback used when retained operation
+state needs longer-lived storage.

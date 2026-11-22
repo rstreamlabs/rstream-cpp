@@ -1,44 +1,75 @@
-# rstream-webtty-client
+# Native WebTTY client
 
-`rstream-webtty-client` connects to WebTTY servers backed by the C++ WebTTY implementation.
+The client opens an interactive terminal or runs one command. Use the
+[WebTTY walkthrough](../../../../docs/013-webtty.md) to install the tools,
+choose an endpoint and try a local command.
 
-Supported transports are `plain` and `websocket`:
+## Connect to a known endpoint
 
-```bash
-rstream-webtty-client --uri 127.0.0.1:6002 --transport plain -- whoami
+Use `--uri` to select the direct listener or private `rstrm://`
+address. Match the server's transport, `plain` or `websocket`.
+A direct WebSocket server can require an HTTP bearer token. Provide its file
+with `--auth-token-file` or inject `RSTREAM_WEBTTY_AUTH_TOKEN`.
+
+```sh
 rstream-webtty-client --uri 127.0.0.1:6002 --transport websocket --auth-token-file ./webtty.token -- whoami
 ```
 
-Use `--auth-token-file` or `RSTREAM_WEBTTY_AUTH_TOKEN` when connecting to a local WebSocket server protected by a bearer token. The plain transport has no HTTP auth layer and cannot use bearer tokens.
+Plain WebTTY has no HTTP bearer layer. For a native local terminal, use a
+server and client configured for the same transport.
 
-Providing `--known-server`, `--known-server-key`, `--known-servers-file`, `RSTREAM_WEBTTY_KNOWN_SERVER_KEY`, `RSTREAM_WEBTTY_KNOWN_SERVERS_FILE`, or a default `~/.rstream/webtty/known_servers.json` file implies end-to-end encrypted terminal payloads. Use `--e2e` when the client should fail closed if no known server identity can be resolved. The production form is an endpoint identity: `encryption_key_id:encryption_public_key:signing_key_id:signing_public_key`. It lets the client encrypt a session key for the server and verify the server's signed `ServerHello` before terminal content is sent.
+## Verify the server identity
 
-Use `--known-server <name>` when the local known-server file contains several servers and the URI cannot identify the intended entry by host. The selector reads `~/.rstream/webtty/known_servers.json`, or the file passed with `--known-servers-file`, and never calls the control plane.
+| Option or variable | Purpose |
+| --- | --- |
+| `--known-server` | Select an entry in the local known-server file. |
+| `--known-servers-file`, `RSTREAM_WEBTTY_KNOWN_SERVERS_FILE` | Give the path to a known-server file. |
+| `--known-server-key`, `RSTREAM_WEBTTY_KNOWN_SERVER_KEY` | Supply the server key or complete endpoint identity. |
+| `--e2e` | Require end-to-end encrypted terminal content and fail when no identity can be selected. |
 
-Use `--identity`, `--identity-file`, `RSTREAM_WEBTTY_IDENTITY`, or `RSTREAM_WEBTTY_IDENTITY_FILE` when the server requires a signed client proof. The client also reads target-scoped `client_identity` associations from `~/.rstream/webtty/known_servers.json` and loads the matching local identity from `~/.rstream/webtty/identities/<name>.identity.json`. Explicit identity flags and environment variables override the known-server association. If authenticated E2E is required and no client identity can be resolved, the client fails before opening the terminal.
+Selecting a known server, key or file requires encryption. The client
+consults `~/.rstream/webtty/known_servers.json` by default when
+`--known-server` or `--e2e` requests it. Use a full endpoint identity
+(`encryption_key_id:encryption_public_key:signing_key_id:signing_public_key`)
+to verify the server's signature before sending terminal data. See
+[end-to-end encryption](https://rstream.io/docs/webtty/end-to-end-encryption)
+for trust enrollment.
 
-The C++ client supports explicit-key WebTTY E2E and the protocol-level client credential field used by workspace-managed sessions. The standalone C++ CLI does not call the control plane; workspace-managed resolution is performed by the rstream CLI and `rstream ui`, which load trusted workspace devices from `~/.rstream/workspaces/<workspace-id>/devices/`. When a credential is produced by another trusted workflow, pass it with `--client-credential-file` or `RSTREAM_WEBTTY_CLIENT_CREDENTIAL_FILE` together with the matching client endpoint identity.
+To sign client proof, select the local identity with `--identity`,
+`--identity-file`, `RSTREAM_WEBTTY_IDENTITY` or
+`RSTREAM_WEBTTY_IDENTITY_FILE`. These override the matching
+`client_identity` in the known-server entry. A named identity resolves
+under `~/.rstream/webtty/identities`.
 
-With a workspace client credential, the session key is wrapped for both the
-trusted server and the local client identity. This preserves the device's access
-to encrypted recordings without giving it private workspace keys. Explicit-key
-connections without a workspace credential retain their configured recipients.
+## Use a registered server
 
-### Transport discovery
+Use the [registered server workflow](https://rstream.io/docs/webtty/registered-servers)
+to prepare a workspace device. The standalone C++ client consumes a prepared
+credential through `--client-credential-file` or
+`RSTREAM_WEBTTY_CLIENT_CREDENTIAL_FILE` with its matching local endpoint
+identity. The credential lets the server verify workspace admission and
+supports replay for the trusted client. Workspace setup and resolution are
+handled by the rstream CLI or dashboard.
 
-For `rstrm://` URLs the CLI reads `/api/tunnels` on the configured engine and
-selects `rstream.webtty.transport` before starting WebTTY. Discovery has a
-bounded deadline and response size and is cancelled by SIGINT/SIGTERM. It does
-not contact the control plane. Explicit transport overrides must match an
-advertised label; unlabeled datagram WebTTY tunnels are recognized as legacy
-WebTransport servers. This C++ runtime supports `plain` and `websocket`;
-WebTransport targets fail with a capability error.
+## Resolve the transport for a private dial
 
-For an engine-only device using a stream-only token, pass `--no-discovery` and
-`--transport`. Configure server trust, client identity and, for workspace E2E,
-a signed `--client-credential-file` locally. No security downgrade or automatic
-transport retry occurs when a proof fails. The server still validates the
-credential and the engine still enforces the token's permissions.
+For a `rstrm://` URL, the client discovers the transport from the
+Engine's tunnel inventory. An explicit transport must match that advertised
+by the server. Legacy datagram WebTTY entries identify WebTransport, which
+requires the Go client. An engine-only device with stream permission and no
+inventory access can set `--no-discovery` and `--transport`. Supply the
+endpoint trust, local identity and any signed workspace credential for that
+path.
 
-`RSTREAM_DATA_DIR` overrides the absolute local WebTTY/workspace state directory
-(default `~/.rstream`), independently of `RSTREAM_CONFIG`.
+Set `RSTREAM_DATA_DIR` to an absolute directory to change where
+WebTTY and workspace credentials are stored. Its default is `~/.rstream`.
+`RSTREAM_CONFIG` selects the separate CLI and SDK connection configuration.
+
+## Disconnect or stop execution
+
+Closing the local terminal disconnects the client. An SDK caller can request
+that a supported native server stop its command through
+`async_request_termination`. Its completion confirms the request was sent.
+Wait for `async_run` to report the native exit status and receive any final
+output. For workspace-managed sessions, use the Engine's session controls
+and the required role. See [WebTTY operations](https://rstream.io/docs/webtty/operations).

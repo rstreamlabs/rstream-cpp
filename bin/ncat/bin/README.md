@@ -1,5 +1,5 @@
 # rstream-ncat
 
-See the [native tools guide](../../../docs/012-command-line-tools.md) for installation,
-build availability and related programs. Run this program with `--help` for
-its argument reference.
+Connect standard input and output to a stream or relay a listener to a
+remote target. Try the [local relay and private tunnel
+walkthrough](../../../docs/tools/001-streams.md).

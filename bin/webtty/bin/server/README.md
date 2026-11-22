@@ -1,45 +1,74 @@
-# rstream-webtty-server
+# Native WebTTY server
 
-`rstream-webtty-server` exposes a WebTTY server backed by the C++ WebTTY implementation.
+The native server runs commands under a local OS account. Start with the
+[loopback walkthrough](../../../../docs/013-webtty.md), then configure
+the listener, endpoint trust and execution account for your deployment.
 
-Use `--rstream` to serve WebTTY through an rstream tunnel URI. The generated URI includes the standard WebTTY discovery labels. Use `--publish` for a published tunnel and `--no-publish` for a private tunnel. Use `--uri` for a direct local listener. The C++ CLI keeps the SDK URI model visible: `--uri` is passed to `rstream::io::address` and may represent a TCP listener or an rstream endpoint depending on the URI scheme.
+## Choose a listener
 
-```text
-application-protocol=rstream.webtty
-rstream.webtty.capabilities=exec
-rstream.webtty.exec.path=/
+| Mode | Select it with |
+| --- | --- |
+| Direct | `--uri` provides a TCP or other supported listener address. Use a bearer token for direct WebSocket. Set `--allow-unauthenticated` only for isolated local tests. |
+| Lightweight tunnel | `--rstream` creates the tunnel and advertises its WebTTY paths and transport. Use `--no-publish` for private access or `--publish` for public WebSocket. Lightweight plain WebTTY uses a private bytestream. |
+| Registered | `--server-id` selects `~/.rstream/webtty/enrollments/<server-id>.yaml`. Use `--server-enrollment` to give the full path. The Engine authenticates registered traffic. |
+
+The server supports plain and WebSocket. It advertises
+`rstream.webtty.transport` so clients can choose the matching transport.
+Use the Go server for WebTransport.
+
+To require a bearer token on direct WebSocket, provide a file containing the
+token or inject it as `RSTREAM_WEBTTY_AUTH_TOKEN`. Plain WebTTY has
+no HTTP bearer layer.
+
+```sh
+rstream-webtty-server --uri 127.0.0.1:6002 --transport websocket --auth-token-file ./webtty.token
 ```
 
-Use `--identity` for a named local identity under `~/.rstream/webtty/identities`, `--identity-file` for an explicit path, `RSTREAM_WEBTTY_IDENTITY` for an inline endpoint identity JSON document, or `RSTREAM_WEBTTY_IDENTITY_FILE` in service-manager environments.
+## Set endpoint trust
 
-Supported transports are `plain` and `websocket`:
+| Option or variable | Purpose |
+| --- | --- |
+| `--identity` | Select a named identity in `~/.rstream/webtty/identities`. |
+| `--identity-file`, `RSTREAM_WEBTTY_IDENTITY_FILE` | Load an endpoint identity JSON file. |
+| `RSTREAM_WEBTTY_IDENTITY` | Supply the endpoint identity as inline JSON. |
+| `--e2e` | Require encrypted terminal payloads and signed client proof with the selected or default identity. |
 
-```bash
-rstream-webtty-server -v --uri 127.0.0.1:6002 --transport plain --allow-unauthenticated
-rstream-webtty-server -v --uri 127.0.0.1:6002 --transport websocket --auth-token-file ./webtty.token
-```
+Selecting an identity enables end-to-end encryption and requires client proof.
+For explicit-key trust, use
+[endpoint identity setup](https://rstream.io/docs/webtty/end-to-end-encryption).
+The default authorized-client file for an identity is
+`~/.rstream/webtty/authorized_clients/<server-identity>.json`.
+The server reads it when a session opens. For a provisioned service, use
+`--authorized-clients-file` or `RSTREAM_WEBTTY_AUTHORIZED_CLIENTS_FILE`
+for a JSON file. Use `--authorized-client-key` or
+`RSTREAM_WEBTTY_AUTHORIZED_CLIENT_KEYS` to supply explicit client keys.
 
-Local WebSocket servers require a bearer token from `--auth-token-file` or `RSTREAM_WEBTTY_AUTH_TOKEN` unless `--allow-unauthenticated` is set for isolated development. The plain transport has no HTTP auth layer and therefore also requires `--allow-unauthenticated` for local direct use. Registered servers rely on rstream Engine authentication instead of this local bearer-token surface.
+For a workspace-managed server, use [device approval](https://rstream.io/docs/webtty/registered-servers).
+The enrollment provides the trust material to verify each client's workspace
+credential. Use that trust path for workspace-managed clients.
 
-Providing `--identity`, `--identity-file`, `RSTREAM_WEBTTY_IDENTITY`, or `RSTREAM_WEBTTY_IDENTITY_FILE` implies encrypted terminal payloads and signed client proof. Use `--e2e` when the server should require E2E while loading the default local identity. Authorize explicit-key clients with `rstream webtty authorized-client add <name> --identity <server-identity> --key <client-endpoint-identity>`, which writes `~/.rstream/webtty/authorized_clients/<server-identity>.json`. The server reads that file when a new session opens, so newly added or removed clients affect new sessions without restarting the server. Use `--authorized-client-key`, `RSTREAM_WEBTTY_AUTHORIZED_CLIENT_KEYS`, `--authorized-clients-file`, or `RSTREAM_WEBTTY_AUTHORIZED_CLIENTS_FILE` for CI, containers, and service-manager deployments that need an explicit authorization source. `--server-id` loads `~/.rstream/webtty/enrollments/<server-id>.yaml`; `--server-enrollment` loads an explicit enrollment file; `--webtty-config` loads an operator-managed runtime config. In that config, `server.listen` maps to the C++ URI model. Local WebTTY identities and enrollment files use the same `~/.rstream/webtty` layout as the rstream CLI.
+## Choose the execution account
 
-Workspace-managed E2E is driven by trusted workspace devices. The enrollment file contains the workspace trust pins required to verify signed client credentials locally. At runtime, the C++ server verifies the credential embedded in `ClientProof`; it does not call the control plane. Do not configure explicit authorized-client keys for a workspace-managed server.
+Use `spawn` for a child process under the server's account. Registered
+servers default to `login`. Set `--login-user` to an existing OS
+account on the server. Run `id -un` on macOS or Linux or read
+`$env:USERNAME` on Windows to check the account. Use
+`--allow-client-user` when callers are permitted to supply the account.
 
-Workspace credentials support both ASN.1 DER signatures from native clients and IEEE P1363 signatures from browser device approvals. Verification binds the credential to the enrolled workspace, project, server, trusted keyset, and client signing key.
+On POSIX, switching to a different user needs the corresponding service
+privileges. On Windows, login mode uses the server's account. Login sessions
+have a restricted environment and do not inherit forwarding credentials by
+default.
 
-Execution modes are `spawn` and `login`. Registered servers default to `login`; set `--login-user <username>` to the name of the existing local OS account that will own every session. This is not an rstream account or the connecting operator's username. Run `id -un` on the target Linux/macOS host, or `$env:USERNAME` in PowerShell on the target Windows host, and pass that exact result. rstream does not create the account, and a fixed username is resolved before the server starts listening. Use `--allow-client-user` only when clients are deliberately allowed to select the OS user, or `--execution-mode spawn` for the lightweight child-process model. C++ login mode does not handle passwords. On POSIX it applies the target user, primary group, and supplementary groups through the local process credentials, which requires suitable service privileges. On Windows, login mode accepts the same account that runs the server and rejects attempts to switch accounts. Login sessions receive a conservative administrative environment and do not automatically inherit SSH agent sockets, cloud credentials, or rstream tokens. WebTransport is not implemented in the C++ server; use the Go server for WebTransport.
+## Run a persistent server
 
-### Advertised transport
+Use `--webtty-config` for an operator-managed YAML file. Both runtime and
+enrollment files contain one document. In runtime YAML, `server.listen`
+sets the native listener URI. The C++ parser rejects Go-specific
+`server.host` and `filesystem` settings.
 
-Lightweight and registered servers publish
-`rstream.webtty.transport=plain|websocket`, based on the actual listener setting.
-The label is included before the registered server admission signature.
-Lightweight `plain` tunnels are private raw bytestreams; `--publish` is rejected
-for this combination. Both supported transports work through a private
-`rstrm://` dial. C++ WebTransport is not implemented and is rejected explicitly.
-
-Runtime and enrollment YAML files must each contain exactly one document.
-Runtime fields outside the C++ tool's supported subset fail with an explicit
-`unsupported WebTTY runtime config` error. In particular, `server.host` and
-`filesystem` belong to the Go CLI runtime surface and are not accepted by the
-C++ WebTTY server.
+Direct endpoints serve their own sessions. The Engine coordinates managed
+reader attachment and control transfer. Native termination acts on the
+session's Unix process group or Windows Job Object. On Unix, descendants
+that leave the process group are outside that cleanup. Stopping one session
+leaves other sessions available.

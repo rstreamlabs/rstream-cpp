@@ -1,5 +1,5 @@
 # rstream-nperf-client
 
-See the [native tools guide](../../../../docs/012-command-line-tools.md) for installation,
-build availability and related programs. Run this program with `--help` for
-its argument reference.
+Measure latency or throughput against an nperf server. The [measurement
+walkthrough](../../../../docs/tools/002-measurement.md#measure-a-local-stream)
+starts both programs and shows a bounded run with a JSON result.

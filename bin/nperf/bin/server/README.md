@@ -1,5 +1,5 @@
 # rstream-nperf-server
 
-See the [native tools guide](../../../../docs/012-command-line-tools.md) for installation,
-build availability and related programs. Run this program with `--help` for
-its argument reference.
+Serve an endpoint for nperf latency and throughput measurements. See the
+[server and client walkthrough](../../../../docs/tools/002-measurement.md#measure-a-local-stream)
+for the matching protocol and address settings.
