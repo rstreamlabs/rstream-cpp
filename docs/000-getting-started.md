@@ -1,151 +1,144 @@
 # Build an application with the C++ SDK
 
-This Boost.Beast server opens an HTTP tunnel, prints its forwarding address
-and responds with the machine's hostname. Build it in an empty directory
-with a C++20 compiler, Python 3, Conan 2.34, CMake 3.23 or newer, and
-Ninja. On Windows, use a Developer PowerShell for Visual Studio.
+Publish an HTTP/1.1 tunnel and serve a request with Boost.Beast. The program
+runs on a Boost.Asio event loop and returns `Hello from rstream`.
 
-## Configure the connection
+## Configure access
 
-For hosted rstream, use an [installed CLI](https://rstream.io/docs/getting-started/installation)
-and a project that permits published HTTP. Sign in with the CLI.
+With the [rstream CLI](https://rstream.io/docs/getting-started/installation) installed, sign in and approve the request in the browser.
 
 ```sh
 rstream login
 ```
 
-List your projects.
+List the projects available to this identity.
 
 ```sh
 rstream project list
 ```
 
-Replace `my-project-endpoint` with the value from the `ENDPOINT` column.
+If the list is empty, open the workspace in the [Dashboard](https://rstream.io/dashboard).
+Workspace owners and admins can select **Create new project**. A Basic project
+supports this HTTP example. Other members can ask an owner or admin for access
+to an existing project. If the CLI login was limited to specific projects, run
+`rstream login` again to include the intended project. Run `rstream project list`
+again after gaining access.
+
+Choose a project that allows HTTP publication. Replace `my-project-endpoint`
+with its `ENDPOINT` value.
 
 ```sh
 rstream project use my-project-endpoint
 ```
 
-For a self-hosted deployment, select a [direct Engine context](002-configuration.md#connect-to-a-direct-engine)
-with its address, credential and private CA if required. The application reads
-the selected context on startup.
+For a self-hosted Community Edition Engine, select its [direct Engine context](002-configuration.md#connect-to-a-direct-engine).
+The SDK reads the same context when it connects.
 
-<a id="get-the-complete-example"></a>
+<a name="get-the-complete-example"></a>
 
-## Write the HTTP server
+## Create the application
 
-Save the following as `main.cpp`. Each accepted socket runs a Beast session
-on the application's Asio event loop.
+Use a C++20 compiler, Python 3 with Conan 2.34, CMake 3.23 or newer and Ninja.
+On Windows, use a Visual Studio Developer PowerShell with the C++ tools installed.
+Create an empty directory and save the following three files in it.
+
+**`main.cpp`**
 
 ```cpp
 #include <csignal>
+#include <exception>
 #include <iostream>
-#include <string>
 
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
-
 #include <rstream/core/exception.hpp>
 #include <rstream/io-rstrm/client.hpp>
-#include <rstream/io-rstrm/io-rstrm.hpp>
 #include <rstream/io-rstrm/socket.hpp>
 
 namespace asio = boost::asio;
-namespace beast = boost::beast;
-namespace http = beast::http;
+namespace http = boost::beast::http;
 namespace rstrm = rstream::io_rstrm;
 
-asio::awaitable<void> serve_session(rstrm::socket socket)
+asio::awaitable<void> respond(rstrm::socket& socket)
 {
-  try
-  {
-    beast::flat_buffer buffer;
-    http::request<http::string_body> request;
-    co_await http::async_read(socket, buffer, request, asio::use_awaitable);
-    http::response<http::string_body> response{http::status::ok, request.version()};
-    response.set(http::field::content_type, "text/plain; charset=utf-8");
-    response.keep_alive(false);
-    response.body() = asio::ip::host_name();
-    response.prepare_payload();
-    co_await http::async_write(socket, response, asio::use_awaitable);
-    boost::system::error_code ignored;
-    socket.close(ignored);
-  }
-  catch (const std::exception& error)
-  {
-    std::cerr << "session error: " << error.what() << std::endl;
-  }
+  boost::beast::flat_buffer buffer;
+  http::request<http::string_body> request;
+  co_await http::async_read(socket, buffer, request, asio::use_awaitable);
+
+  http::response<http::string_body> response{http::status::ok, request.version()};
+  response.set(http::field::content_type, "text/plain");
+  response.keep_alive(false);
+  response.body() = "Hello from rstream";
+  response.prepare_payload();
+  co_await http::async_write(socket, response, asio::use_awaitable);
 }
 
-asio::awaitable<void> run_server(rstrm::client& client)
+asio::awaitable<void> serve(rstrm::client& client, rstrm::socket& socket, const bool& stopping)
 {
-  auto executor = co_await asio::this_coro::executor;
   co_await client.async_connect(asio::use_awaitable);
-  rstrm::tunnel_properties properties;
-  properties.m_publish = true;
+  rstrm::tunnel_properties properties{};
   properties.m_protocol = rstrm::protocol::http;
-  properties.m_http_version = std::string("http/1.1");
+  properties.m_http_version = "http/1.1";
+  properties.m_publish = true;
   auto tunnel = co_await client.async_create_tunnel(properties, asio::use_awaitable);
-  auto forwarding = rstrm::format_forwarding_address(tunnel.properties());
-  if (forwarding)
-  {
-    std::cout << "Forwarding address: " << forwarding.value() << std::endl;
-  }
-  for (;;)
-  {
-    rstrm::socket socket(executor);
+  std::cout << rstrm::format_forwarding_address(tunnel.properties()).value() << std::endl;
+
+  while (!stopping) {
     rstrm::endpoint peer;
     co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
-    asio::co_spawn(executor, serve_session(std::move(socket)), asio::detached);
+    try {
+      co_await respond(socket);
+    }
+    catch (const std::exception& error) {
+      if (!stopping) {
+        std::cerr << error.what() << '\n';
+      }
+    }
+    boost::system::error_code ignored;
+    socket.close(ignored);
   }
 }
 
 int main()
 {
-  int exit_code = 0;
+  asio::io_context io;
+  rstrm::client client(io.get_executor());
+  rstrm::socket socket(io.get_executor());
+  asio::signal_set signals(io, SIGINT, SIGTERM);
   bool stopping = false;
-  asio::io_context io_context;
-  rstrm::client client(io_context.get_executor());
-  asio::signal_set signals(io_context, SIGINT, SIGTERM);
-  signals.async_wait([&](const boost::system::error_code& error, int) {
+  signals.async_wait([&](auto error, int) {
     if (!error) {
       stopping = true;
       client.close();
+      boost::system::error_code ignored;
+      socket.close(ignored);
     }
   });
-  asio::co_spawn(io_context, run_server(client), [&](std::exception_ptr error) {
+  int status = 0;
+  asio::co_spawn(io, serve(client, socket, stopping), [&](std::exception_ptr error) {
     if (error && !stopping) {
-      std::cerr << "fatal error: " << rstream::core::throwable::to_string(error) << std::endl;
-      exit_code = 1;
+      std::cerr << rstream::core::throwable::to_string(error) << '\n';
+      status = 1;
     }
     signals.cancel();
     client.close();
   });
-  io_context.run();
-  return exit_code;
+  io.run();
+  return status;
 }
 ```
 
-## Configure the build
-
-Place `conanfile.py` next to `main.cpp`. Conan installs the published SDK
-and Boost and generates the CMake presets.
+**`conanfile.py`**
 
 ```python
 from conan import ConanFile
 from conan.tools.cmake import CMakeDeps, CMakeToolchain, cmake_layout
 
 
-class ConanPackage(ConanFile):
-    name = "rstream-tunnels-basic-http-server"
-    version = "1.0.0"
+class HttpServer(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
-    requires = (
-        "rstream/1.15.3",
-        "boost/[>=1.81.0 <1.90.0]",
-    )
-
+    requires = "rstream/1.15.3", "boost/[>=1.81.0 <1.90.0]"
     default_options = {
         "boost/*:without_cobalt": True,
         "rstream/*:build_bins": False,
@@ -162,74 +155,66 @@ class ConanPackage(ConanFile):
         CMakeDeps(self).generate()
 ```
 
-Save the following as `CMakeLists.txt`. The two plugins provide the
-transports the application needs at runtime.
+**`CMakeLists.txt`**
 
 ```cmake
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.23)
 if(POLICY CMP0167)
   cmake_policy(SET CMP0167 NEW)
 endif()
+project(rstream-hello LANGUAGES CXX)
 
-project(rstream-tunnels-basic-http-server LANGUAGES CXX)
-
-include(GNUInstallDirs)
 find_package(Boost REQUIRED)
 find_package(rstream CONFIG REQUIRED)
-
-add_executable(${PROJECT_NAME} main.cpp)
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
-target_link_libraries(${PROJECT_NAME} PRIVATE Boost::boost rstream::rstream)
+add_executable(rstream-hello main.cpp)
+target_compile_features(rstream-hello PRIVATE cxx_std_20)
+target_link_libraries(rstream-hello PRIVATE Boost::boost rstream::rstream)
 rstream_enable_runtime_plugins(
-  ${PROJECT_NAME}
+  rstream-hello
   rstream::plugin::io-generic
   rstream::plugin::io-rstrm)
-install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS rstream-hello RUNTIME DESTINATION bin)
 ```
 
-## Build the application
+## Build and run
 
-Prepare a Conan profile and register the rstream package remote.
+Detect a default Conan profile or keep the existing one.
 
 ```sh
 conan profile detect --exist-ok
-conan remote add rstream https://nexus.rstream.io/repository/conan -f
 ```
 
-From the project directory, resolve the dependencies with C++20 enabled
-for the host and build profiles.
+If the public rstream remote is missing from `conan remote list`, register it.
+
+```sh
+conan remote add rstream https://nexus.rstream.io/repository/conan
+```
+
+From the directory containing the three files, resolve dependencies, build
+the Release target and install it under `out/`.
 
 ```sh
 conan install . --build=missing -s:h build_type=Release -s:h compiler.cppstd=20 -s:b compiler.cppstd=20
-```
-
-Configure, build and install the executable and its runtime files.
-
-```sh
 cmake --preset conan-release
 cmake --build --preset conan-release
 cmake --install build/Release --config Release --prefix out
 ```
 
-## Verify the application
-
-Start the installed binary on macOS or Linux.
+On macOS or Linux, start the server.
 
 ```sh
-./out/bin/rstream-tunnels-basic-http-server
+./out/bin/rstream-hello
 ```
 
-On Windows, start the executable in PowerShell.
+On Windows, run `.\out\bin\rstream-hello.exe` in PowerShell.
 
-```powershell
-.\out\bin\rstream-tunnels-basic-http-server.exe
-```
+## Verify the application
 
-Open the HTTPS URL printed after `Forwarding address:`. Expect HTTP 200
-and the hostname of the machine running the program. With a private CA,
-configure the HTTP client to trust it. If the project restricts access,
-use the [required caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#token-authentication).
-Press Ctrl+C in the server terminal to close the tunnel.
+Open the printed HTTPS address while the server is running. An HTTP GET
+returns HTTP 200 and `Hello from rstream`. For a protected endpoint, use
+the [configured caller credential](https://rstream.io/docs/tunnels/http-tunnels/authentication#token-authentication).
+With a private CA, configure the HTTP client to trust that CA and keep the
+printed hostname for certificate verification. Stop the server with Ctrl+C.
 
 ## Link an existing CMake target
 

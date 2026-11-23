@@ -171,17 +171,25 @@ directory and the client under `example/io/http/`. On Windows both
 executables are in the build directory's `bin/`. Run each by its full
 path or add those directories to the terminal path.
 
-| Run | Listener URI | Caller URI |
-| --- | --- | --- |
-| Local TCP | `tcp://127.0.0.1:8080` | `tcp://127.0.0.1:8080` |
-| Private rstream | `rstrm://cpp-uri-http?rstrm.publish=false&rstrm.protocol=tls` | `rstrm://cpp-uri-http` |
+Start the server on loopback in the first terminal.
 
-Start with TCP. Then stop the server and start the same program with the
-private URI. In the caller's terminal, use the corresponding URI.
+```sh
+rstream-example-uri-http-server --uri 'tcp://127.0.0.1:8080'
+```
+
+In a second terminal, request the page over TCP.
+
+```sh
+rstream-example-io-http-client --uri 'tcp://127.0.0.1:8080'
+```
+
+Stop the server with Ctrl+C. In the first terminal, restart it with the private URI.
 
 ```sh
 rstream-example-uri-http-server --uri 'rstrm://cpp-uri-http?rstrm.publish=false&rstrm.protocol=tls'
 ```
+
+From the second terminal, dial it by name.
 
 ```sh
 rstream-example-io-http-client --uri 'rstrm://cpp-uri-http'

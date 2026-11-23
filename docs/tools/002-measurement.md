@@ -79,8 +79,8 @@ explains how to troubleshoot a missing URI transport.
 
 `rstream-gping` draws a live nperf latency graph in an interactive Unix
 terminal when installed from a Python-enabled source build. Its launcher
-and Python runtime are installed together. With the same nperf server
-running, launch this command in an interactive terminal.
+and Python runtime are installed together. Start the loopback nperf server
+again if it has stopped, then run the graph in a second terminal.
 
 ```sh
 rstream-gping --uri 127.0.0.1:6003 --max-ping 10

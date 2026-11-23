@@ -26,17 +26,29 @@ limited to generated or third-party code and must not hide project warnings.
 
 ### Sanitizers and concurrency
 
+On Linux, run ASan, UBSan and LSan with static libraries and plugins.
+
 ```bash
-# Linux: ASan, UBSan and LSan with static libraries/plugins.
 python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3
+```
 
-# macOS: ASan and UBSan with shared SDK libraries/dynamic plugins.
+On macOS, run ASan and UBSan with shared libraries and dynamic plugins.
+
+```bash
 python3 .github/scripts/test-memory-sanitizers.py --output out/memory-sanitizers --jobs 3 --shared --dynamic-plugins
+```
 
+Use the TSan preset for thread-sanitizer checks.
+
+```bash
 cmake --preset tsan
 cmake --build --preset tsan
 ctest --preset tsan
+```
 
+After building the native quality configuration, repeat its concurrency tests.
+
+```bash
 ctest --test-dir out/build/quality --repeat until-fail:20 \
   --output-on-failure \
   -R 'core-(executor-binder|plugin-version)|io-common-(payloader-limits|queue|stream-tcp)|io-rstrm-(control-channel|handshake)|nperf-runtime|tunnel-proxy|webtty-.*runtime'
