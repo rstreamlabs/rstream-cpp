@@ -13,23 +13,51 @@ the application.
 | Compile and test this checkout | [Build from source](docs/001-building-from-source.md). |
 | Evaluate runtimes, deployment and protocol coverage | [Choose an SDK](https://rstream.io/sdks) and see [Editions and plans](https://rstream.io/docs/support/editions). |
 
-## Keep the Beast handler
+<a id="keep-the-beast-handler"></a>
 
-The migration example uses one HTTP handler for both listeners. The local
-version accepts a TCP socket. The tunneled version creates a published HTTP
-tunnel and accepts an rstream socket on the same Asio executor.
+## Serve HTTP with Boost.Beast
+
+With a connected `rstrm::client`, this coroutine opens an HTTP tunnel
+and accepts sockets on the application's existing Asio executor.
 
 ```cpp
-rstrm::socket socket(executor);
-rstrm::endpoint peer;
-co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
-asio::co_spawn(executor, example_http::serve(std::move(socket)), asio::detached);
+rstrm::tunnel_properties properties;
+properties.m_publish = true;
+properties.m_protocol = rstrm::protocol::http;
+properties.m_http_version = std::string("http/1.1");
+auto tunnel = co_await client.async_create_tunnel(properties, asio::use_awaitable);
+auto forwarding = rstrm::format_forwarding_address(tunnel.properties());
+if (forwarding)
+{
+  std::cout << "Forwarding address: " << forwarding.value() << std::endl;
+}
+for (;;)
+{
+  rstrm::socket socket(executor);
+  rstrm::endpoint peer;
+  co_await tunnel.async_accept(socket, peer, asio::use_awaitable);
+  asio::co_spawn(executor, serve_session(std::move(socket)), asio::detached);
+}
 ```
 
-[Run both versions](docs/004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
-and compare their responses. The example catalog also covers private dialing,
-TLS passthrough and Beast WebSocket. [Compare handlers, futures and coroutines](docs/005-completion-models.md)
-to see how each style owns the same connection and tunnel operation.
+In `serve_session`, Beast reads the request and writes the hostname as
+the response body on that same socket.
+
+```cpp
+beast::flat_buffer buffer;
+http::request<http::string_body> request;
+co_await http::async_read(socket, buffer, request, asio::use_awaitable);
+http::response<http::string_body> response{http::status::ok, request.version()};
+response.set(http::field::content_type, "text/plain; charset=utf-8");
+response.keep_alive(false);
+response.body() = asio::ip::host_name();
+response.prepare_payload();
+co_await http::async_write(socket, response, asio::use_awaitable);
+```
+
+[Build and run this server](docs/000-getting-started.md) with the published
+SDK. To adapt an existing TCP server, the [Beast migration guide](docs/004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
+shows how both listeners can call the same HTTP handler.
 
 ## Documentation
 
