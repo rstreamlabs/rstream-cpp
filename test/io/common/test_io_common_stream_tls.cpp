@@ -228,6 +228,50 @@ static rstream::io::detail::stream::ssl::config base_ssl_config()
   return config;
 }
 
+// A plugin linked against another copy of Asio can report the same EOF
+// value and category name using a different category object.
+static void check_tls_truncation_across_transport_modules()
+{
+  class plugin_category : public boost::system::error_category {
+   public:
+    const char* name() const noexcept override { return boost::asio::error::get_misc_category().name(); }
+    std::string message(int value) const override { return boost::asio::error::get_misc_category().message(value); }
+  };
+  static const plugin_category category;
+
+  class closed_transport : public fake_stream_socket {
+   public:
+    using fake_stream_socket::fake_stream_socket;
+
+   private:
+    void async_read_some_internal(const boost::asio::mutable_buffer&, async_read_some_completion_handler&& handler) override
+    {
+      finish_read(std::move(handler));
+    }
+    void async_read_some_internal(const mutable_buffer_sequence_type&, async_read_some_completion_handler&& handler) override
+    {
+      finish_read(std::move(handler));
+    }
+    void finish_read(async_read_some_completion_handler&& handler)
+    {
+      boost::system::error_code eof(boost::asio::error::eof, category);
+      rstream::core::invoke_completion_handler(get_executor(), std::move(handler), eof, std::size_t{0});
+    }
+  };
+
+  boost::asio::io_context io_context;
+  auto transport   = std::make_shared<closed_transport>(io_context.get_executor());
+  using tls_socket = rstream::io::detail::stream::stream_socket_ssl;
+  tls_socket socket(transport, base_ssl_config(), tls_socket::type::client);
+  bool completed = false;
+  socket.async_handshake([&](const boost::system::error_code& error) {
+    assert(rstream::core::helpers::matches_error(error, boost::system::error_code(boost::asio::ssl::error::stream_truncated)));
+    completed = true;
+  });
+  io_context.run();
+  assert(completed);
+}
+
 static boost::system::error_code make_direct_ssl_socket(rstream::io::detail::stream::ssl::config config,
                                                         rstream::io::detail::stream::stream_socket_ssl::type type)
 {
@@ -598,7 +642,10 @@ static void check_tls_half_close_preserves_receive_direction(
   assert(!close_error);
   bool truncation_observed = false;
   client.async_read_some(boost::asio::buffer(trailing), [&](auto error, std::size_t size) {
-    assert(size == 0 && error && !rstream::core::helpers::matches_error(error, boost::system::error_code(boost::asio::error::eof)));
+    if (size || !error || rstream::core::helpers::matches_error(error, boost::system::error_code(boost::asio::error::eof))) {
+      std::cerr << "abrupt TLS close returned " << size << " bytes and " << error.category().name() << '/' << error.value() << std::endl;
+      throw std::runtime_error("TLS peer closed without close_notify");
+    }
     truncation_observed = true;
   });
   io_context.restart();
@@ -927,6 +974,7 @@ int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  check_tls_truncation_across_transport_modules();
   check_tls_peer_verification_checks_hostname();
   check_tls_config_errors();
   check_direct_tls_context_configuration();

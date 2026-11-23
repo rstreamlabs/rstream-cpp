@@ -51,6 +51,7 @@
 
 #include <rstream/core/allocator.hpp>
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/helpers/asio.hpp>
 #include <rstream/core/log.hpp>
 #include <rstream/core/system.hpp>
 
@@ -228,8 +229,15 @@ class RSTREAM_GNUC_INTERNAL stream_socket_ssl::impl : public std::enable_shared_
   void async_ssl_io(const Operation& operation, Handler handler)
   {
     auto completion = core::bind_associated_handler(
-        std::move(handler), [executor = m_next_layer->get_executor()](auto& associated, auto&&... args) {
-          core::invoke_completion_handler(executor, std::move(associated), std::forward<decltype(args)>(args)...);
+        std::move(handler), [self = shared_from_this()](auto& associated, boost::system::error_code error, auto... args) {
+          const boost::system::error_code eof = boost::asio::error::eof;
+          // A plugin DLL can have its own Asio category instance. Give the SSL
+          // engine a local EOF so it always checks for the peer's close_notify.
+          if (core::helpers::matches_error(error, eof)) {
+            error = eof;
+            self->m_ssl_core.engine_.map_error_code(error);
+          }
+          core::invoke_completion_handler(self->m_next_layer->get_executor(), std::move(associated), error, args...);
         });
     auto serialized = boost::asio::bind_executor(m_strand, std::move(completion));
     asio_ssl::async_io(*m_next_layer, m_ssl_core, operation, serialized);
