@@ -48,6 +48,14 @@ using stream_socket_ptr = std::shared_ptr<stream_socket_interface>;
 
 using stream_socket_const_ptr = std::shared_ptr<const stream_socket_interface>;
 
+// Optional transport capability. Existing plugins retain their original vtable.
+class send_shutdown_interface {
+ public:
+  using handler_type                                       = core::completion_handler<void(const boost::system::error_code&)>;
+  virtual ~send_shutdown_interface()                       = default;
+  virtual void async_shutdown_send(handler_type&& handler) = 0;
+};
+
 using acceptor_interface = acceptor_base<endpoint, stream_socket>;
 
 using acceptor_ptr = std::shared_ptr<acceptor_interface>;

@@ -129,6 +129,21 @@ void stream_socket::async_connect_internal(const endpoint& endpoint, async_conne
   m_impl->async_connect(endpoint, std::move(handler));
 }
 
+void stream_socket::async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler)
+{
+  auto socket = native_handle();
+  if (auto tls = std::dynamic_pointer_cast<stream_socket_ssl>(socket)) {
+    tls->async_shutdown_send(std::move(handler));
+    return;
+  }
+  if (auto transport = std::dynamic_pointer_cast<send_shutdown_interface>(socket)) {
+    transport->async_shutdown_send(std::move(handler));
+    return;
+  }
+  core::invoke_completion_handler(get_executor(), std::move(handler),
+                                  socket ? boost::asio::error::operation_not_supported : boost::asio::error::not_connected);
+}
+
 void stream_socket::async_write_some_internal(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler)
 {
   m_impl->async_write_some(buffer, std::move(handler));

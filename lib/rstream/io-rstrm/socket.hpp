@@ -43,6 +43,20 @@ class socket : public io::stream_socket_base<endpoint> {
 
   void settings(const settings_socket& settings);
 
+  using async_shutdown_send_completion_handler = core::completion_handler<void(const boost::system::error_code&)>;
+
+  // Complete after sending EOF. A concurrent read may still deliver data.
+  template <typename CompletionToken>
+  auto async_shutdown_send(CompletionToken&& token)
+  {
+    return boost::asio::async_initiate<CompletionToken, void(const boost::system::error_code&)>(
+        [this](auto handler) {
+          auto executor = boost::asio::get_associated_executor(handler, get_executor());
+          async_shutdown_send_internal(boost::asio::bind_executor(executor, std::move(handler)));
+        },
+        token);
+  }
+
   void open(const endpoint& endpoint, boost::system::error_code& error_code) override;
 
   void open(const endpoint& endpoint);
@@ -65,6 +79,8 @@ class socket : public io::stream_socket_base<endpoint> {
   void async_connect_internal(type type, const endpoint& endpoint, async_connect_completion_handler&& handler);
 
   void async_connect_internal(const endpoint& endpoint, async_connect_completion_handler&& handler) override;
+
+  void async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler);
 
   void async_write_some_internal(const boost::asio::const_buffer& buffer, async_write_some_completion_handler&& handler) override;
 

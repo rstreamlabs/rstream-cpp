@@ -220,12 +220,61 @@ class tcp_thread_server {
   std::exception_ptr m_exception;
 };
 
+enum class exchange_mode { ordinary,
+                           downstream_fin,
+                           upstream_fin };
+
+static std::string exchange_reply(exchange_mode mode)
+{
+  if (mode == exchange_mode::ordinary) {
+    return "world";
+  }
+  // Span multiple proxy buffers and vary the bytes across buffer boundaries.
+  std::string reply(64 * 1024 + 7, ' ');
+  for (std::size_t i = 0; i < reply.size(); ++i) {
+    reply[i] = static_cast<char>('!' + i % 91);
+  }
+  return reply;
+}
+
+static void exchange_stream(tcp::socket& socket, exchange_mode mode, bool sends_request)
+{
+  const std::string request = "hello";
+  const auto reply          = exchange_reply(mode);
+  const bool half_close     = mode != exchange_mode::ordinary;
+  auto send                 = [&](const std::string& payload) {
+    boost::asio::write(socket, boost::asio::buffer(payload));
+    if (half_close) {
+      socket.shutdown(tcp::socket::shutdown_send);
+    }
+  };
+  auto receive = [&](const std::string& expected) {
+    std::string received(expected.size(), '\0');
+    boost::asio::read(socket, boost::asio::buffer(received));
+    check(received == expected, "proxy changed stream data");
+    if (half_close) {
+      std::array<char, 1> trailing{};
+      boost::system::error_code error;
+      const auto count = socket.read_some(boost::asio::buffer(trailing), error);
+      check(count == 0 && error == boost::asio::error::eof, "missing forwarded FIN");
+    }
+  };
+  if (sends_request) {
+    send(request);
+    receive(reply);
+  }
+  else {
+    receive(request);
+    send(reply);
+  }
+}
+
 class fake_engine {
  public:
-  explicit fake_engine(std::atomic_bool& stream_exchanged, bool half_close = false)
+  explicit fake_engine(std::atomic_bool& stream_exchanged, exchange_mode mode = exchange_mode::ordinary)
       : m_acceptor(m_io_context, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0)),
         m_stream_exchanged(stream_exchanged),
-        m_half_close(half_close)
+        m_mode(mode)
   {
   }
 
@@ -271,16 +320,7 @@ class fake_engine {
         check(proxy_ack.proxy_conn_rsp().stream_id() == "stream-1", "unexpected proxy response stream id");
         check(!proxy_ack.proxy_conn_rsp().has_error(), "proxy connection was rejected");
 
-        const std::string downstream_payload = "hello";
-        boost::asio::write(stream, boost::asio::buffer(downstream_payload));
-        if (m_half_close) {
-          boost::system::error_code error_code;
-          stream.shutdown(tcp::socket::shutdown_send, error_code);
-          check(!error_code, "failed to half-close downstream test stream");
-        }
-        std::array<char, 5> upstream_reply{};
-        boost::asio::read(stream, boost::asio::buffer(upstream_reply));
-        check(std::string(upstream_reply.data(), upstream_reply.size()) == "world", "unexpected proxied reply");
+        exchange_stream(stream, m_mode, m_mode != exchange_mode::upstream_fin);
         m_stream_exchanged = true;
 
         auto close_request = read_message(control);
@@ -307,7 +347,7 @@ class fake_engine {
   boost::asio::io_context m_io_context;
   tcp::acceptor m_acceptor;
   std::atomic_bool& m_stream_exchanged;
-  bool m_half_close;
+  exchange_mode m_mode;
   std::thread m_thread;
   std::exception_ptr m_exception;
 };
@@ -319,32 +359,17 @@ static void drain_cancelled_operations(boost::asio::io_context& io_context)
   check(io_context.stopped(), "proxy retained asynchronous work after cancellation");
 }
 
-static void check_proxy_forwards_engine_stream_to_upstream_and_back(bool half_close = false)
+static void check_proxy_forwards_engine_stream_to_upstream_and_back(exchange_mode mode = exchange_mode::ordinary)
 {
   std::atomic_bool upstream_served = false;
-  tcp_thread_server upstream([&, half_close](tcp::socket& socket) {
-    std::array<char, 5> request{};
-    boost::asio::read(socket, boost::asio::buffer(request));
-    check(std::string(request.data(), request.size()) == "hello", "unexpected upstream request");
-    if (half_close) {
-      std::array<char, 1> trailing{};
-      boost::system::error_code error_code;
-      socket.read_some(boost::asio::buffer(trailing), error_code);
-      check(error_code == boost::asio::error::eof, "upstream did not receive the downstream half-close");
-    }
-    const std::string response = "world";
-    boost::asio::write(socket, boost::asio::buffer(response));
-    if (half_close) {
-      boost::system::error_code error_code;
-      socket.shutdown(tcp::socket::shutdown_send, error_code);
-      check(!error_code, "failed to half-close upstream test stream");
-    }
+  tcp_thread_server upstream([&](tcp::socket& socket) {
+    exchange_stream(socket, mode, mode == exchange_mode::upstream_fin);
     upstream_served = true;
   });
   upstream.start();
 
   std::atomic_bool stream_exchanged = false;
-  fake_engine engine(stream_exchanged, half_close);
+  fake_engine engine(stream_exchanged, mode);
   engine.start();
 
   boost::asio::io_context io_context;
@@ -391,7 +416,7 @@ static void check_proxy_forwards_engine_stream_to_upstream_and_back(bool half_cl
     proxy_stopped = true;
   });
 
-  run_until(io_context, [&] { return stream_exchanged.load(); });
+  run_until(io_context, [&] { return stream_exchanged.load() && upstream_served.load(); });
   proxy.cancel();
   run_until(io_context, [&] { return proxy_stopped; });
   drain_cancelled_operations(io_context);
@@ -528,7 +553,8 @@ int main(int argc, char** argv)
   (void)argc;
   (void)argv;
   check_proxy_forwards_engine_stream_to_upstream_and_back();
-  check_proxy_forwards_engine_stream_to_upstream_and_back(true);
+  check_proxy_forwards_engine_stream_to_upstream_and_back(exchange_mode::downstream_fin);
+  check_proxy_forwards_engine_stream_to_upstream_and_back(exchange_mode::upstream_fin);
   check_proxy_rejects_second_run_while_active();
   check_proxy_default_tunnel_request_leaves_public_policy_to_server();
   return 0;

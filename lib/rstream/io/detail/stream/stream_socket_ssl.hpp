@@ -48,6 +48,8 @@ class stream_socket_ssl : public stream_socket_base<endpoint> {
   using async_shutdown_completion_handler = rstream::core::completion_handler<void(const boost::system::error_code&)>;
   void async_shutdown(async_shutdown_completion_handler&& handler);
 
+  void async_shutdown_send(send_shutdown_interface::handler_type&& handler);
+
   static std::shared_ptr<stream_socket_ssl> wrap(stream_socket& peer, const ssl::config& config, type type);
 
  private:

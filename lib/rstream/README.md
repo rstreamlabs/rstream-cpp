@@ -48,6 +48,14 @@ This does not add an allocation, thread or lock; it changes ownership of the
 existing control block. Tests must also exercise completion followed by late
 cancellation and concurrent completion on another executor.
 
+## Finishing one side of a stream
+
+After the last write completes, call `async_shutdown_send` to finish sending
+on a connected TCP or TLS stream. Keep reading to receive the peer's reply.
+On TLS, completion means the local close alert has been written. The peer's
+close alert or a transport error completes the remaining read. A transport
+plugin without a send-shutdown operation reports `operation_not_supported`.
+
 ## rstream runtime contract
 
 The SDK must preserve the rstream contract from configuration input to runtime
