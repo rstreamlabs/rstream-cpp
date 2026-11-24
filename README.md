@@ -31,7 +31,7 @@ std::cout << rstrm::format_forwarding_address(tunnel.properties()).value() << st
 ```
 
 For each socket accepted by the tunnel, the Beast handler reads the request
-and returns `Hello from rstream`.
+and returns a plain-text response.
 
 ```cpp
 asio::awaitable<void> respond(rstrm::socket& socket)
@@ -43,14 +43,48 @@ asio::awaitable<void> respond(rstrm::socket& socket)
   http::response<http::string_body> response{http::status::ok, request.version()};
   response.set(http::field::content_type, "text/plain");
   response.keep_alive(false);
-  response.body() = "Hello from rstream";
+  response.body() = "Hello from Boost.Beast through rstream\n";
   response.prepare_payload();
   co_await http::async_write(socket, response, asio::use_awaitable);
 }
 ```
 
-[Build and run the complete server](docs/000-getting-started.md) with Conan
-and CMake. For an existing Beast service, the
+<details>
+<summary>Build and run the standalone HTTP server</summary>
+
+The runnable Boost.Beast project uses the published SDK. On macOS or Linux,
+use a C++20 compiler, Conan 2, CMake 3.23 or newer, Ninja and Make.
+Fetch the project and enter the directory containing its `conanfile.py` and `src/main.cpp`.
+
+```sh
+git clone --depth 1 https://github.com/rstreamlabs/rstream-examples.git
+cd rstream-examples/cpp-beast-rstream-tunnel
+```
+
+If the default Conan profile is missing, run `conan profile detect`.
+If `conan remote list` does not include the rstream repository, register it.
+
+```sh
+conan remote add rstream https://nexus.rstream.io/repository/conan
+```
+
+Build the application. The Makefile resolves the SDK with Conan and installs the executable in `out/bin/`.
+
+```sh
+make build
+```
+
+With a CLI context that permits HTTP publication, start the server from the same project directory.
+
+```sh
+./out/bin/cpp_beast_rstream_tunnel
+```
+
+Open the printed forwarding URL to receive `Hello from Boost.Beast through rstream`. Stop the process with Ctrl+C.
+
+</details>
+
+For an existing Beast service, the
 [listener migration](docs/004-http-tls-websocket.md#move-a-beast-service-from-local-tcp-to-a-tunnel)
 uses the same handler with TCP and rstream sockets.
 
