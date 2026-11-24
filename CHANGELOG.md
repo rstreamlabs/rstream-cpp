@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.15.4](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.3...1.15.4) (2026-11-24)
+
+
+### Bug Fixes
+
+* **tls:** recognize transport EOF across plugin DLLs ([f71e5d8](https://github.com/rstreamlabs/rstream-cpp/commit/f71e5d81cf125e0a4bbc628c84406ad663f2cbc1))
+* **tunnel:** drain both stream directions after a clean FIN ([a2a84f8](https://github.com/rstreamlabs/rstream-cpp/commit/a2a84f8d0e570ef92c16841d1d5204102c831368))
+* **tunnel:** preserve the response after a TCP half-close ([d6f40ba](https://github.com/rstreamlabs/rstream-cpp/commit/d6f40ba3db9c01159a5b96b00cfbafeac3d2253e))
+
 ## [1.15.3](https://github.com/rstreamlabs/rstream-cpp/compare/1.15.2...1.15.3) (2026-11-19)
 
 
