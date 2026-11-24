@@ -93,6 +93,10 @@ describes the caller experience and how to combine the available controls.
 | Edge-terminated TLS | `--tls --tls-mode terminated` | A service receiving plaintext by default. `--upstream-tls` asks the Engine to open a separate TLS connection to a TLS-speaking upstream. |
 | TLS passthrough | `--tls --tls-mode passthrough` | A TLS service presenting a certificate for the forwarding hostname. The caller verifies the application certificate. |
 
+With a TCP upstream, either peer can finish sending and continue reading.
+For example, a client can send its request, shut down its write side and
+read a response that the service produces after it receives EOF.
+
 For an existing SSH server listening on loopback, create a TCP publication:
 
 ```sh

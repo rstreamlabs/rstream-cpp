@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -31,9 +32,11 @@
 #include <openssl/x509v3.h>
 
 #include <rstream/core/completion_handler.hpp>
+#include <rstream/core/helpers/asio.hpp>
 #include <rstream/io/detail/stream/error.hpp>
 #include <rstream/io/detail/stream/stream_socket_ssl.hpp>
 #include <rstream/io/stream.hpp>
+#include <rstream/test/time.hpp>
 
 using tcp = boost::asio::ip::tcp;
 
@@ -223,6 +226,50 @@ static rstream::io::detail::stream::ssl::config base_ssl_config()
   config.m_client_rpk                             = false;
   config.m_server_rpk                             = false;
   return config;
+}
+
+// A plugin linked against another copy of Asio can report the same EOF
+// value and category name using a different category object.
+static void check_tls_truncation_across_transport_modules()
+{
+  class plugin_category : public boost::system::error_category {
+   public:
+    const char* name() const noexcept override { return boost::asio::error::get_misc_category().name(); }
+    std::string message(int value) const override { return boost::asio::error::get_misc_category().message(value); }
+  };
+  static const plugin_category category;
+
+  class closed_transport : public fake_stream_socket {
+   public:
+    using fake_stream_socket::fake_stream_socket;
+
+   private:
+    void async_read_some_internal(const boost::asio::mutable_buffer&, async_read_some_completion_handler&& handler) override
+    {
+      finish_read(std::move(handler));
+    }
+    void async_read_some_internal(const mutable_buffer_sequence_type&, async_read_some_completion_handler&& handler) override
+    {
+      finish_read(std::move(handler));
+    }
+    void finish_read(async_read_some_completion_handler&& handler)
+    {
+      boost::system::error_code eof(boost::asio::error::eof, category);
+      rstream::core::invoke_completion_handler(get_executor(), std::move(handler), eof, std::size_t{0});
+    }
+  };
+
+  boost::asio::io_context io_context;
+  auto transport   = std::make_shared<closed_transport>(io_context.get_executor());
+  using tls_socket = rstream::io::detail::stream::stream_socket_ssl;
+  tls_socket socket(transport, base_ssl_config(), tls_socket::type::client);
+  bool completed = false;
+  socket.async_handshake([&](const boost::system::error_code& error) {
+    assert(rstream::core::helpers::matches_error(error, boost::system::error_code(boost::asio::ssl::error::stream_truncated)));
+    completed = true;
+  });
+  io_context.run();
+  assert(completed);
 }
 
 static boost::system::error_code make_direct_ssl_socket(rstream::io::detail::stream::ssl::config config,
@@ -533,6 +580,78 @@ static void check_direct_tls_context_configuration()
   check_direct_tls_shutdown_path();
 }
 
+static void check_tls_half_close_preserves_receive_direction(
+    boost::asio::io_context& io_context, rstream::io::stream::stream_socket& client, rstream::io::stream::stream_socket& server)
+{
+  const std::string request(1024 * 1024, 'q');
+  const std::string reply = "response-after-client-eof";
+  std::string received_request(request.size(), '\0');
+  std::string received_reply(reply.size(), '\0');
+  std::array<char, 1> trailing{};
+  bool client_write = false, client_read = false, first_shutdown = false, repeated_shutdown = false;
+  bool server_read = false, server_eof = false, server_write = false;
+
+  boost::asio::async_read(client, boost::asio::buffer(received_reply), [&](auto ec, std::size_t count) {
+    assert(!ec && count == reply.size());
+    client_read = true;
+  });
+  boost::asio::async_read(server, boost::asio::buffer(received_request), [&](auto ec, std::size_t count) {
+    assert(!ec && count == request.size());
+    server_read = true;
+    server.async_read_some(boost::asio::buffer(trailing), [&](auto eof, std::size_t size) {
+      assert(size == 0 && rstream::core::helpers::matches_error(eof, boost::system::error_code(boost::asio::error::eof)));
+      server_eof = true;
+      boost::asio::async_write(server, boost::asio::buffer(reply), [&](auto error, std::size_t written) {
+        assert(!error && written == reply.size());
+        server_write = true;
+      });
+    });
+  });
+  boost::asio::async_write(client, boost::asio::buffer(request), [&](auto ec, std::size_t count) {
+    assert(!ec && count == request.size());
+    client_write = true;
+    client.async_shutdown_send([&](auto error) {
+      assert(!error);
+      first_shutdown = true;
+      client.async_shutdown_send([&](auto repeated_error) {
+        assert(!repeated_error);
+        repeated_shutdown = true;
+      });
+    });
+  });
+
+  io_context.restart();
+  std::array<std::thread, 4> workers;
+  for (auto& worker : workers) {
+    worker = std::thread([&] { io_context.run_for(rstream::test::timeout(std::chrono::seconds(10))); });
+  }
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  if (!(client_write && first_shutdown && repeated_shutdown && server_read && server_eof && server_write && client_read)) {
+    std::cerr << "TLS half-close completions: client write=" << client_write << " shutdown=" << first_shutdown
+              << " repeat=" << repeated_shutdown << " server read=" << server_read << " EOF=" << server_eof
+              << " reply write=" << server_write << " client reply=" << client_read << std::endl;
+    throw std::runtime_error("TLS half-close exchange did not finish");
+  }
+  assert(received_request == request && received_reply == reply);
+
+  // Closing the transport without the server's close_notify is still a TLS error.
+  boost::system::error_code close_error;
+  server.close(close_error);
+  assert(!close_error);
+  bool truncation_observed = false;
+  client.async_read_some(boost::asio::buffer(trailing), [&](auto error, std::size_t size) {
+    if (size || !error || rstream::core::helpers::matches_error(error, boost::system::error_code(boost::asio::error::eof))) {
+      std::cerr << "abrupt TLS close returned " << size << " bytes and " << error.category().name() << '/' << error.value() << std::endl;
+      throw std::runtime_error("TLS peer closed without close_notify");
+    }
+    truncation_observed = true;
+  });
+  io_context.restart();
+  run_until(io_context, [&] { return truncation_observed; });
+}
+
 static void check_tls_accept_connect_and_transfer(const std::string& groups_query = "")
 {
   certificate_files files;
@@ -546,7 +665,8 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   const auto client_endpoint = resolve_one(
       io_context,
       "tcp://127.0.0.1:" + std::to_string(port)
-          + "?ssl&ssl.peer_verification=false&ssl.request_peer_cert=false&ssl.sni=localhost&ssl.alpn_protos=rstrm%2F1&ssl.async_shutdown_timeout_ms=0" + groups_query);
+          + "?ssl&ssl.peer_verification=true&ssl.cacert_file=" + files.cert_file()
+          + "&ssl.sni=localhost&ssl.alpn_protos=rstrm%2F1&ssl.async_shutdown_timeout_ms=0" + groups_query);
 
   rstream::io::stream::acceptor acceptor(io_context.get_executor());
   boost::system::error_code error_code;
@@ -660,6 +780,7 @@ static void check_tls_accept_connect_and_transfer(const std::string& groups_quer
   run_until(io_context, [&] { return client_sequence_read && server_sequence_sent; });
   assert(client_sequence_read);
   assert(server_sequence_sent);
+  check_tls_half_close_preserves_receive_direction(io_context, client, server_peer);
 }
 
 static void check_tls_shutdown_timeout_is_serialized()
@@ -853,6 +974,7 @@ int main(int argc, char** argv)
 {
   (void)argc;
   (void)argv;
+  check_tls_truncation_across_transport_modules();
   check_tls_peer_verification_checks_hostname();
   check_tls_config_errors();
   check_direct_tls_context_configuration();

@@ -58,6 +58,8 @@ class RSTREAM_GNUC_INTERNAL socket::impl : public std::enable_shared_from_this<i
 
   void async_read_some(const mutable_buffer_sequence_type& buffer, async_read_some_completion_handler&& handler);
 
+  void async_shutdown_send(async_shutdown_send_completion_handler&& handler);
+
   void close(boost::system::error_code& error_code);
 
  private:
@@ -346,6 +348,11 @@ void socket::async_read_some_internal(const mutable_buffer_sequence_type& buffer
   return ptr()->async_read_some(buffer, std::move(handler));
 }
 
+void socket::async_shutdown_send_internal(async_shutdown_send_completion_handler&& handler)
+{
+  ptr()->async_shutdown_send(std::move(handler));
+}
+
 void socket::adopt_impl(socket&& other) noexcept
 {
   if (this != &other) {
@@ -523,6 +530,24 @@ void socket::impl::async_read_some(const mutable_buffer_sequence_type& buffer, a
       core::bind_handler_allocator(
           allocator,
           [self = shared_from_this(), buffer, op] { self->async_read_some_internal(buffer, op); }));
+}
+
+void socket::impl::async_shutdown_send(async_shutdown_send_completion_handler&& handler)
+{
+  auto allocator = boost::asio::get_associated_allocator(handler);
+  boost::asio::dispatch(m_strand, core::bind_handler_allocator(allocator, [self = shared_from_this(), handler = std::move(handler)]() mutable {
+                          if (self->m_state != state::connected) {
+                            core::invoke_completion_handler(self->m_executor, std::move(handler), error::make_error_code(error::code::invalid_state));
+                            return;
+                          }
+#ifdef RSTREAM_WITH_IO_STREAMS
+                          self->m_socket.async_shutdown_send(core::bind_handler_lifetime(self, std::move(handler)));
+#else
+                          boost::system::error_code error_code;
+                          self->m_socket.shutdown(boost::asio::socket_base::shutdown_send, error_code);
+                          core::invoke_completion_handler(self->m_executor, std::move(handler), error_code);
+#endif
+                        }));
 }
 
 void socket::impl::install_transfer_cancellation(const transfer_op::ptr& op)

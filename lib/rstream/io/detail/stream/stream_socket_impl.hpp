@@ -3,6 +3,7 @@
 #pragma once
 
 #include <boost/asio/associated_allocator.hpp>
+#include <boost/asio/socket_base.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/url.hpp>
 
@@ -23,7 +24,7 @@ namespace detail {
 namespace stream {
 
 template <typename native_socket_type, typename native_endpoint_type = typename native_socket_type::endpoint_type>
-class stream_socket_impl : public stream_socket_base<endpoint>, public object_base, public std::enable_shared_from_this<stream_socket_impl<native_socket_type, native_endpoint_type>> {
+class stream_socket_impl : public stream_socket_base<endpoint>, public send_shutdown_interface, public object_base, public std::enable_shared_from_this<stream_socket_impl<native_socket_type, native_endpoint_type>> {
  public:
   template <typename X, typename Y, typename Z>
   friend class acceptor_impl;
@@ -41,6 +42,21 @@ class stream_socket_impl : public stream_socket_base<endpoint>, public object_ba
   void close(boost::system::error_code& error_code) override;
 
   endpoint remote_endpoint(boost::system::error_code& error_code) override;
+
+  void async_shutdown_send(send_shutdown_interface::handler_type&& handler) override
+  {
+    if constexpr (requires { m_socket.async_shutdown_send(std::move(handler)); }) {
+      m_socket.async_shutdown_send(core::bind_handler_lifetime(this->shared_from_this(), std::move(handler)));
+    }
+    else if constexpr (requires(boost::system::error_code& error) { m_socket.shutdown(boost::asio::socket_base::shutdown_send, error); }) {
+      boost::system::error_code error;
+      m_socket.shutdown(boost::asio::socket_base::shutdown_send, error);
+      core::invoke_completion_handler(get_executor(), std::move(handler), error);
+    }
+    else {
+      core::invoke_completion_handler(get_executor(), std::move(handler), boost::asio::error::operation_not_supported);
+    }
+  }
 
   native_socket_type& get();
 
