@@ -4,18 +4,32 @@ The SDK reads the rstream CLI’s configuration and selected context, by default
 
 ## Connect to a hosted project
 
-Use an [installed CLI](https://rstream.io/docs/getting-started/installation).
-Sign in and copy the `ENDPOINT` from the project list.
+With the [rstream CLI](https://rstream.io/docs/getting-started/installation) installed, sign in and approve the request in the browser.
 
 ```sh
 rstream login
-rstream project list
-rstream project use 'my-project-endpoint'
 ```
 
-Project selection saves the default context. If the list is empty, follow
-[hosted project setup](https://rstream.io/docs/getting-started/quickstart-guide#select-a-project)
-to create a project or ask its owner to grant access. The SDK uses that context
+List the projects available to this identity.
+
+```sh
+rstream project list
+```
+
+If the list is empty, open the workspace in the [Dashboard](https://rstream.io/dashboard).
+Workspace owners and admins can select **Create new project**. Other members
+can ask an owner or admin for access to an existing project. If the CLI login
+was limited to specific projects, run `rstream login` again to include the
+intended project. Run `rstream project list` again after gaining access.
+
+Choose the project for this application. Replace `my-project-endpoint`
+with its `ENDPOINT` value.
+
+```sh
+rstream project use my-project-endpoint
+```
+
+Project selection saves the default context. The SDK uses that context
 when the application constructs its client. Choose an identity with the
 rights to create a tunnel or dial a private stream, as appropriate.
 
